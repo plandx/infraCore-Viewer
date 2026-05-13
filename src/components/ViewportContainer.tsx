@@ -951,7 +951,13 @@ export function ViewportContainer({ onElementClick }: Props) {
     e.preventDefault();
     const hit = raycastPoint(e);
     if (!hit) { setContextMenu(null); return; }
-    setContextMenu({ x: e.clientX, y: e.clientY, modelId: hit.modelId, expressId: hit.expressId });
+    const containerRect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    setContextMenu({
+      x: e.clientX - containerRect.left,
+      y: e.clientY - containerRect.top,
+      modelId: hit.modelId,
+      expressId: hit.expressId,
+    });
   }, [raycastPoint]);
 
   // ── Export helpers ────────────────────────────────────────────────────────
