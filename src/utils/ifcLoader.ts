@@ -7,15 +7,55 @@ import {
   needsCoordinateShift,
 } from "./coordinateUtils";
 
-let ifcApi: WebIFC.IfcAPI | null = null;
+let ifcApiPromise: Promise<WebIFC.IfcAPI> | null = null;
 
-async function getIfcApi(): Promise<WebIFC.IfcAPI> {
-  if (ifcApi) return ifcApi;
-  ifcApi = new WebIFC.IfcAPI();
-  // WASM files are copied to /public/wasm/ and served statically
-  ifcApi.SetWasmPath("/wasm/");
-  await ifcApi.Init();
-  return ifcApi;
+function getIfcApi(): Promise<WebIFC.IfcAPI> {
+  // Cache the single promise so concurrent callers all wait for the same Init()
+  if (ifcApiPromise) return ifcApiPromise;
+
+  ifcApiPromise = (async () => {
+    const api = new WebIFC.IfcAPI();
+
+    // Use an absolute URL so it works both in localhost and in Codespaces
+    // behind a reverse proxy. The WASM files live in public/wasm/.
+    const wasmBase =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/wasm/`
+        : "/wasm/";
+    api.SetWasmPath(wasmBase);
+
+    // Verify the WASM file is reachable before calling Init()
+    try {
+      const probe = await fetch(`${wasmBase}web-ifc.wasm`, { method: "HEAD" });
+      if (!probe.ok) {
+        throw new Error(
+          `WASM nicht gefunden: ${wasmBase}web-ifc.wasm (HTTP ${probe.status})`
+        );
+      }
+    } catch (fetchErr) {
+      ifcApiPromise = null;
+      throw new Error(`WASM-Fetch fehlgeschlagen: ${fetchErr}`);
+    }
+
+    // Wrap Init() with a 30 s timeout so it never hangs silently
+    await Promise.race([
+      api.Init(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("web-ifc Init() Timeout (30 s)")),
+          30_000
+        )
+      ),
+    ]);
+
+    return api;
+  })().catch((err) => {
+    // Reset so the next load attempt can retry
+    ifcApiPromise = null;
+    throw err;
+  });
+
+  return ifcApiPromise;
 }
 
 export type LoadProgress = { phase: string; progress: number };

@@ -14,9 +14,11 @@ export default defineConfig({
   },
   server: {
     headers: {
-      // Required for SharedArrayBuffer (multi-threaded WASM)
+      // COOP is enough for most cases; COEP (require-corp) is omitted because
+      // it blocks cross-origin resources like Google Fonts and causes issues in
+      // Codespaces / reverse-proxy setups. Single-threaded web-ifc.wasm does
+      // not need SharedArrayBuffer, so COEP is not required.
       "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp",
     },
   },
   build: {
