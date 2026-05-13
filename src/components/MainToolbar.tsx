@@ -173,9 +173,14 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           className={cn("toolbar-button", (clipPlanes || activeTool === "section") && "active text-primary")}
           title="Schnittebene [C] · Fläche anklicken zum Positionieren"
           onClick={() => {
-            const next = !clipPlanes;
-            updateSettings({ clipPlanes: next });
-            setActiveTool(next ? "section" : "select");
+            if (activeTool === "section" || clipPlanes) {
+              // Exit: turn off clip and return to select
+              updateSettings({ clipPlanes: false });
+              setActiveTool("select");
+            } else {
+              // Activate: just switch tool, plane appears on first face click
+              setActiveTool("section");
+            }
           }}
         >
           <Scissors size={16} />

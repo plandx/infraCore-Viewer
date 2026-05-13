@@ -76,9 +76,13 @@ export default function App() {
           }
           break;
         case "c": {
-          const next = !useModelStore.getState().settings.clipPlanes;
-          useModelStore.getState().updateSettings({ clipPlanes: next });
-          setActiveTool(next ? "section" : "select");
+          const st = useModelStore.getState();
+          if (st.activeTool === "section" || st.settings.clipPlanes) {
+            st.updateSettings({ clipPlanes: false });
+            setActiveTool("select");
+          } else {
+            setActiveTool("section");
+          }
           break;
         }
         case "q":
