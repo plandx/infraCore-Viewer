@@ -24,8 +24,11 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement }: Props) {
   const hiddenElements = useModelStore((s) => s.hiddenElements);
   const isolatedElements = useModelStore((s) => s.isolatedElements);
   const hideElement = useModelStore((s) => s.hideElement);
+  const hideElements = useModelStore((s) => s.hideElements);
   const showElement = useModelStore((s) => s.showElement);
+  const showElements = useModelStore((s) => s.showElements);
   const isolateElement = useModelStore((s) => s.isolateElement);
+  const isolateElements = useModelStore((s) => s.isolateElements);
   const showAll = useModelStore((s) => s.showAll);
 
   const [view, setView] = useState<View>("spatial");
@@ -134,9 +137,24 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement }: Props) {
                         hiddenElements={hiddenElements}
                         isolatedElements={isolatedElements}
                         onSelect={(eid) => onSelectElement(model.id, eid)}
-                        onHide={(eid) => hideElement(model.id, eid)}
-                        onShow={(eid) => showElement(model.id, eid)}
-                        onIsolate={(eid) => isolateElement(model.id, eid)}
+                        onHide={(eid) => {
+                          const ids = model.spatialTree
+                            ? collectSubtreeIds(model.spatialTree, eid)
+                            : [eid];
+                          hideElements(model.id, ids);
+                        }}
+                        onShow={(eid) => {
+                          const ids = model.spatialTree
+                            ? collectSubtreeIds(model.spatialTree, eid)
+                            : [eid];
+                          showElements(model.id, ids);
+                        }}
+                        onIsolate={(eid) => {
+                          const ids = model.spatialTree
+                            ? collectSubtreeIds(model.spatialTree, eid)
+                            : [eid];
+                          isolateElements(model.id, ids);
+                        }}
                         onShowAll={showAll}
                       />
                     : <TypeView
@@ -478,4 +496,26 @@ function typeIcon(type: string): string {
 function countLeaves(node: SpatialNode): number {
   if (node.children.length === 0) return 0;
   return node.children.reduce((sum, c) => sum + Math.max(1, countLeaves(c)), 0);
+}
+
+function collectSubtreeIds(root: SpatialNode, targetExpressId: number): number[] {
+  function findNode(node: SpatialNode): SpatialNode | null {
+    if (node.expressId === targetExpressId) return node;
+    for (const child of node.children) {
+      const found = findNode(child);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function collectAll(node: SpatialNode, out: number[]) {
+    out.push(node.expressId);
+    for (const child of node.children) collectAll(child, out);
+  }
+
+  const target = findNode(root);
+  if (!target) return [targetExpressId];
+  const ids: number[] = [];
+  collectAll(target, ids);
+  return ids;
 }

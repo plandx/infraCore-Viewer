@@ -21,8 +21,11 @@ interface ModelStore {
   updateSettings: (patch: Partial<ViewerSettings>) => void;
   setActiveTool: (tool: ActiveTool) => void;
   hideElement: (modelId: string, expressId: number) => void;
+  hideElements: (modelId: string, expressIds: number[]) => void;
   showElement: (modelId: string, expressId: number) => void;
+  showElements: (modelId: string, expressIds: number[]) => void;
   isolateElement: (modelId: string, expressId: number) => void;
+  isolateElements: (modelId: string, expressIds: number[]) => void;
   showAll: () => void;
   addMeasurement: (m: Measurement) => void;
   clearMeasurements: () => void;
@@ -94,6 +97,13 @@ export const useModelStore = create<ModelStore>((set) => ({
       return { hiddenElements: next };
     }),
 
+  hideElements: (modelId, expressIds) =>
+    set((state) => {
+      const next = new Set(state.hiddenElements);
+      for (const eid of expressIds) next.add(`${modelId}:${eid}`);
+      return { hiddenElements: next };
+    }),
+
   showElement: (modelId, expressId) =>
     set((state) => {
       const next = new Set(state.hiddenElements);
@@ -101,8 +111,18 @@ export const useModelStore = create<ModelStore>((set) => ({
       return { hiddenElements: next };
     }),
 
+  showElements: (modelId, expressIds) =>
+    set((state) => {
+      const next = new Set(state.hiddenElements);
+      for (const eid of expressIds) next.delete(`${modelId}:${eid}`);
+      return { hiddenElements: next };
+    }),
+
   isolateElement: (modelId, expressId) =>
     set({ isolatedElements: new Set([`${modelId}:${expressId}`]) }),
+
+  isolateElements: (modelId, expressIds) =>
+    set({ isolatedElements: new Set(expressIds.map((eid) => `${modelId}:${eid}`)) }),
 
   showAll: () =>
     set({ hiddenElements: new Set(), isolatedElements: null }),
