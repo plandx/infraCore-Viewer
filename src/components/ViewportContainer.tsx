@@ -717,7 +717,8 @@ export function ViewportContainer({ onElementClick }: Props) {
           obj instanceof THREE.Mesh &&
           obj.userData.expressId != null &&
           !obj.userData.isHighlight &&
-          !obj.userData.isSectionVisual
+          !obj.userData.isSectionVisual &&
+          isWorldVisible(obj)
         ) {
           meshes.push(obj);
         }
@@ -1078,6 +1079,16 @@ export function ViewportContainer({ onElementClick }: Props) {
       )}
     </div>
   );
+}
+
+// Walk up the parent chain to check if an object is truly rendered
+function isWorldVisible(obj: THREE.Object3D): boolean {
+  let node: THREE.Object3D | null = obj;
+  while (node !== null) {
+    if (!node.visible) return false;
+    node = node.parent;
+  }
+  return true;
 }
 
 // ── Section overlay ───────────────────────────────────────────────────────────
