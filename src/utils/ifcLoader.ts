@@ -147,7 +147,7 @@ export async function loadIFCFile(
 
       geomData.delete();
     }
-    flatMesh.delete();
+    // flatMesh.delete() entfernt — in web-ifc 0.0.77 nicht mehr verfügbar
   });
 
   onProgress({ phase: `${meshCount} Meshes verarbeitet`, progress: 75 });
