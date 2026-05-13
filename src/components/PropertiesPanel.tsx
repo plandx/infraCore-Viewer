@@ -120,13 +120,35 @@ function PanelHeader({ children }: { children?: React.ReactNode }) {
 }
 
 function AttributesTab({ properties }: { properties: Record<string, unknown> }) {
-  const entries = Object.entries(properties).filter(([k]) => k !== "expressID");
-  if (!entries.length) return <EmptyState msg="Keine Attribute vorhanden" />;
+  // Extract the IFC schema type name from the numeric type code
+  const ifcTypeCode = typeof properties.type === "number" ? properties.type : null;
+  const ifcTypeName = ifcTypeCode ? lookupIfcTypeName(ifcTypeCode) : null;
+
+  const entries = Object.entries(properties)
+    .filter(([k]) => k !== "expressID" && k !== "type")
+    .map(([k, v]) => ({ name: k, value: v }))
+    .filter(({ value }) => {
+      // Skip pure entity-references (they show nothing meaningful)
+      if (isIfcRef(value)) return false;
+      return true;
+    });
+
+  if (!entries.length && !ifcTypeName) return <EmptyState msg="Keine Attribute vorhanden" />;
 
   return (
     <div className="p-0">
-      <SectionHeader title="Basis-Attribute" count={entries.length} />
-      <PropTable rows={entries.map(([k, v]) => ({ name: k, value: v }))} />
+      <SectionHeader title="Basis-Attribute" count={entries.length + (ifcTypeName ? 1 : 0)} />
+      <table className="w-full text-[11px] border-collapse">
+        <tbody>
+          {ifcTypeName && (
+            <tr className="border-b border-border/30">
+              <td className="px-3 py-1.5 text-muted-foreground w-2/5 font-medium">IFC-Typ</td>
+              <td className="px-3 py-1.5 text-primary font-mono">{ifcTypeName}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <PropTable rows={entries} />
     </div>
   );
 }
@@ -237,8 +259,59 @@ function EmptyState({ msg }: { msg: string }) {
   );
 }
 
+// IFC values are wrapped: { value: X, type: N } where type=5 is a reference
+function isIfcRef(v: unknown): boolean {
+  return typeof v === "object" && v !== null && "type" in v &&
+    (v as { type?: number }).type === 5;
+}
+
+function unwrapIfcValue(v: unknown): unknown {
+  if (v == null) return null;
+  if (typeof v === "object" && v !== null && "value" in v) {
+    const w = v as { value: unknown; type?: number };
+    if (w.type === 5) return `→ #${w.value}`;   // entity reference
+    return w.value ?? null;
+  }
+  return v;
+}
+
 function renderVal(v: unknown): string {
-  if (v == null) return "–";
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
+  const val = unwrapIfcValue(v);
+  if (val == null) return "–";
+  if (typeof val === "boolean") return val ? "Ja" : "Nein";
+  if (typeof val === "object") return JSON.stringify(val);
+  return String(val);
+}
+
+// Quick lookup for the most common IFC type codes
+const IFC_TYPE_NAMES: Record<number, string> = {
+  // Walls
+  238321258: "IfcWallStandardCase", 2391406946: "IfcWall",
+  // Beams / columns
+  753842376: "IfcBeam", 2500020860: "IfcColumn",
+  // Slabs / roofs
+  3448662350: "IfcSlab", 1562808683: "IfcRoof",
+  // Openings / doors / windows
+  2176052936: "IfcOpeningElement", 395920057: "IfcDoor", 3256556792: "IfcWindow",
+  // Stairs / railings
+  331165869: "IfcStair", 374418227: "IfcStairFlight", 2051836757: "IfcRailing",
+  // Spaces / storeys / buildings
+  3588315303: "IfcSpace", 3124254112: "IfcBuildingStorey",
+  4031249490: "IfcBuilding", 4097777520: "IfcSite",
+  // MEP
+  4288193352: "IfcFlowSegment", 2044713172: "IfcPipeSegment",
+  4222183408: "IfcDuctSegment", 3304561284: "IfcDuctFitting",
+  // Generic / civil
+  1959218052: "IfcBuildingElementProxy", 1027743046: "IfcCivilElement",
+  1674181508: "IfcTransportElement",
+  // Coverings / plates / members
+  1307041759: "IfcCovering", 4237592921: "IfcPlate", 1073191201: "IfcMember",
+  // Foundations
+  900683007: "IfcFooting", 1247058037: "IfcPile",
+  // Furniture
+  263784265: "IfcFurnishingElement",
+};
+
+function lookupIfcTypeName(code: number): string | null {
+  return IFC_TYPE_NAMES[code] ?? null;
 }

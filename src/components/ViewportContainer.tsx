@@ -327,6 +327,15 @@ export function ViewportContainer({ onElementClick }: Props) {
     hl.userData = { isHighlight: true };
     scene.add(hl);
     highlightRef.current = hl as THREE.Mesh;
+
+    // Set orbit pivot to the selected element's world-space center
+    const box = new THREE.Box3().setFromObject(targetMesh);
+    if (!box.isEmpty()) {
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      controlsRef.current?.target.copy(center);
+      controlsRef.current?.update();
+    }
   }, [selectedElement]);
 
   // ── Camera fit helpers ────────────────────────────────────────────────────
@@ -643,6 +652,10 @@ export function ViewportContainer({ onElementClick }: Props) {
     // Select tool: highlight + load properties
     const scene = sceneRef.current!;
     onElementClick(hit.modelId, hit.expressId);
+
+    // Immediately set orbit pivot to clicked point
+    controlsRef.current?.target.copy(hit.point);
+    controlsRef.current?.update();
 
     if (highlightRef.current) scene.remove(highlightRef.current);
     const hl = hit.mesh.clone();

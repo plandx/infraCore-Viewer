@@ -137,6 +137,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement }: Props) {
                         onHide={(eid) => hideElement(model.id, eid)}
                         onShow={(eid) => showElement(model.id, eid)}
                         onIsolate={(eid) => isolateElement(model.id, eid)}
+                        onShowAll={showAll}
                       />
                     : <TypeView
                         model={model} search={search}
@@ -147,6 +148,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement }: Props) {
                         onHide={(eid) => hideElement(model.id, eid)}
                         onShow={(eid) => showElement(model.id, eid)}
                         onIsolate={(eid) => isolateElement(model.id, eid)}
+                        onShowAll={showAll}
                       />
                   }
                 </div>
@@ -167,6 +169,7 @@ interface VisibilityProps {
   onHide: (eid: number) => void;
   onShow: (eid: number) => void;
   onIsolate: (eid: number) => void;
+  onShowAll: () => void;
 }
 
 function SpatialView({ model, search, selectedId, onSelect, ...vp }: {
@@ -204,7 +207,7 @@ function filterSpatialNode(node: SpatialNode, q: string): SpatialNode | null {
   return { ...node, children: filteredChildren };
 }
 
-function SpatialTreeNode({ node, depth, modelId, selectedId, onSelect, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate }: {
+function SpatialTreeNode({ node, depth, modelId, selectedId, onSelect, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: {
   node: SpatialNode; depth: number; modelId: string; selectedId?: number;
   onSelect: (eid: number) => void; forceOpen?: boolean;
 } & VisibilityProps) {
@@ -213,8 +216,9 @@ function SpatialTreeNode({ node, depth, modelId, selectedId, onSelect, forceOpen
   const isSelected = selectedId === node.expressId;
   const key = `${modelId}:${node.expressId}`;
   const isHidden = hiddenElements.has(key);
-  const isIsolated = isolatedElements !== null && !isolatedElements.has(key);
-  const isDimmed = isHidden || isIsolated;
+  const isActivelyIsolated = isolatedElements !== null && isolatedElements.has(key);
+  const isDimmedByIsolation = isolatedElements !== null && !isolatedElements.has(key);
+  const isDimmed = isHidden || isDimmedByIsolation;
 
   const isOpen = forceOpen || open;
 
@@ -257,17 +261,21 @@ function SpatialTreeNode({ node, depth, modelId, selectedId, onSelect, forceOpen
             {countLeaves(node)}
           </span>
         )}
-        {/* Visibility actions */}
-        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0"
-          onClick={(e) => e.stopPropagation()}>
-          <button className="toolbar-button p-0.5" title="Isolieren"
-            onClick={() => onIsolate(node.expressId)}>
+        {/* Visibility actions - always visible */}
+        <div className="flex gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+          <button
+            className={cn("toolbar-button p-0.5", isActivelyIsolated ? "text-primary" : "text-muted-foreground/40 hover:text-foreground")}
+            title={isActivelyIsolated ? "Isolierung aufheben" : "Isolieren"}
+            onClick={() => isActivelyIsolated ? onShowAll() : onIsolate(node.expressId)}
+          >
             <ScanLine size={10} />
           </button>
-          <button className="toolbar-button p-0.5"
+          <button
+            className={cn("toolbar-button p-0.5", isHidden ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/40 hover:text-foreground")}
             title={isHidden ? "Einblenden" : "Ausblenden"}
-            onClick={() => isHidden ? onShow(node.expressId) : onHide(node.expressId)}>
-            {isHidden ? <Eye size={10} /> : <EyeOff size={10} />}
+            onClick={() => isHidden ? onShow(node.expressId) : onHide(node.expressId)}
+          >
+            {isHidden ? <EyeOff size={10} /> : <Eye size={10} />}
           </button>
         </div>
       </div>
@@ -281,7 +289,7 @@ function SpatialTreeNode({ node, depth, modelId, selectedId, onSelect, forceOpen
               selectedId={selectedId} onSelect={onSelect}
               forceOpen={forceOpen}
               hiddenElements={hiddenElements} isolatedElements={isolatedElements}
-              onHide={onHide} onShow={onShow} onIsolate={onIsolate}
+              onHide={onHide} onShow={onShow} onIsolate={onIsolate} onShowAll={onShowAll}
             />
           ))}
         </div>
@@ -327,7 +335,7 @@ function TypeView({ model, search, selectedId, onSelect, ...vp }: {
   );
 }
 
-function TypeGroup({ typeName, elements, modelId, selectedId, onSelect, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate }: {
+function TypeGroup({ typeName, elements, modelId, selectedId, onSelect, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: {
   typeName: string; elements: ElementNode[]; modelId: string; selectedId?: number;
   onSelect: (eid: number) => void; forceOpen?: boolean;
 } & VisibilityProps) {
@@ -355,7 +363,8 @@ function TypeGroup({ typeName, elements, modelId, selectedId, onSelect, forceOpe
             const isSelected = selectedId === el.expressId;
             const key = `${modelId}:${el.expressId}`;
             const isHidden = hiddenElements.has(key);
-            const isIsolated = isolatedElements !== null && !isolatedElements.has(key);
+            const isActivelyIsolated = isolatedElements !== null && isolatedElements.has(key);
+            const isDimmedByIsolation = isolatedElements !== null && !isolatedElements.has(key);
             return (
               <div
                 key={el.expressId}
@@ -363,7 +372,7 @@ function TypeGroup({ typeName, elements, modelId, selectedId, onSelect, forceOpe
                   "flex items-center gap-1.5 pl-7 pr-2 py-[3px] cursor-pointer group",
                   "hover:bg-muted/40 hierarchy-item",
                   isSelected && "selected bg-primary/10 border-l-2 border-l-primary",
-                  (isHidden || isIsolated) && "opacity-40"
+                  (isHidden || isDimmedByIsolation) && "opacity-40"
                 )}
                 onClick={() => onSelect(el.expressId)}
               >
@@ -373,16 +382,20 @@ function TypeGroup({ typeName, elements, modelId, selectedId, onSelect, forceOpe
                 <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0">
                   #{el.expressId}
                 </span>
-                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0"
-                  onClick={(e) => e.stopPropagation()}>
-                  <button className="toolbar-button p-0.5" title="Isolieren"
-                    onClick={() => onIsolate(el.expressId)}>
+                <div className="flex gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className={cn("toolbar-button p-0.5", isActivelyIsolated ? "text-primary" : "text-muted-foreground/40 hover:text-foreground")}
+                    title={isActivelyIsolated ? "Isolierung aufheben" : "Isolieren"}
+                    onClick={() => isActivelyIsolated ? onShowAll() : onIsolate(el.expressId)}
+                  >
                     <ScanLine size={10} />
                   </button>
-                  <button className="toolbar-button p-0.5"
+                  <button
+                    className={cn("toolbar-button p-0.5", isHidden ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/40 hover:text-foreground")}
                     title={isHidden ? "Einblenden" : "Ausblenden"}
-                    onClick={() => isHidden ? onShow(el.expressId) : onHide(el.expressId)}>
-                    {isHidden ? <Eye size={10} /> : <EyeOff size={10} />}
+                    onClick={() => isHidden ? onShow(el.expressId) : onHide(el.expressId)}
+                  >
+                    {isHidden ? <EyeOff size={10} /> : <Eye size={10} />}
                   </button>
                 </div>
               </div>
