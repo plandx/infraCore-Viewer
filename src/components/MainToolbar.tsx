@@ -4,7 +4,7 @@ import {
   MousePointer2, Ruler, Scissors, Eye, EyeOff,
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
-  X,
+  X, List,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
@@ -29,6 +29,8 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
   const setActiveTool = useModelStore((s) => s.setActiveTool);
   const setSqlPanelOpen = useModelStore((s) => s.setSqlPanelOpen);
   const sqlPanelOpen = useModelStore((s) => s.sqlPanelOpen);
+  const setListPanelOpen = useModelStore((s) => s.setListPanelOpen);
+  const listPanelOpen = useModelStore((s) => s.listPanelOpen);
   const clearMeasurements = useModelStore((s) => s.clearMeasurements);
   const measurements = useModelStore((s) => s.measurements);
 
@@ -215,6 +217,15 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           <Database size={16} />
         </button>
 
+        {/* List / Coloring Panel */}
+        <button
+          className={cn("toolbar-button", listPanelOpen && "active text-primary")}
+          title="Listen & Einfärbung [L]"
+          onClick={() => setListPanelOpen(!listPanelOpen)}
+        >
+          <List size={16} />
+        </button>
+
         <div className="flex-1" />
 
         {/* Loading indicator */}
@@ -341,6 +352,7 @@ function InfoModal({ onClose }: { onClose: () => void }) {
               ["M", "Mess-Tool"],
               ["C", "Schnittebene"],
               ["Q", "SQL-Panel"],
+              ["L", "Listen & Einfärbung"],
               ["Esc", "Abbrechen / Deselektieren"],
               ["Entf", "Auswahl ausblenden"],
             ].map(([key, desc]) => (

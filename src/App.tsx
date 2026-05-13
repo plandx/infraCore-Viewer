@@ -11,6 +11,7 @@ import { StatusBar } from "./components/StatusBar";
 import { LandingOverlay } from "./components/LandingOverlay";
 import { ClipPlaneControl } from "./components/ClipPlaneControl";
 import { SQLPanel } from "./components/SQLPanel";
+import { ListPanel } from "./components/ListPanel";
 
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties } from "./utils/ifcLoader";
@@ -24,6 +25,7 @@ export default function App() {
     addModel, removeModel, updateModel, setWorldOrigin, setSelected,
     models, settings, activeTool, setActiveTool, sqlPanelOpen, setSqlPanelOpen,
     hideElement, showAll, selectedElement, clearMeasurements,
+    listPanelOpen, setListPanelOpen,
   } = useModelStore();
 
   const activeLoads = loadStates.size;
@@ -88,6 +90,9 @@ export default function App() {
         case "q":
           setSqlPanelOpen(!sqlPanelOpen);
           break;
+        case "l":
+          setListPanelOpen(!listPanelOpen);
+          break;
         case "delete":
         case "backspace":
           if (selectedElement) {
@@ -104,8 +109,8 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeTool, selectedElement, sqlPanelOpen, setActiveTool, setSelected, clearMeasurements,
-      setSqlPanelOpen, hideElement, showAll]);
+  }, [activeTool, selectedElement, sqlPanelOpen, listPanelOpen, setActiveTool, setSelected,
+      clearMeasurements, setSqlPanelOpen, setListPanelOpen, hideElement, showAll]);
 
   // ── File loading ──────────────────────────────────────────────────────────
   const handleFiles = useCallback(async (files: File[]) => {
@@ -194,12 +199,19 @@ export default function App() {
         <PanelGroup orientation="horizontal" className="h-full">
 
           <Panel defaultSize={20} minSize={12} collapsible>
-            <div className="h-full overflow-hidden border-r border-border">
-              <HierarchyPanel
-                onFitTo={handleFitTo}
-                onRemove={handleRemove}
-                onSelectElement={handleElementClick}
-              />
+            <div className="h-full overflow-hidden border-r border-border flex flex-col">
+              <div className={listPanelOpen ? "flex-1 min-h-0 overflow-hidden" : "h-full overflow-hidden"}>
+                <HierarchyPanel
+                  onFitTo={handleFitTo}
+                  onRemove={handleRemove}
+                  onSelectElement={handleElementClick}
+                />
+              </div>
+              {listPanelOpen && (
+                <div className="h-72 shrink-0 border-t border-border overflow-hidden">
+                  <ListPanel />
+                </div>
+              )}
             </div>
           </Panel>
 

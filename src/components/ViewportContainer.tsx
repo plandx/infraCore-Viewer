@@ -69,6 +69,10 @@ export function ViewportContainer({ onElementClick }: Props) {
   const hideElement = useModelStore((s) => s.hideElement);
   const isolateElement = useModelStore((s) => s.isolateElement);
   const showAll = useModelStore((s) => s.showAll);
+  const colorGroups = useModelStore((s) => s.colorGroups);
+
+  // Track color-override materials for disposal
+  const colorMaterialsRef = useRef<THREE.Material[]>([]);
 
   // ── Init scene ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -463,6 +467,54 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
     });
   }, [hiddenElements, isolatedElements, models]);
+
+  // ── Color group override ──────────────────────────────────────────────────
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    // Restore original materials and dispose overrides
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.userData.originalMaterial !== undefined) {
+        obj.material = obj.userData.originalMaterial as THREE.Material;
+        obj.userData.originalMaterial = undefined;
+      }
+    });
+    colorMaterialsRef.current.forEach((m) => m.dispose());
+    colorMaterialsRef.current = [];
+
+    if (!colorGroups || colorGroups.length === 0) return;
+
+    const colorMap = new Map<string, string>();
+    colorGroups.forEach((group) => {
+      if (!group.visible) return;
+      group.entries.forEach(({ modelId, expressId }) => {
+        colorMap.set(`${modelId}:${expressId}`, group.color);
+      });
+    });
+
+    scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
+      if (obj.userData.isHighlight || obj.userData.isSectionVisual) return;
+
+      let modelId = "";
+      let node: THREE.Object3D | null = obj;
+      while (node) {
+        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
+        node = node.parent;
+      }
+      if (!modelId) return;
+
+      const key = `${modelId}:${obj.userData.expressId}`;
+      const color = colorMap.get(key);
+      if (color === undefined) return;
+
+      const newMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
+      obj.userData.originalMaterial = obj.material;
+      obj.material = newMat;
+      colorMaterialsRef.current.push(newMat);
+    });
+  }, [colorGroups]);
 
   // ── Highlight selected element (from hierarchy or viewport click) ─────────
   useEffect(() => {

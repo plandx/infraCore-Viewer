@@ -78,6 +78,19 @@ export interface PropertySet {
   properties: { name: string; value: unknown; type: string }[];
 }
 
+export interface ColorGroupEntry {
+  modelId: string;
+  expressId: number;
+}
+
+export interface ColorGroup {
+  id: string;
+  label: string;
+  color: string;
+  entries: ColorGroupEntry[];
+  visible: boolean;
+}
+
 export interface ViewerSettings {
   background: string;
   grid: boolean;

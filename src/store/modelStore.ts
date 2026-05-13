@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as THREE from "three";
-import type { IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement } from "../types/ifc";
+import type { IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement, ColorGroup } from "../types/ifc";
 
 interface ModelStore {
   models: Map<string, IFCModelEntry>;
@@ -12,6 +12,8 @@ interface ModelStore {
   isolatedElements: Set<string> | null; // null = show all; set = only these
   measurements: Measurement[];
   sqlPanelOpen: boolean;
+  colorGroups: ColorGroup[] | null;
+  listPanelOpen: boolean;
 
   addModel: (model: IFCModelEntry) => void;
   removeModel: (id: string) => void;
@@ -30,6 +32,8 @@ interface ModelStore {
   addMeasurement: (m: Measurement) => void;
   clearMeasurements: () => void;
   setSqlPanelOpen: (open: boolean) => void;
+  setColorGroups: (groups: ColorGroup[] | null) => void;
+  setListPanelOpen: (open: boolean) => void;
 }
 
 export const useModelStore = create<ModelStore>((set) => ({
@@ -41,6 +45,8 @@ export const useModelStore = create<ModelStore>((set) => ({
   isolatedElements: null,
   measurements: [],
   sqlPanelOpen: false,
+  colorGroups: null,
+  listPanelOpen: false,
   settings: {
     background: "#1a1b26",
     grid: true,
@@ -132,4 +138,6 @@ export const useModelStore = create<ModelStore>((set) => ({
   clearMeasurements: () => set({ measurements: [] }),
 
   setSqlPanelOpen: (open) => set({ sqlPanelOpen: open }),
+  setColorGroups: (groups) => set({ colorGroups: groups }),
+  setListPanelOpen: (open) => set({ listPanelOpen: open }),
 }));
