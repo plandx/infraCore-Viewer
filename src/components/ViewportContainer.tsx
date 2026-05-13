@@ -801,17 +801,11 @@ export function ViewportContainer({ onElementClick }: Props) {
       return;
     }
 
-    // Section tool: click face → position clip plane there, normal = camera look direction
+    // Section tool: click face → position clip plane there, normal = face normal
     if (activeTool === "section") {
       if (wasDraggingRef.current) { wasDraggingRef.current = false; return; }
-      if (hit) {
-        // Point the normal towards the camera so the kept side is always the viewer side
-        const camDir = new THREE.Vector3();
-        (useModelStore.getState().settings.orthographic
-          ? orthoCameraRef.current ?? cameraRef.current
-          : cameraRef.current
-        )?.getWorldDirection(camDir);
-        const N = camDir.negate();          // towards camera = kept side
+      if (hit?.faceNormal) {
+        const N = hit.faceNormal.clone().normalize();
         const P = hit.point;
         useModelStore.getState().updateSettings({
           clipNormal: [N.x, N.y, N.z],
