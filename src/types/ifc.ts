@@ -2,6 +2,36 @@ import * as THREE from "three";
 
 export type ActiveTool = "select" | "measure" | "section";
 
+// ── SmartViews ────────────────────────────────────────────────────────────────
+
+/** Flat property bag for one element: direct IFC attrs + "PsetName.PropName" keys */
+export type FlatElementProps = Record<string, unknown>;
+
+export type SmartCondition =
+  | "eq" | "neq"
+  | "contains" | "not_contains" | "starts_with" | "ends_with"
+  | "gt" | "lt" | "gte" | "lte"
+  | "is_true" | "is_false"
+  | "exists" | "not_exists";
+
+export type SmartAction = "show" | "hide" | "color";
+
+export interface SmartRule {
+  id: string;
+  property: string;    // e.g. "_type", "Name", "Pset_WallCommon.IsExternal"
+  condition: SmartCondition;
+  value: string;       // ignored for exists / not_exists / is_true / is_false
+}
+
+export interface SmartView {
+  id: string;
+  name: string;
+  rules: SmartRule[];
+  logic: "AND" | "OR";
+  action: SmartAction;
+  color: string;       // hex, used when action === "color"
+}
+
 export interface Measurement {
   id: string;
   a: { x: number; y: number; z: number };

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import * as WebIFC from "web-ifc";
-import type { IFCModelEntry, PropertySet, SpatialNode, ElementNode } from "../types/ifc";
+import type { IFCModelEntry, PropertySet, SpatialNode, ElementNode, FlatElementProps } from "../types/ifc";
 import {
   computeModelOffset,
   generateModelColor,
@@ -262,9 +262,6 @@ function extractScalar(v: unknown): unknown {
   }
   return v;
 }
-
-/** Flat map of all properties for one element: direct attrs + "PsetName.PropName" */
-export type FlatElementProps = Record<string, unknown>;
 
 /**
  * Opens the IFC file once and reads all properties for the given expressIds.

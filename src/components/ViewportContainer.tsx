@@ -70,6 +70,9 @@ export function ViewportContainer({ onElementClick }: Props) {
   const isolateElement = useModelStore((s) => s.isolateElement);
   const showAll = useModelStore((s) => s.showAll);
   const colorGroups = useModelStore((s) => s.colorGroups);
+  const stagedSmartViewId = useModelStore((s) => s.stagedSmartViewId);
+  const activeSmartViewId = useModelStore((s) => s.activeSmartViewId);
+  const applySmartView = useModelStore((s) => s.applySmartView);
 
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
@@ -985,6 +988,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     e.stopPropagation();
   }, []);
 
+  // ── Double-click: apply staged SmartView ─────────────────────────────────
+  const handleDoubleClick = useCallback(() => {
+    if (stagedSmartViewId) applySmartView(stagedSmartViewId);
+  }, [stagedSmartViewId, applySmartView]);
+
   // ── Right-click context menu ──────────────────────────────────────────────
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -1052,6 +1060,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         ref={mountRef}
         className="w-full h-full"
         onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -1095,6 +1104,15 @@ export function ViewportContainer({ onElementClick }: Props) {
             useModelStore.getState().setActiveTool("select");
           }}
         />
+      )}
+
+      {/* SmartView: apply hint */}
+      {stagedSmartViewId && stagedSmartViewId !== activeSmartViewId && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div className="bg-card/90 backdrop-blur border border-primary/40 rounded-lg px-4 py-2 text-[11px] text-primary shadow-xl">
+            Doppelklick zum Anwenden der SmartView
+          </div>
+        </div>
       )}
 
       {/* Context menu */}
