@@ -857,7 +857,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (activeTool === "section") {
       if (wasDraggingRef.current) { wasDraggingRef.current = false; return; }
       if (hit?.faceNormal) {
-        const N = hit.faceNormal.clone().normalize();
+        const N = hit.faceNormal.clone().negate().normalize();
         const P = hit.point;
         useModelStore.getState().updateSettings({
           clipNormal: [N.x, N.y, N.z],
