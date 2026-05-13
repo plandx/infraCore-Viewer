@@ -40,6 +40,10 @@ export function ViewportContainer({ onElementClick }: Props) {
   const dragStartClipPointRef = useRef<THREE.Vector3 | null>(null);
   const wasDraggingRef = useRef(false);
 
+  // Suppress click after any significant mouse movement (orbit/pan/drag)
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  const clickSuppressedRef = useRef(false);
+
 
   // Measurement state
   const measureLinesRef = useRef<THREE.Line[]>([]);
@@ -739,6 +743,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     setContextMenu(null);
+    if (clickSuppressedRef.current) { clickSuppressedRef.current = false; return; }
 
     const hit = raycastPoint(e);
 
@@ -835,6 +840,8 @@ export function ViewportContainer({ onElementClick }: Props) {
   // ── Section handle drag ───────────────────────────────────────────────────
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    mouseDownPosRef.current  = { x: e.clientX, y: e.clientY };
+    clickSuppressedRef.current = false;
     const handle   = sectionHandleRef.current;
     const renderer = rendererRef.current;
     const camera   = cameraRef.current;
@@ -871,6 +878,12 @@ export function ViewportContainer({ onElementClick }: Props) {
   }, [settings.clipPlanes]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Detect significant drag movement to suppress the subsequent click
+    if (!clickSuppressedRef.current && mouseDownPosRef.current) {
+      const dx = e.clientX - mouseDownPosRef.current.x;
+      const dy = e.clientY - mouseDownPosRef.current.y;
+      if (dx * dx + dy * dy > 25) clickSuppressedRef.current = true; // 5 px threshold
+    }
     if (!isDraggingHandleRef.current) return;
     const renderer = rendererRef.current;
     const camera   = cameraRef.current;
