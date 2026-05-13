@@ -59,4 +59,6 @@ export interface ViewerSettings {
   fog: boolean;
   logDepthBuffer: boolean;
   clipPlanes: boolean;
+  theme: "light" | "dark";
+  showSpaces: boolean;
 }

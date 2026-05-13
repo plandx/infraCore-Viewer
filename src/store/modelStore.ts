@@ -6,7 +6,6 @@ interface ModelStore {
   models: Map<string, IFCModelEntry>;
   worldOrigin: THREE.Vector3 | null;
   selectedElement: SelectedElement | null;
-  hoveredModelId: string | null;
   settings: ViewerSettings;
 
   addModel: (model: IFCModelEntry) => void;
@@ -14,18 +13,15 @@ interface ModelStore {
   updateModel: (id: string, patch: Partial<IFCModelEntry>) => void;
   setWorldOrigin: (origin: THREE.Vector3) => void;
   setSelected: (element: SelectedElement | null) => void;
-  setHovered: (id: string | null) => void;
   updateSettings: (patch: Partial<ViewerSettings>) => void;
-  getVisibleModels: () => IFCModelEntry[];
 }
 
-export const useModelStore = create<ModelStore>((set, get) => ({
+export const useModelStore = create<ModelStore>((set) => ({
   models: new Map(),
   worldOrigin: null,
   selectedElement: null,
-  hoveredModelId: null,
   settings: {
-    background: "#1a1a2e",
+    background: "#1a1b26",
     grid: true,
     axes: true,
     edges: false,
@@ -33,6 +29,8 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     fog: false,
     logDepthBuffer: true,
     clipPlanes: false,
+    theme: "dark",
+    showSpaces: false,
   },
 
   addModel: (model) =>
@@ -62,13 +60,6 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   setSelected: (element) => set({ selectedElement: element }),
 
-  setHovered: (id) => set({ hoveredModelId: id }),
-
   updateSettings: (patch) =>
     set((state) => ({ settings: { ...state.settings, ...patch } })),
-
-  getVisibleModels: () => {
-    const { models } = get();
-    return Array.from(models.values()).filter((m) => m.visible);
-  },
 }));

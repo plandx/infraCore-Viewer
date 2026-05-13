@@ -1,16 +1,216 @@
-/* Global reset — App.css handles all theming */
-*, *::before, *::after {
-  box-sizing: border-box;
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Tokyo Night Color Palette ─────────────────────────────────────── */
+:root {
+  --tokyo-storm:        #1a1b26;
+  --tokyo-night:        #16161e;
+  --tokyo-bg-dark:      #13131a;
+  --tokyo-bg-highlight: #1f2335;
+  --tokyo-terminal-black: #414868;
+  --tokyo-comment:      #565f89;
+  --tokyo-dark3:        #3b4261;
+  --tokyo-fg:           #a9b1d6;
+  --tokyo-fg-dark:      #7982a9;
+  --tokyo-fg-gutter:    #363b54;
+  --tokyo-blue:         #7aa2f7;
+  --tokyo-cyan:         #7dcfff;
+  --tokyo-magenta:      #bb9af7;
+  --tokyo-purple:       #9d7cd8;
+  --tokyo-orange:       #ff9e64;
+  --tokyo-yellow:       #e0af68;
+  --tokyo-green:        #9ece6a;
+  --tokyo-teal:         #73daca;
+  --tokyo-red:          #f7768e;
+
+  /* Hierarchy – light */
+  --hierarchy-selected-bg:   #e4e4e7;
+  --hierarchy-selected-text: #18181b;
+  --hierarchy-text:          #52525b;
+  --hierarchy-hover-bg:      #f4f4f5;
+
+  /* Tabs – light */
+  --tabs-bg:         #f4f4f5;
+  --tabs-border:     #e4e4e7;
+  --tab-text:        #71717a;
+  --tab-active-bg:   #ffffff;
+  --tab-active-text: #18181b;
 }
 
-html, body {
-  margin: 0;
-  padding: 0;
+.dark {
+  --hierarchy-selected-bg:   #1f2335;
+  --hierarchy-selected-text: #a9b1d6;
+  --hierarchy-text:          #7982a9;
+  --hierarchy-hover-bg:      rgba(31,35,53,0.5);
+  --tabs-bg:         #1f2335;
+  --tabs-border:     #3b4261;
+  --tab-text:        #565f89;
+  --tab-active-bg:   #16161e;
+  --tab-active-text: #a9b1d6;
+}
+
+/* ── Tailwind theme tokens ─────────────────────────────────────────── */
+@theme {
+  --color-background:            hsl(0 0% 100%);
+  --color-foreground:            hsl(240 10% 3.9%);
+  --color-card:                  hsl(0 0% 100%);
+  --color-card-foreground:       hsl(240 10% 3.9%);
+  --color-popover:               hsl(0 0% 100%);
+  --color-popover-foreground:    hsl(240 10% 3.9%);
+  --color-primary:               var(--tokyo-blue);
+  --color-primary-foreground:    hsl(0 0% 100%);
+  --color-secondary:             hsl(240 4.8% 95.9%);
+  --color-secondary-foreground:  hsl(240 5.9% 10%);
+  --color-muted:                 hsl(240 4.8% 95.9%);
+  --color-muted-foreground:      hsl(240 3.8% 46.1%);
+  --color-accent:                hsl(240 4.8% 95.9%);
+  --color-accent-foreground:     hsl(240 5.9% 10%);
+  --color-destructive:           var(--tokyo-red);
+  --color-destructive-foreground: hsl(0 0% 98%);
+  --color-border:                hsl(240 5.9% 90%);
+  --color-input:                 hsl(240 5.9% 90%);
+  --color-ring:                  var(--tokyo-blue);
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.375rem;
+  --radius-xl: 0.5rem;
+}
+
+/* ── Dark mode overrides ───────────────────────────────────────────── */
+:root.dark, .dark {
+  --color-background:           var(--tokyo-storm) !important;
+  --color-foreground:           var(--tokyo-fg) !important;
+  --color-card:                 var(--tokyo-night) !important;
+  --color-card-foreground:      var(--tokyo-fg) !important;
+  --color-popover:              var(--tokyo-night) !important;
+  --color-popover-foreground:   var(--tokyo-fg) !important;
+  --color-primary:              var(--tokyo-blue);
+  --color-primary-foreground:   var(--tokyo-night);
+  --color-secondary:            var(--tokyo-bg-highlight);
+  --color-secondary-foreground: var(--tokyo-fg);
+  --color-muted:                var(--tokyo-bg-highlight);
+  --color-muted-foreground:     var(--tokyo-comment);
+  --color-accent:               var(--tokyo-bg-highlight);
+  --color-accent-foreground:    var(--tokyo-fg);
+  --color-destructive:          var(--tokyo-red);
+  --color-destructive-foreground: var(--tokyo-fg);
+  --color-border:               var(--tokyo-dark3);
+  --color-input:                var(--tokyo-bg-highlight);
+  --color-ring:                 var(--tokyo-blue);
+}
+
+/* ── Base ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { border-color: var(--color-border); box-sizing: border-box; }
+
+html, body, #root {
   height: 100%;
   overflow: hidden;
+  margin: 0;
+  padding: 0;
 }
 
-#root {
-  height: 100%;
-  width: 100%;
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-feature-settings: "rlig" 1, "calt" 1;
 }
+
+.dark body, .dark #root { background-color: var(--tokyo-storm) !important; }
+
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
+.scrollbar-thin { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--color-muted-foreground) 30%, transparent) transparent; }
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--color-muted-foreground) 30%, transparent); border-radius: 3px; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--color-muted-foreground) 50%, transparent); }
+
+.dark .scrollbar-thin { scrollbar-color: var(--tokyo-terminal-black) var(--tokyo-night); }
+.dark .scrollbar-thin::-webkit-scrollbar-thumb { background-color: var(--tokyo-terminal-black); }
+.dark .scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: var(--tokyo-comment); }
+
+/* ── Hierarchy ─────────────────────────────────────────────────────── */
+.hierarchy-item:not(.selected):hover { background-color: var(--hierarchy-hover-bg) !important; }
+
+/* ── Tree nodes ────────────────────────────────────────────────────── */
+.tree-node {
+  display: flex; align-items: center; gap: 0.25rem;
+  padding: 0.375rem 0.5rem; cursor: pointer;
+  border-radius: 0.125rem; border-left: 2px solid transparent;
+  transition: all 0.1s;
+}
+.tree-node:hover { background-color: color-mix(in srgb, var(--color-muted) 50%, transparent); }
+.tree-node.selected { background-color: color-mix(in srgb, var(--color-primary) 10%, transparent); border-left-color: var(--color-primary); }
+
+/* ── Toolbar buttons ───────────────────────────────────────────────── */
+.toolbar-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0.375rem; border-radius: 0.375rem; transition: all 0.15s;
+  cursor: pointer; background: transparent; border: none; color: inherit;
+}
+.toolbar-button:hover { background-color: var(--color-muted); }
+.toolbar-button.active { background-color: var(--color-primary); color: var(--color-primary-foreground); }
+.toolbar-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Panel tabs ────────────────────────────────────────────────────── */
+.panel-container { container-type: inline-size; }
+
+.properties-tabs-list {
+  display: flex; align-items: stretch; gap: 0;
+  height: 2.75rem; padding: 0; justify-content: stretch;
+  background-color: var(--tabs-bg) !important;
+  border-bottom: 2px solid var(--tabs-border);
+  border-radius: 0 !important;
+}
+
+.properties-tab-trigger {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center;
+  gap: 0.375rem; height: 100%; padding: 0 0.75rem;
+  border-top: 3px solid transparent;
+  border-right: 1px solid var(--tabs-border);
+  border-bottom: 0; border-left: 0; border-radius: 0 !important;
+  background-color: color-mix(in srgb, var(--tabs-bg) 82%, white 18%) !important;
+  color: var(--tab-text) !important;
+  font-weight: 600; font-size: 0.75rem; line-height: 1; cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.properties-tab-trigger:first-child { border-left: 1px solid var(--tabs-border); }
+.properties-tab-trigger:hover {
+  background-color: color-mix(in srgb, var(--tab-active-bg) 90%, white 10%) !important;
+  color: var(--tab-active-text) !important;
+}
+.properties-tab-trigger.active {
+  background-color: var(--tab-active-bg) !important;
+  color: var(--tab-active-text) !important;
+  border-top-color: var(--color-primary) !important;
+}
+
+/* ── Resize handle ─────────────────────────────────────────────────── */
+[data-panel-group-direction="horizontal"] > [data-panel-resize-handle-id] {
+  width: 6px;
+  background-color: var(--color-border);
+  transition: background-color 0.15s;
+  cursor: col-resize;
+}
+[data-panel-group-direction="horizontal"] > [data-panel-resize-handle-id]:hover { background-color: color-mix(in srgb, var(--color-primary) 50%, transparent); }
+[data-panel-group-direction="horizontal"] > [data-panel-resize-handle-id][data-resize-handle-active] { background-color: color-mix(in srgb, var(--color-primary) 70%, transparent); }
+
+/* ── Drop overlay ──────────────────────────────────────────────────── */
+.drop-overlay {
+  border: 2px dashed var(--tokyo-green);
+  background-color: rgba(158,206,106,0.06);
+  color: var(--tokyo-green);
+}
+
+/* ── Loading skeleton ──────────────────────────────────────────────── */
+@keyframes skeleton-pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+.skeleton { background-color: var(--color-muted); border-radius:0.25rem; animation: skeleton-pulse 2s ease-in-out infinite; }
+
+/* ── Dark panel overrides ──────────────────────────────────────────── */
+.dark .bg-white, .dark .bg-card, .dark .bg-background { background-color: var(--tokyo-night) !important; }
+.dark .bg-zinc-50, .dark .bg-zinc-100 { background-color: var(--tokyo-bg-highlight) !important; }
+.dark .border-zinc-200, .dark .border-zinc-700 { border-color: var(--tokyo-dark3) !important; }
+.dark .text-zinc-900, .dark .text-zinc-100 { color: var(--tokyo-fg) !important; }
+.dark .text-zinc-500, .dark .text-zinc-400 { color: var(--tokyo-comment) !important; }
+.dark [data-state="active"] { background-color: var(--tokyo-night) !important; color: var(--tokyo-fg) !important; }
+.dark ::selection { background-color: var(--tokyo-bg-highlight); color: var(--tokyo-cyan); }
