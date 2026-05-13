@@ -40,8 +40,6 @@ export function ViewportContainer({ onElementClick }: Props) {
   const dragStartClipPointRef = useRef<THREE.Vector3 | null>(null);
   const wasDraggingRef = useRef(false);
 
-  // Screen-space handle position for 2D overlay
-  const [handleScreenPos, setHandleScreenPos] = useState<{ x: number; y: number } | null>(null);
 
   // Measurement state
   const measureLinesRef = useRef<THREE.Line[]>([]);
@@ -221,8 +219,6 @@ export function ViewportContainer({ onElementClick }: Props) {
       sectionPlaneMeshRef.current = null;
       sectionArrowRef.current = null;
     }
-    setHandleScreenPos(null);
-
     if (!settings.clipPlanes) return;
 
     // Compute scene scale for sizing visuals
@@ -305,14 +301,13 @@ export function ViewportContainer({ onElementClick }: Props) {
     group.add(arrow);
     sectionArrowRef.current = arrow;
 
-    // Drag handle sphere
+    // Drag handle sphere — sits exactly on the clip plane
     const handleR = Math.max(0.4, sceneMaxDim * 0.018);
     const handleMat = new THREE.MeshStandardMaterial({
       color: 0x7aa2f7, roughness: 0.2, metalness: 0.6, emissive: 0x3050a0, emissiveIntensity: 0.3,
     });
     const handle = new THREE.Mesh(new THREE.SphereGeometry(handleR, 24, 24), handleMat);
-    // Place on kept side so it isn't clipped
-    handle.position.copy(P).addScaledVector(N, handleR * 1.5);
+    handle.position.copy(P);
     handle.userData.isSectionHandle = true;
     handle.userData.isSectionVisual = true;
     handle.renderOrder = 10;
@@ -359,26 +354,14 @@ export function ViewportContainer({ onElementClick }: Props) {
     }
 
     if (handle) {
-      const handleR = (handle.geometry as THREE.SphereGeometry).parameters.radius;
-      handle.position.copy(P).addScaledVector(N, handleR * 1.5);
+      handle.position.copy(P);
     }
 
     // Update screen position for overlay
     updateHandleScreenPos();
   }, []);
 
-  const updateHandleScreenPos = useCallback(() => {
-    const handle   = sectionHandleRef.current;
-    const renderer = rendererRef.current;
-    const camera   = cameraRef.current;
-    if (!handle || !renderer || !camera) { setHandleScreenPos(null); return; }
-    const pos = handle.position.clone().project(camera);
-    const rect = renderer.domElement.getBoundingClientRect();
-    setHandleScreenPos({
-      x: ((pos.x + 1) / 2) * rect.width,
-      y: ((-pos.y + 1) / 2) * rect.height,
-    });
-  }, []);
+  const updateHandleScreenPos = useCallback(() => {}, []);
 
   useEffect(() => {
     if (!settings.clipPlanes) return;
@@ -933,11 +916,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     // Persist final position to store
     const handle = sectionHandleRef.current;
     if (handle && wasDraggingRef.current) {
-      const st = useModelStore.getState().settings;
-      const N  = new THREE.Vector3(...st.clipNormal).normalize();
-      // Reconstruct P from handle position (reverse of offset applied in setup)
-      const handleR = (handle.geometry as THREE.SphereGeometry).parameters.radius;
-      const P = handle.position.clone().addScaledVector(N, -handleR * 1.5);
+      const P = handle.position;
       useModelStore.getState().updateSettings({
         clipPoint: [P.x, P.y, P.z],
       });
@@ -1036,10 +1015,9 @@ export function ViewportContainer({ onElementClick }: Props) {
         </div>
       ))}
 
-      {/* Section plane overlay — anchored to the 3D handle */}
-      {settings.clipPlanes && handleScreenPos && (
+      {/* Section plane overlay — top center */}
+      {settings.clipPlanes && (
         <SectionOverlay
-          screenPos={handleScreenPos}
           onFlip={() => {
             const st = useModelStore.getState().settings;
             const N = new THREE.Vector3(...st.clipNormal).negate();
@@ -1076,25 +1054,18 @@ export function ViewportContainer({ onElementClick }: Props) {
 
 // ── Section overlay ───────────────────────────────────────────────────────────
 
-function SectionOverlay({
-  screenPos, onFlip, onClose,
-}: {
-  screenPos: { x: number; y: number };
-  onFlip: () => void;
-  onClose: () => void;
-}) {
+function SectionOverlay({ onFlip, onClose }: { onFlip: () => void; onClose: () => void }) {
   return (
     <div
-      className="absolute z-30 pointer-events-auto select-none"
-      style={{ left: screenPos.x, top: screenPos.y, transform: "translate(-50%, -130%)" }}
+      className="absolute top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto select-none"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="flex items-center gap-1 bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl px-2 py-1.5">
-        <span className="text-[10px] text-muted-foreground font-medium pr-1 border-r border-border mr-1">
+        <span className="text-[10px] text-muted-foreground font-medium pr-1.5 border-r border-border mr-0.5">
           Schnitt
         </span>
         <button
-          className="flex items-center gap-1 px-2 py-1 rounded text-[11px] hover:bg-muted/60 text-foreground transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] hover:bg-muted/60 text-foreground transition-colors"
           title="Schnittrichtung umkehren"
           onClick={onFlip}
         >
@@ -1110,8 +1081,6 @@ function SectionOverlay({
           <X size={12} />
         </button>
       </div>
-      {/* Connector line to the 3D handle */}
-      <div className="absolute left-1/2 top-full w-px h-3 bg-primary/50 -translate-x-1/2" />
     </div>
   );
 }
