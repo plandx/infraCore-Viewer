@@ -15,6 +15,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const controlsRef = useRef<OrbitControls | null>(null);
   const rafRef = useRef<number>(0);
   const highlightRef = useRef<THREE.Mesh | null>(null);
+  const clipHelperRef = useRef<THREE.PlaneHelper | null>(null);
   // Track which model IDs are already in the scene to avoid double-add
   const sceneModelIds = useRef<Set<string>>(new Set());
 
@@ -107,6 +108,44 @@ export function ViewportContainer({ onElementClick }: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Clip plane ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    if (!renderer || !scene) return;
+
+    renderer.localClippingEnabled = true;
+
+    if (!settings.clipPlanes) {
+      renderer.clippingPlanes = [];
+      if (clipHelperRef.current) {
+        scene.remove(clipHelperRef.current);
+        clipHelperRef.current = null;
+      }
+      return;
+    }
+
+    const axisNormals: Record<string, THREE.Vector3> = {
+      x: new THREE.Vector3(-1, 0, 0),
+      y: new THREE.Vector3(0, -1, 0),
+      z: new THREE.Vector3(0, 0, -1),
+    };
+    const normal = axisNormals[settings.clipAxis].clone();
+    if (settings.clipFlip) normal.negate();
+    const constant = settings.clipFlip ? -settings.clipPosition : settings.clipPosition;
+    const plane = new THREE.Plane(normal, constant);
+
+    renderer.clippingPlanes = [plane];
+
+    // Replace plane helper
+    if (clipHelperRef.current) scene.remove(clipHelperRef.current);
+    const helperSize = 2000;
+    const helper = new THREE.PlaneHelper(plane, helperSize, 0x7aa2f7);
+    helper.name = "__clipHelper";
+    scene.add(helper);
+    clipHelperRef.current = helper;
+  }, [settings.clipPlanes, settings.clipAxis, settings.clipPosition, settings.clipFlip]);
 
   // ── Sync scene background ─────────────────────────────────────────────────
   useEffect(() => {

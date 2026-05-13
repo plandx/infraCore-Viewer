@@ -9,6 +9,7 @@ import { ViewportContainer } from "./components/ViewportContainer";
 import { PropertiesPanel } from "./components/PropertiesPanel";
 import { StatusBar } from "./components/StatusBar";
 import { LandingOverlay } from "./components/LandingOverlay";
+import { ClipPlaneControl } from "./components/ClipPlaneControl";
 
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties } from "./utils/ifcLoader";
@@ -134,6 +135,7 @@ export default function App() {
           <Panel defaultSize={58} minSize={30}>
             <div className="h-full relative overflow-hidden">
               <ViewportContainer onElementClick={handleElementClick} />
+              <ClipPlaneControl />
 
               {/* Landing overlay when no models */}
               {!hasModels && activeLoads === 0 && (

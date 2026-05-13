@@ -17,6 +17,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
   const theme = useModelStore((s) => s.settings.theme);
+  const clipPlanes = useModelStore((s) => s.settings.clipPlanes);
   const updateSettings = useModelStore((s) => s.updateSettings);
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,7 +83,11 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
       <button className="toolbar-button" title="Messen">
         <Ruler size={16} />
       </button>
-      <button className="toolbar-button" title="Schnittebene">
+      <button
+        className={cn("toolbar-button", clipPlanes && "active text-primary")}
+        title="Schnittebene ein/ausschalten"
+        onClick={() => updateSettings({ clipPlanes: !clipPlanes })}
+      >
         <Scissors size={16} />
       </button>
 
