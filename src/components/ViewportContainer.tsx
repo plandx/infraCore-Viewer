@@ -305,13 +305,22 @@ export function ViewportContainer({ onElementClick }: Props) {
     group.add(arrow);
     sectionArrowRef.current = arrow;
 
-    // Drag handle sphere — sits exactly on the clip plane
-    const handleR = Math.max(0.4, sceneMaxDim * 0.018);
+    // Drag handle sphere — sits exactly on the clip plane, never clipped
+    const handleR = Math.max(0.2, sceneMaxDim * 0.009);
     const handleMat = new THREE.MeshStandardMaterial({
       color: 0x7aa2f7, roughness: 0.2, metalness: 0.6, emissive: 0x3050a0, emissiveIntensity: 0.3,
     });
     const handle = new THREE.Mesh(new THREE.SphereGeometry(handleR, 24, 24), handleMat);
     handle.position.copy(P);
+    // Disable global clipping planes for this mesh so it is always fully visible
+    handle.onBeforeRender = (rend) => { rend.clippingPlanes = []; };
+    handle.onAfterRender  = (rend) => {
+      const s = useModelStore.getState().settings;
+      if (!s.clipPlanes) return;
+      const n = new THREE.Vector3(...s.clipNormal).normalize();
+      const p = new THREE.Vector3(...s.clipPoint);
+      rend.clippingPlanes = [new THREE.Plane(n, -n.dot(p))];
+    };
     handle.userData.isSectionHandle = true;
     handle.userData.isSectionVisual = true;
     handle.renderOrder = 10;
