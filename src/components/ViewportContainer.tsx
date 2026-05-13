@@ -126,15 +126,28 @@ export function ViewportContainer({ onElementClick }: Props) {
       rafRef.current = requestAnimationFrame(animate);
       controls.update();
       const isOrtho = useModelStore.getState().settings.orthographic;
-      const activeCamera = isOrtho ? orthoCameraRef.current! : camera;
 
-      // Sync ortho camera position/target to perspective controls
       if (isOrtho) {
+        // Mirror position + orientation from perspective controls
         ortho.position.copy(camera.position);
         ortho.quaternion.copy(camera.quaternion);
+
+        // Recompute frustum from perspective distance so wheel-zoom works
+        const dist = camera.position.distanceTo(controls.target);
+        const halfH = dist * Math.tan((camera.fov / 2) * (Math.PI / 180));
+        const rw = renderer.domElement.clientWidth || 1;
+        const rh = renderer.domElement.clientHeight || 1;
+        const asp = rw / rh;
+        ortho.left   = -halfH * asp;
+        ortho.right  =  halfH * asp;
+        ortho.top    =  halfH;
+        ortho.bottom = -halfH;
+        ortho.near   = camera.near;
+        ortho.far    = camera.far;
+        ortho.updateProjectionMatrix();
       }
 
-      renderer.render(scene, activeCamera);
+      renderer.render(scene, isOrtho ? ortho : camera);
     };
     animate();
 
@@ -487,7 +500,10 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // ── Raycasting helper ─────────────────────────────────────────────────────
   const raycastPoint = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>): { mesh: THREE.Mesh; point: THREE.Vector3; expressId: number; modelId: string } | null => {
+    (e: React.MouseEvent<HTMLDivElement>): {
+      mesh: THREE.Mesh; point: THREE.Vector3; expressId: number; modelId: string;
+      faceNormal: THREE.Vector3 | null;
+    } | null => {
       const renderer = rendererRef.current;
       const camera = cameraRef.current;
       const scene = sceneRef.current;
@@ -500,7 +516,10 @@ export function ViewportContainer({ onElementClick }: Props) {
       );
 
       const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, camera);
+      const activeCamera = useModelStore.getState().settings.orthographic
+        ? orthoCameraRef.current ?? camera
+        : camera;
+      raycaster.setFromCamera(mouse, activeCamera);
 
       const meshes: THREE.Mesh[] = [];
       scene.traverse((obj) => {
@@ -523,7 +542,13 @@ export function ViewportContainer({ onElementClick }: Props) {
         node = node.parent;
       }
 
-      return { mesh: hitMesh, point: hit.point, expressId, modelId };
+      // Face normal in world space
+      let faceNormal: THREE.Vector3 | null = null;
+      if (hit.face) {
+        faceNormal = hit.face.normal.clone().transformDirection(hitMesh.matrixWorld).normalize();
+      }
+
+      return { mesh: hitMesh, point: hit.point, expressId, modelId, faceNormal };
     },
     []
   );
@@ -589,6 +614,26 @@ export function ViewportContainer({ onElementClick }: Props) {
         const dist = a.distanceTo(b);
         addMeasurement({ id: uuidv4(), a: { x: a.x, y: a.y, z: a.z }, b: { x: b.x, y: b.y, z: b.z }, distance: dist });
         updateMeasureLabels();
+      }
+      return;
+    }
+
+    // Section tool: click face → position clip plane there
+    if (activeTool === "section") {
+      if (hit?.faceNormal) {
+        const n = hit.faceNormal;
+        const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
+        let clipAxis: "x" | "y" | "z";
+        let clipFlip: boolean;
+        if (ax >= ay && ax >= az) {
+          clipAxis = "x"; clipFlip = n.x > 0;
+        } else if (ay >= ax && ay >= az) {
+          clipAxis = "y"; clipFlip = n.y > 0;
+        } else {
+          clipAxis = "z"; clipFlip = n.z > 0;
+        }
+        const clipPosition = hit.point[clipAxis];
+        useModelStore.getState().updateSettings({ clipAxis, clipPosition, clipFlip, clipPlanes: true });
       }
       return;
     }
@@ -661,7 +706,9 @@ export function ViewportContainer({ onElementClick }: Props) {
   }, []);
 
   // Cursor style per tool
-  const cursor = activeTool === "measure" ? "crosshair" : "default";
+  const cursor = activeTool === "measure" ? "crosshair"
+               : activeTool === "section" ? "cell"
+               : "default";
 
   return (
     <div className="w-full h-full relative">
@@ -674,11 +721,13 @@ export function ViewportContainer({ onElementClick }: Props) {
         data-viewport="main"
       />
 
-      {/* Measurement hint */}
-      {activeTool === "measure" && (
+      {/* Tool hints */}
+      {(activeTool === "measure" || activeTool === "section") && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
           <div className="bg-card/90 backdrop-blur border border-border rounded-full px-4 py-1.5 text-xs text-foreground">
-            {measurePending ? "Zweiten Punkt klicken · Esc = Abbrechen" : "Ersten Punkt klicken"}
+            {activeTool === "measure"
+              ? (measurePending ? "Zweiten Punkt klicken · Esc = Abbrechen" : "Ersten Punkt klicken")
+              : "Fläche anklicken → Schnittebene positionieren"}
           </div>
         </div>
       )}

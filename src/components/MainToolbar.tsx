@@ -57,6 +57,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
         window.dispatchEvent(new Event("viewer:clearMeasure"));
         clearMeasurements();
       }
+      // Leaving section mode → keep clip planes but stop face-picking
       setActiveTool(tool);
     }
   };
@@ -169,9 +170,13 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           )}
         </button>
         <button
-          className={cn("toolbar-button", clipPlanes && "active text-primary")}
-          title="Schnittebene [C]"
-          onClick={() => updateSettings({ clipPlanes: !clipPlanes })}
+          className={cn("toolbar-button", (clipPlanes || activeTool === "section") && "active text-primary")}
+          title="Schnittebene [C] · Fläche anklicken zum Positionieren"
+          onClick={() => {
+            const next = !clipPlanes;
+            updateSettings({ clipPlanes: next });
+            setActiveTool(next ? "section" : "select");
+          }}
         >
           <Scissors size={16} />
         </button>

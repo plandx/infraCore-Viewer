@@ -75,9 +75,12 @@ export default function App() {
             setActiveTool("measure");
           }
           break;
-        case "c":
-          useModelStore.getState().updateSettings({ clipPlanes: !useModelStore.getState().settings.clipPlanes });
+        case "c": {
+          const next = !useModelStore.getState().settings.clipPlanes;
+          useModelStore.getState().updateSettings({ clipPlanes: next });
+          setActiveTool(next ? "section" : "select");
           break;
+        }
         case "q":
           setSqlPanelOpen(!sqlPanelOpen);
           break;
