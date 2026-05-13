@@ -502,20 +502,6 @@ export function ViewportContainer({ onElementClick }: Props) {
     hl.userData = { isHighlight: true };
     scene.add(hl);
     highlightRef.current = hl as THREE.Mesh;
-
-    // Silently update orbit pivot to element center, preserving camera orientation
-    const box = new THREE.Box3().setFromObject(targetMesh);
-    if (!box.isEmpty()) {
-      const newPivot = new THREE.Vector3();
-      box.getCenter(newPivot);
-      const controls = controlsRef.current;
-      const camera = cameraRef.current;
-      if (controls && camera) {
-        const delta = newPivot.clone().sub(controls.target);
-        camera.position.add(delta);
-        controls.target.copy(newPivot);
-      }
-    }
   }, [selectedElement]);
 
   // ── Camera fit helpers ────────────────────────────────────────────────────
