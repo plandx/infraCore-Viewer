@@ -87,9 +87,10 @@ export interface ViewerSettings {
   fog: boolean;
   logDepthBuffer: boolean;
   clipPlanes: boolean;
-  clipAxis: "x" | "y" | "z";
-  clipPosition: number;
-  clipFlip: boolean;
+  /** Unit normal of the clip plane (world space) */
+  clipNormal: [number, number, number];
+  /** A point on the clip plane (world space, used as visual center) */
+  clipPoint: [number, number, number];
   theme: "light" | "dark";
   showSpaces: boolean;
   orthographic: boolean;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
+import { FlipHorizontal2, X } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
 import { v4 as uuidv4 } from "uuid";
 
@@ -24,8 +25,23 @@ export function ViewportContainer({ onElementClick }: Props) {
   const controlsRef = useRef<OrbitControls | null>(null);
   const rafRef = useRef<number>(0);
   const highlightRef = useRef<THREE.Mesh | null>(null);
-  const clipHelperRef = useRef<THREE.PlaneHelper | null>(null);
   const sceneModelIds = useRef<Set<string>>(new Set());
+
+  // Section plane 3D visuals
+  const sectionGroupRef = useRef<THREE.Group | null>(null);
+  const sectionHandleRef = useRef<THREE.Mesh | null>(null);
+  const sectionPlaneMeshRef = useRef<THREE.Mesh | null>(null);
+  const sectionArrowRef = useRef<THREE.ArrowHelper | null>(null);
+
+  // Handle drag state
+  const isDraggingHandleRef = useRef(false);
+  const dragViewPlaneRef = useRef<THREE.Plane | null>(null);
+  const dragStartIntersectRef = useRef<THREE.Vector3 | null>(null);
+  const dragStartClipPointRef = useRef<THREE.Vector3 | null>(null);
+  const wasDraggingRef = useRef(false);
+
+  // Screen-space handle position for 2D overlay
+  const [handleScreenPos, setHandleScreenPos] = useState<{ x: number; y: number } | null>(null);
 
   // Measurement state
   const measureLinesRef = useRef<THREE.Line[]>([]);
@@ -177,37 +193,200 @@ export function ViewportContainer({ onElementClick }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Clip plane ────────────────────────────────────────────────────────────
+  // ── Clip plane renderer update ────────────────────────────────────────────
   useEffect(() => {
     const renderer = rendererRef.current;
-    const scene = sceneRef.current;
-    if (!renderer || !scene) return;
-
+    if (!renderer) return;
     renderer.localClippingEnabled = true;
-
     if (!settings.clipPlanes) {
       renderer.clippingPlanes = [];
-      if (clipHelperRef.current) { scene.remove(clipHelperRef.current); clipHelperRef.current = null; }
       return;
     }
-
-    const axisNormals: Record<string, THREE.Vector3> = {
-      x: new THREE.Vector3(-1, 0, 0),
-      y: new THREE.Vector3(0, -1, 0),
-      z: new THREE.Vector3(0, 0, -1),
-    };
-    const normal = axisNormals[settings.clipAxis].clone();
-    if (settings.clipFlip) normal.negate();
-    const constant = settings.clipFlip ? -settings.clipPosition : settings.clipPosition;
-    const plane = new THREE.Plane(normal, constant);
+    const N = new THREE.Vector3(...settings.clipNormal).normalize();
+    const P = new THREE.Vector3(...settings.clipPoint);
+    const plane = new THREE.Plane(N, -N.dot(P));
     renderer.clippingPlanes = [plane];
+  }, [settings.clipPlanes, settings.clipNormal, settings.clipPoint]);
 
-    if (clipHelperRef.current) scene.remove(clipHelperRef.current);
-    const helper = new THREE.PlaneHelper(plane, 2000, 0x7aa2f7);
-    helper.name = "__clipHelper";
-    scene.add(helper);
-    clipHelperRef.current = helper;
-  }, [settings.clipPlanes, settings.clipAxis, settings.clipPosition, settings.clipFlip]);
+  // ── Section plane 3D visuals ──────────────────────────────────────────────
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    // Remove old group
+    if (sectionGroupRef.current) {
+      scene.remove(sectionGroupRef.current);
+      sectionGroupRef.current = null;
+      sectionHandleRef.current = null;
+      sectionPlaneMeshRef.current = null;
+      sectionArrowRef.current = null;
+    }
+    setHandleScreenPos(null);
+
+    if (!settings.clipPlanes) return;
+
+    // Compute scene scale for sizing visuals
+    let sceneMaxDim = 50;
+    useModelStore.getState().models.forEach((m) => {
+      if (!m.boundingBox.isEmpty()) {
+        const sz = new THREE.Vector3();
+        m.boundingBox.getSize(sz);
+        sceneMaxDim = Math.max(sceneMaxDim, sz.x, sz.y, sz.z);
+      }
+    });
+
+    const N = new THREE.Vector3(...settings.clipNormal).normalize();
+    const P = new THREE.Vector3(...settings.clipPoint);
+
+    const group = new THREE.Group();
+    group.name = "__sectionGroup";
+
+    // Large translucent disc
+    const planeSize = sceneMaxDim * 4;
+    const planeMat = new THREE.MeshBasicMaterial({
+      color: 0x7aa2f7, opacity: 0.10, transparent: true,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+    const planeMesh = new THREE.Mesh(new THREE.PlaneGeometry(planeSize, planeSize, 1, 1), planeMat);
+    planeMesh.renderOrder = 1;
+    planeMesh.userData.isSectionVisual = true;
+    // Orient plane geometry so its +Z axis points along N
+    const defaultN = new THREE.Vector3(0, 0, 1);
+    if (Math.abs(N.dot(defaultN)) < 0.9999) {
+      planeMesh.quaternion.setFromUnitVectors(defaultN, N);
+    } else if (N.z < 0) {
+      planeMesh.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+    }
+    planeMesh.position.copy(P);
+    group.add(planeMesh);
+    sectionPlaneMeshRef.current = planeMesh;
+
+    // Grid lines on the plane
+    const gridMat = new THREE.LineBasicMaterial({ color: 0x7aa2f7, opacity: 0.20, transparent: true });
+    const gridGeo = new THREE.BufferGeometry();
+    const step = planeSize / 8;
+    const pts: number[] = [];
+    for (let i = -4; i <= 4; i++) {
+      pts.push(-planeSize / 2, i * step, 0,  planeSize / 2, i * step, 0);
+      pts.push(i * step, -planeSize / 2, 0,  i * step, planeSize / 2, 0);
+    }
+    gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    const gridLines = new THREE.LineSegments(gridGeo, gridMat);
+    gridLines.quaternion.copy(planeMesh.quaternion);
+    gridLines.position.copy(P);
+    gridLines.userData.isSectionVisual = true;
+    group.add(gridLines);
+
+    // Perimeter border
+    const borderPts = [
+      new THREE.Vector3(-planeSize / 2, -planeSize / 2, 0),
+      new THREE.Vector3( planeSize / 2, -planeSize / 2, 0),
+      new THREE.Vector3( planeSize / 2,  planeSize / 2, 0),
+      new THREE.Vector3(-planeSize / 2,  planeSize / 2, 0),
+      new THREE.Vector3(-planeSize / 2, -planeSize / 2, 0),
+    ];
+    const border = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(borderPts),
+      new THREE.LineBasicMaterial({ color: 0x7aa2f7, opacity: 0.50, transparent: true })
+    );
+    border.quaternion.copy(planeMesh.quaternion);
+    border.position.copy(P);
+    border.userData.isSectionVisual = true;
+    group.add(border);
+
+    // Direction arrow
+    const arrowLen = Math.max(2, sceneMaxDim * 0.10);
+    const headLen  = arrowLen * 0.28;
+    const headW    = arrowLen * 0.14;
+    const arrow = new THREE.ArrowHelper(N, P.clone().addScaledVector(N, 0.05), arrowLen, 0xffffff, headLen, headW);
+    (arrow.line.material as THREE.LineBasicMaterial).color.set(0x7aa2f7);
+    (arrow.cone.material as THREE.MeshBasicMaterial).color.set(0x7aa2f7);
+    arrow.userData.isSectionVisual = true;
+    group.add(arrow);
+    sectionArrowRef.current = arrow;
+
+    // Drag handle sphere
+    const handleR = Math.max(0.4, sceneMaxDim * 0.018);
+    const handleMat = new THREE.MeshStandardMaterial({
+      color: 0x7aa2f7, roughness: 0.2, metalness: 0.6, emissive: 0x3050a0, emissiveIntensity: 0.3,
+    });
+    const handle = new THREE.Mesh(new THREE.SphereGeometry(handleR, 24, 24), handleMat);
+    // Place on kept side so it isn't clipped
+    handle.position.copy(P).addScaledVector(N, handleR * 1.5);
+    handle.userData.isSectionHandle = true;
+    handle.userData.isSectionVisual = true;
+    handle.renderOrder = 10;
+    group.add(handle);
+    sectionHandleRef.current = handle;
+
+    scene.add(group);
+    sectionGroupRef.current = group;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.clipPlanes, settings.clipNormal]);
+
+  // ── Section visuals position sync ────────────────────────────────────────
+  const updateSectionPositions = useCallback((
+    N: THREE.Vector3, P: THREE.Vector3
+  ) => {
+    const planeMesh = sectionPlaneMeshRef.current;
+    const handle    = sectionHandleRef.current;
+    const arrow     = sectionArrowRef.current;
+    const group     = sectionGroupRef.current;
+    if (!group) return;
+
+    // Reorient plane + grid + border
+    const defaultN = new THREE.Vector3(0, 0, 1);
+    let q = new THREE.Quaternion();
+    if (Math.abs(N.dot(defaultN)) < 0.9999) {
+      q.setFromUnitVectors(defaultN, N);
+    } else if (N.z < 0) {
+      q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+    }
+
+    group.children.forEach((child) => {
+      if (child === handle || child === arrow) return;
+      if (child.userData.isSectionVisual) {
+        (child as THREE.Object3D).quaternion.copy(q);
+        (child as THREE.Object3D).position.copy(P);
+      }
+    });
+
+    if (planeMesh) planeMesh.position.copy(P);
+
+    if (arrow) {
+      arrow.position.copy(P).addScaledVector(N, 0.05);
+      arrow.setDirection(N);
+    }
+
+    if (handle) {
+      const handleR = (handle.geometry as THREE.SphereGeometry).parameters.radius;
+      handle.position.copy(P).addScaledVector(N, handleR * 1.5);
+    }
+
+    // Update screen position for overlay
+    updateHandleScreenPos();
+  }, []);
+
+  const updateHandleScreenPos = useCallback(() => {
+    const handle   = sectionHandleRef.current;
+    const renderer = rendererRef.current;
+    const camera   = cameraRef.current;
+    if (!handle || !renderer || !camera) { setHandleScreenPos(null); return; }
+    const pos = handle.position.clone().project(camera);
+    const rect = renderer.domElement.getBoundingClientRect();
+    setHandleScreenPos({
+      x: ((pos.x + 1) / 2) * rect.width,
+      y: ((-pos.y + 1) / 2) * rect.height,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!settings.clipPlanes) return;
+    const N = new THREE.Vector3(...settings.clipNormal).normalize();
+    const P = new THREE.Vector3(...settings.clipPoint);
+    updateSectionPositions(N, P);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.clipPoint, settings.clipNormal, settings.clipPlanes]);
 
   // ── Grid / axes visibility ────────────────────────────────────────────────
   useEffect(() => {
@@ -480,9 +659,10 @@ export function ViewportContainer({ onElementClick }: Props) {
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
-    controls.addEventListener("change", updateMeasureLabels);
-    return () => controls.removeEventListener("change", updateMeasureLabels);
-  }, [updateMeasureLabels]);
+    const onChange = () => { updateMeasureLabels(); updateHandleScreenPos(); };
+    controls.addEventListener("change", onChange);
+    return () => controls.removeEventListener("change", onChange);
+  }, [updateMeasureLabels, updateHandleScreenPos]);
 
   // ── Measurement helper functions ──────────────────────────────────────────
   const clearMeasure = useCallback(() => {
@@ -537,7 +717,12 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       const meshes: THREE.Mesh[] = [];
       scene.traverse((obj) => {
-        if (obj instanceof THREE.Mesh && obj.userData.expressId != null && !obj.userData.isHighlight) {
+        if (
+          obj instanceof THREE.Mesh &&
+          obj.userData.expressId != null &&
+          !obj.userData.isHighlight &&
+          !obj.userData.isSectionVisual
+        ) {
           meshes.push(obj);
         }
       });
@@ -634,20 +819,15 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     // Section tool: click face → position clip plane there
     if (activeTool === "section") {
+      if (wasDraggingRef.current) { wasDraggingRef.current = false; return; }
       if (hit?.faceNormal) {
-        const n = hit.faceNormal;
-        const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
-        let clipAxis: "x" | "y" | "z";
-        let clipFlip: boolean;
-        if (ax >= ay && ax >= az) {
-          clipAxis = "x"; clipFlip = n.x > 0;
-        } else if (ay >= ax && ay >= az) {
-          clipAxis = "y"; clipFlip = n.y > 0;
-        } else {
-          clipAxis = "z"; clipFlip = n.z > 0;
-        }
-        const clipPosition = hit.point[clipAxis];
-        useModelStore.getState().updateSettings({ clipAxis, clipPosition, clipFlip, clipPlanes: true });
+        const N = hit.faceNormal.clone().normalize();
+        const P = hit.point;
+        useModelStore.getState().updateSettings({
+          clipNormal: [N.x, N.y, N.z],
+          clipPoint:  [P.x, P.y, P.z],
+          clipPlanes: true,
+        });
       }
       return;
     }
@@ -668,6 +848,102 @@ export function ViewportContainer({ onElementClick }: Props) {
     scene.add(hl);
     highlightRef.current = hl as THREE.Mesh;
   }, [activeTool, raycastPoint, addSphere, addMeasurement, updateMeasureLabels, onElementClick]);
+
+  // ── Section handle drag ───────────────────────────────────────────────────
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const handle   = sectionHandleRef.current;
+    const renderer = rendererRef.current;
+    const camera   = cameraRef.current;
+    if (!handle || !renderer || !camera || !settings.clipPlanes) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width)  *  2 - 1,
+      -((e.clientY - rect.top)  / rect.height) *  2 + 1,
+    );
+    const raycaster = new THREE.Raycaster();
+    const activeCamera = useModelStore.getState().settings.orthographic
+      ? orthoCameraRef.current ?? camera : camera;
+    raycaster.setFromCamera(mouse, activeCamera);
+
+    const hits = raycaster.intersectObject(handle, false);
+    if (!hits.length) return;
+
+    // Build a "view plane" at the handle position for dragging
+    const camDir = new THREE.Vector3();
+    activeCamera.getWorldDirection(camDir);
+    const viewPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, handle.position);
+    const startIntersect = new THREE.Vector3();
+    raycaster.ray.intersectPlane(viewPlane, startIntersect);
+
+    isDraggingHandleRef.current  = true;
+    wasDraggingRef.current       = false;
+    dragViewPlaneRef.current     = viewPlane;
+    dragStartIntersectRef.current = startIntersect.clone();
+    dragStartClipPointRef.current = new THREE.Vector3(...useModelStore.getState().settings.clipPoint);
+
+    if (controlsRef.current) controlsRef.current.enabled = false;
+    e.stopPropagation();
+  }, [settings.clipPlanes]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDraggingHandleRef.current) return;
+    const renderer = rendererRef.current;
+    const camera   = cameraRef.current;
+    if (!renderer || !camera) return;
+
+    wasDraggingRef.current = true;
+    const rect = renderer.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width)  *  2 - 1,
+      -((e.clientY - rect.top)  / rect.height) *  2 + 1,
+    );
+    const raycaster = new THREE.Raycaster();
+    const activeCamera = useModelStore.getState().settings.orthographic
+      ? orthoCameraRef.current ?? camera : camera;
+    raycaster.setFromCamera(mouse, activeCamera);
+
+    const curIntersect = new THREE.Vector3();
+    if (!dragViewPlaneRef.current) return;
+    raycaster.ray.intersectPlane(dragViewPlaneRef.current, curIntersect);
+
+    const st = useModelStore.getState().settings;
+    const N = new THREE.Vector3(...st.clipNormal).normalize();
+    const delta = curIntersect.clone().sub(dragStartIntersectRef.current!);
+    const travel = delta.dot(N);  // project onto clip normal
+
+    const newP = dragStartClipPointRef.current!.clone().addScaledVector(N, travel);
+
+    // Directly update 3D visuals for smooth dragging (skip React state)
+    updateSectionPositions(N, newP);
+
+    // Update renderer clipping plane directly
+    const rend = rendererRef.current;
+    if (rend && rend.clippingPlanes.length > 0) {
+      rend.clippingPlanes[0].set(N, -N.dot(newP));
+    }
+  }, [updateSectionPositions]);
+
+  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDraggingHandleRef.current) return;
+    isDraggingHandleRef.current = false;
+    if (controlsRef.current) controlsRef.current.enabled = true;
+
+    // Persist final position to store
+    const handle = sectionHandleRef.current;
+    if (handle && wasDraggingRef.current) {
+      const st = useModelStore.getState().settings;
+      const N  = new THREE.Vector3(...st.clipNormal).normalize();
+      // Reconstruct P from handle position (reverse of offset applied in setup)
+      const handleR = (handle.geometry as THREE.SphereGeometry).parameters.radius;
+      const P = handle.position.clone().addScaledVector(N, -handleR * 1.5);
+      useModelStore.getState().updateSettings({
+        clipPoint: [P.x, P.y, P.z],
+      });
+    }
+    e.stopPropagation();
+  }, []);
 
   // ── Right-click context menu ──────────────────────────────────────────────
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -731,7 +1007,10 @@ export function ViewportContainer({ onElementClick }: Props) {
         className="w-full h-full"
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        style={{ cursor }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        style={{ cursor: isDraggingHandleRef.current ? "grabbing" : cursor }}
         data-viewport="main"
       />
 
@@ -757,6 +1036,22 @@ export function ViewportContainer({ onElementClick }: Props) {
         </div>
       ))}
 
+      {/* Section plane overlay — anchored to the 3D handle */}
+      {settings.clipPlanes && handleScreenPos && (
+        <SectionOverlay
+          screenPos={handleScreenPos}
+          onFlip={() => {
+            const st = useModelStore.getState().settings;
+            const N = new THREE.Vector3(...st.clipNormal).negate();
+            useModelStore.getState().updateSettings({ clipNormal: [N.x, N.y, N.z] });
+          }}
+          onClose={() => {
+            useModelStore.getState().updateSettings({ clipPlanes: false });
+            useModelStore.getState().setActiveTool("select");
+          }}
+        />
+      )}
+
       {/* Context menu */}
       {contextMenu && (
         <ContextMenu
@@ -775,6 +1070,48 @@ export function ViewportContainer({ onElementClick }: Props) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ── Section overlay ───────────────────────────────────────────────────────────
+
+function SectionOverlay({
+  screenPos, onFlip, onClose,
+}: {
+  screenPos: { x: number; y: number };
+  onFlip: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="absolute z-30 pointer-events-auto select-none"
+      style={{ left: screenPos.x, top: screenPos.y, transform: "translate(-50%, -130%)" }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-1 bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl px-2 py-1.5">
+        <span className="text-[10px] text-muted-foreground font-medium pr-1 border-r border-border mr-1">
+          Schnitt
+        </span>
+        <button
+          className="flex items-center gap-1 px-2 py-1 rounded text-[11px] hover:bg-muted/60 text-foreground transition-colors"
+          title="Schnittrichtung umkehren"
+          onClick={onFlip}
+        >
+          <FlipHorizontal2 size={12} />
+          <span>Spiegeln</span>
+        </button>
+        <div className="w-px h-4 bg-border mx-0.5" />
+        <button
+          className="p-1 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
+          title="Schnitt deaktivieren"
+          onClick={onClose}
+        >
+          <X size={12} />
+        </button>
+      </div>
+      {/* Connector line to the 3D handle */}
+      <div className="absolute left-1/2 top-full w-px h-3 bg-primary/50 -translate-x-1/2" />
     </div>
   );
 }
