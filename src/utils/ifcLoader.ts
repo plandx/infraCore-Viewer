@@ -4,7 +4,6 @@ import type { IFCModelEntry, PropertySet } from "../types/ifc";
 import {
   computeModelOffset,
   generateModelColor,
-  needsCoordinateShift,
 } from "./coordinateUtils";
 
 let ifcApiPromise: Promise<WebIFC.IfcAPI> | null = null;
@@ -152,16 +151,15 @@ export async function loadIFCFile(
 
   onProgress({ phase: `${meshCount} Meshes verarbeitet`, progress: 75 });
 
-  // Compute bounding box from raw geometry
+  // Compute bounding box from raw geometry (before any offset)
   const rawBbox = new THREE.Box3().setFromObject(group);
-  let originOffset = new THREE.Vector3();
   let newWorldOrigin = worldOrigin ?? new THREE.Vector3();
 
-  if (needsCoordinateShift(rawBbox) || worldOrigin) {
-    originOffset = computeModelOffset(rawBbox, worldOrigin);
-    if (!worldOrigin) newWorldOrigin = originOffset.clone();
-    group.position.sub(originOffset);
-  }
+  // Always shift to keep geometry near origin — infrastructure models routinely
+  // sit at national-grid coordinates (millions of metres) which break float32.
+  const originOffset = computeModelOffset(rawBbox, worldOrigin);
+  if (!worldOrigin) newWorldOrigin = originOffset.clone();
+  group.position.sub(originOffset);
 
   const bbox = new THREE.Box3().setFromObject(group);
 

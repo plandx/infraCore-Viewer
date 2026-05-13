@@ -133,20 +133,27 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
     }
 
-    // Add new models / update visibility
-    let firstNew = false;
+    // Add / replace / update models
     models.forEach((model) => {
-      if (!sceneModelIds.current.has(model.id)) {
-        // First time seeing this model — add to scene
+      const existing = scene.getObjectByName(`model:${model.id}`);
+
+      if (!existing) {
+        // ID not yet in scene — add (works for placeholder AND real mesh)
         model.mesh.name = `model:${model.id}`;
         model.mesh.userData.modelId = model.id;
         scene.add(model.mesh);
         sceneModelIds.current.add(model.id);
-        if (!firstNew && model.status === "loaded") {
-          firstNew = true;
-          // Schedule camera fit after scene has updated
-          requestAnimationFrame(() => fitAllLoaded());
-        }
+      } else if (existing !== model.mesh) {
+        // ID already in scene but mesh object changed (placeholder → real geometry)
+        scene.remove(existing);
+        model.mesh.name = `model:${model.id}`;
+        model.mesh.userData.modelId = model.id;
+        scene.add(model.mesh);
+      }
+
+      // Fit camera whenever a model finishes loading
+      if (model.status === "loaded" && existing !== model.mesh) {
+        requestAnimationFrame(() => fitAllLoaded());
       }
 
       // Always sync visibility

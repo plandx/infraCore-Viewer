@@ -11,7 +11,10 @@ import * as THREE from "three";
  * logical geo-coordinates are preserved in originOffset per model.
  */
 
-export const LARGE_COORD_THRESHOLD = 10_000;
+// Any model whose bounding-box center is further than this from the origin
+// gets shifted. 1 000 m is generous — infrastructure models often sit at
+// national-grid coordinates (millions of metres).
+export const LARGE_COORD_THRESHOLD = 1_000;
 
 export function computeModelOffset(
   bbox: THREE.Box3,
@@ -21,14 +24,16 @@ export function computeModelOffset(
   bbox.getCenter(center);
 
   if (!worldOrigin) {
-    // First model: use its center as the world origin
+    // First model: anchor the whole scene to its center
     return center.clone();
   }
-  // Subsequent models: keep using the established world origin
+  // Subsequent models: align to the established world origin so all models
+  // share the same coordinate space and fit together correctly
   return worldOrigin.clone();
 }
 
 export function needsCoordinateShift(bbox: THREE.Box3): boolean {
+  if (bbox.isEmpty()) return false;
   const center = new THREE.Vector3();
   bbox.getCenter(center);
   return (
