@@ -1,12 +1,17 @@
 import { create } from "zustand";
 import * as THREE from "three";
-import type { IFCModelEntry, SelectedElement, ViewerSettings } from "../types/ifc";
+import type { IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement } from "../types/ifc";
 
 interface ModelStore {
   models: Map<string, IFCModelEntry>;
   worldOrigin: THREE.Vector3 | null;
   selectedElement: SelectedElement | null;
   settings: ViewerSettings;
+  activeTool: ActiveTool;
+  hiddenElements: Set<string>;      // keys: `${modelId}:${expressId}`
+  isolatedElements: Set<string> | null; // null = show all; set = only these
+  measurements: Measurement[];
+  sqlPanelOpen: boolean;
 
   addModel: (model: IFCModelEntry) => void;
   removeModel: (id: string) => void;
@@ -14,12 +19,25 @@ interface ModelStore {
   setWorldOrigin: (origin: THREE.Vector3) => void;
   setSelected: (element: SelectedElement | null) => void;
   updateSettings: (patch: Partial<ViewerSettings>) => void;
+  setActiveTool: (tool: ActiveTool) => void;
+  hideElement: (modelId: string, expressId: number) => void;
+  showElement: (modelId: string, expressId: number) => void;
+  isolateElement: (modelId: string, expressId: number) => void;
+  showAll: () => void;
+  addMeasurement: (m: Measurement) => void;
+  clearMeasurements: () => void;
+  setSqlPanelOpen: (open: boolean) => void;
 }
 
 export const useModelStore = create<ModelStore>((set) => ({
   models: new Map(),
   worldOrigin: null,
   selectedElement: null,
+  activeTool: "select",
+  hiddenElements: new Set(),
+  isolatedElements: null,
+  measurements: [],
+  sqlPanelOpen: false,
   settings: {
     background: "#1a1b26",
     grid: true,
@@ -34,6 +52,7 @@ export const useModelStore = create<ModelStore>((set) => ({
     clipFlip: false,
     theme: "dark",
     showSpaces: false,
+    orthographic: false,
   },
 
   addModel: (model) =>
@@ -65,4 +84,33 @@ export const useModelStore = create<ModelStore>((set) => ({
 
   updateSettings: (patch) =>
     set((state) => ({ settings: { ...state.settings, ...patch } })),
+
+  setActiveTool: (tool) => set({ activeTool: tool }),
+
+  hideElement: (modelId, expressId) =>
+    set((state) => {
+      const next = new Set(state.hiddenElements);
+      next.add(`${modelId}:${expressId}`);
+      return { hiddenElements: next };
+    }),
+
+  showElement: (modelId, expressId) =>
+    set((state) => {
+      const next = new Set(state.hiddenElements);
+      next.delete(`${modelId}:${expressId}`);
+      return { hiddenElements: next };
+    }),
+
+  isolateElement: (modelId, expressId) =>
+    set({ isolatedElements: new Set([`${modelId}:${expressId}`]) }),
+
+  showAll: () =>
+    set({ hiddenElements: new Set(), isolatedElements: null }),
+
+  addMeasurement: (m) =>
+    set((state) => ({ measurements: [...state.measurements, m] })),
+
+  clearMeasurements: () => set({ measurements: [] }),
+
+  setSqlPanelOpen: (open) => set({ sqlPanelOpen: open }),
 }));

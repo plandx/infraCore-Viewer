@@ -10,6 +10,7 @@ import { PropertiesPanel } from "./components/PropertiesPanel";
 import { StatusBar } from "./components/StatusBar";
 import { LandingOverlay } from "./components/LandingOverlay";
 import { ClipPlaneControl } from "./components/ClipPlaneControl";
+import { SQLPanel } from "./components/SQLPanel";
 
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties } from "./utils/ifcLoader";
@@ -19,25 +20,90 @@ interface LoadState { phase: string; progress: number; fileName: string }
 
 export default function App() {
   const [loadStates, setLoadStates] = useState<Map<string, LoadState>>(new Map());
-  const { addModel, removeModel, updateModel, setWorldOrigin, setSelected, models, settings } = useModelStore();
+  const {
+    addModel, removeModel, updateModel, setWorldOrigin, setSelected,
+    models, settings, activeTool, setActiveTool, sqlPanelOpen, setSqlPanelOpen,
+    hideElement, showAll, selectedElement, clearMeasurements,
+  } = useModelStore();
 
   const activeLoads = loadStates.size;
   const hasModels = models.size > 0;
 
-  // Apply theme class to <html>
+  // Apply theme
   useEffect(() => {
     document.documentElement.classList.toggle("dark", settings.theme === "dark");
   }, [settings.theme]);
 
-  // Init dark mode on mount
   useEffect(() => {
     document.documentElement.classList.add("dark");
   }, []);
 
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+
+      // Always handle Escape
+      if (e.key === "Escape") {
+        if (activeTool === "measure") {
+          window.dispatchEvent(new Event("viewer:clearMeasure"));
+          clearMeasurements();
+          setActiveTool("select");
+        } else {
+          setSelected(null);
+        }
+        return;
+      }
+
+      if (isInput) return; // don't intercept typing in inputs
+
+      switch (e.key.toLowerCase()) {
+        case "f":
+          e.preventDefault();
+          window.dispatchEvent(new Event("viewer:fitAll"));
+          break;
+        case "s":
+          setActiveTool("select");
+          break;
+        case "m":
+          if (activeTool === "measure") {
+            window.dispatchEvent(new Event("viewer:clearMeasure"));
+            clearMeasurements();
+            setActiveTool("select");
+          } else {
+            setActiveTool("measure");
+          }
+          break;
+        case "c":
+          useModelStore.getState().updateSettings({ clipPlanes: !useModelStore.getState().settings.clipPlanes });
+          break;
+        case "q":
+          setSqlPanelOpen(!sqlPanelOpen);
+          break;
+        case "delete":
+        case "backspace":
+          if (selectedElement) {
+            hideElement(selectedElement.modelId, selectedElement.expressId);
+          }
+          break;
+        case "h":
+          if (selectedElement) hideElement(selectedElement.modelId, selectedElement.expressId);
+          break;
+        case "a":
+          if (e.shiftKey) showAll();
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeTool, selectedElement, sqlPanelOpen, setActiveTool, setSelected, clearMeasurements,
+      setSqlPanelOpen, hideElement, showAll]);
+
+  // ── File loading ──────────────────────────────────────────────────────────
   const handleFiles = useCallback(async (files: File[]) => {
     for (const file of files) {
       const id = uuidv4();
-
       const placeholder: IFCModelEntry = {
         id, name: file.name, file,
         mesh: new THREE.Group(),
@@ -71,9 +137,7 @@ export default function App() {
     }
   }, [addModel, updateModel, setWorldOrigin]);
 
-  const handleRemove = useCallback((id: string) => {
-    removeModel(id);
-  }, [removeModel]);
+  const handleRemove = useCallback((id: string) => removeModel(id), [removeModel]);
 
   const handleFitTo = useCallback((id: string) => {
     const model = useModelStore.getState().models.get(id);
@@ -104,7 +168,7 @@ export default function App() {
         loading={activeLoads > 0}
       />
 
-      {/* Loading progress bars */}
+      {/* Loading bars */}
       {activeLoads > 0 && (
         <div className="flex flex-col gap-px shrink-0">
           {Array.from(loadStates.entries()).map(([id, s]) => (
@@ -118,46 +182,56 @@ export default function App() {
         </div>
       )}
 
-      {/* Main: 3-column resizable layout */}
+      {/* Main 3-column layout */}
       <div className="flex-1 min-h-0">
         <PanelGroup orientation="horizontal" className="h-full">
 
-          {/* Left: Hierarchy */}
           <Panel defaultSize={20} minSize={12} collapsible>
             <div className="h-full overflow-hidden border-r border-border">
-              <HierarchyPanel onFitTo={handleFitTo} onRemove={handleRemove} onSelectElement={handleElementClick} />
+              <HierarchyPanel
+                onFitTo={handleFitTo}
+                onRemove={handleRemove}
+                onSelectElement={handleElementClick}
+              />
             </div>
           </Panel>
 
           <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-          {/* Center: Viewport */}
           <Panel defaultSize={58} minSize={30}>
-            <div className="h-full relative overflow-hidden">
-              <ViewportContainer onElementClick={handleElementClick} />
-              <ClipPlaneControl />
+            <div className="h-full relative overflow-hidden flex flex-col">
+              {/* 3D Viewport */}
+              <div className="flex-1 relative overflow-hidden min-h-0">
+                <ViewportContainer onElementClick={handleElementClick} />
+                <ClipPlaneControl />
 
-              {/* Landing overlay when no models */}
-              {!hasModels && activeLoads === 0 && (
-                <LandingOverlay onOpenFiles={handleFiles} loading={false} />
-              )}
+                {!hasModels && activeLoads === 0 && (
+                  <LandingOverlay onOpenFiles={handleFiles} loading={false} />
+                )}
 
-              {/* Per-file loading info overlay */}
-              {activeLoads > 0 && (
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col gap-2 pointer-events-none">
-                  {Array.from(loadStates.entries()).map(([id, s]) => (
-                    <div key={id} className="bg-card/90 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 shadow-xl text-xs min-w-[280px]">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin shrink-0" />
-                        <span className="text-foreground font-medium truncate">{s.fileName}</span>
-                        <span className="text-muted-foreground ml-auto shrink-0">{s.progress}%</span>
+                {activeLoads > 0 && (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col gap-2 pointer-events-none">
+                    {Array.from(loadStates.entries()).map(([id, s]) => (
+                      <div key={id} className="bg-card/90 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 shadow-xl text-xs min-w-[280px]">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin shrink-0" />
+                          <span className="text-foreground font-medium truncate">{s.fileName}</span>
+                          <span className="text-muted-foreground ml-auto shrink-0">{s.progress}%</span>
+                        </div>
+                        <div className="h-1 bg-border rounded-full overflow-hidden">
+                          <div className="h-full bg-primary rounded-full transition-all duration-200" style={{ width: `${s.progress}%` }} />
+                        </div>
+                        <p className="text-muted-foreground mt-1">{s.phase}</p>
                       </div>
-                      <div className="h-1 bg-border rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full transition-all duration-200" style={{ width: `${s.progress}%` }} />
-                      </div>
-                      <p className="text-muted-foreground mt-1">{s.phase}</p>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* SQL Panel (bottom of viewport column) */}
+              {sqlPanelOpen && (
+                <div className="h-64 shrink-0 border-t border-border">
+                  <SQLPanel />
                 </div>
               )}
             </div>
@@ -165,7 +239,6 @@ export default function App() {
 
           <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-          {/* Right: Properties */}
           <Panel defaultSize={22} minSize={14} collapsible>
             <div className="h-full overflow-hidden border-l border-border panel-container">
               <PropertiesPanel />
@@ -175,7 +248,6 @@ export default function App() {
         </PanelGroup>
       </div>
 
-      {/* Status bar */}
       <StatusBar />
     </div>
   );

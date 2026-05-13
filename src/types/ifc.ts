@@ -1,5 +1,14 @@
 import * as THREE from "three";
 
+export type ActiveTool = "select" | "measure" | "section";
+
+export interface Measurement {
+  id: string;
+  a: { x: number; y: number; z: number };
+  b: { x: number; y: number; z: number };
+  distance: number;
+}
+
 export interface SpatialNode {
   expressId: number;
   type: string;
@@ -83,4 +92,5 @@ export interface ViewerSettings {
   clipFlip: boolean;
   theme: "light" | "dark";
   showSpaces: boolean;
+  orthographic: boolean;
 }

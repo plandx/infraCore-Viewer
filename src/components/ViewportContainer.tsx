@@ -1,10 +1,18 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { useModelStore } from "../store/modelStore";
+import { v4 as uuidv4 } from "uuid";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
+}
+
+interface MeasureLabel {
+  x: number;
+  y: number;
+  text: string;
 }
 
 export function ViewportContainer({ onElementClick }: Props) {
@@ -12,15 +20,37 @@ export function ViewportContainer({ onElementClick }: Props) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const orthoCameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const rafRef = useRef<number>(0);
   const highlightRef = useRef<THREE.Mesh | null>(null);
   const clipHelperRef = useRef<THREE.PlaneHelper | null>(null);
-  // Track which model IDs are already in the scene to avoid double-add
   const sceneModelIds = useRef<Set<string>>(new Set());
+
+  // Measurement state
+  const measureLinesRef = useRef<THREE.Line[]>([]);
+  const measureSpheresRef = useRef<THREE.Mesh[]>([]);
+  const pendingPointRef = useRef<THREE.Vector3 | null>(null);
+  const measureMidpointsRef = useRef<Array<{ a: THREE.Vector3; b: THREE.Vector3 }>>([]);
+  const [measureLabels, setMeasureLabels] = useState<MeasureLabel[]>([]);
+  const [measurePending, setMeasurePending] = useState(false);
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number; y: number; modelId: string; expressId: number;
+  } | null>(null);
 
   const models = useModelStore((s) => s.models);
   const settings = useModelStore((s) => s.settings);
+  const activeTool = useModelStore((s) => s.activeTool);
+  const hiddenElements = useModelStore((s) => s.hiddenElements);
+  const isolatedElements = useModelStore((s) => s.isolatedElements);
+  const selectedElement = useModelStore((s) => s.selectedElement);
+  const addMeasurement = useModelStore((s) => s.addMeasurement);
+  const clearMeasurements = useModelStore((s) => s.clearMeasurements);
+  const hideElement = useModelStore((s) => s.hideElement);
+  const isolateElement = useModelStore((s) => s.isolateElement);
+  const showAll = useModelStore((s) => s.showAll);
 
   // ── Init scene ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -29,7 +59,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
-      logarithmicDepthBuffer: true, // essential for 20 km scenes
+      logarithmicDepthBuffer: true,
       alpha: false,
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -37,16 +67,27 @@ export function ViewportContainer({ onElementClick }: Props) {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.localClippingEnabled = true;
     mount.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#1a1b26"); // tokyo-storm
+    scene.background = new THREE.Color("#1a1b26");
     sceneRef.current = scene;
 
+    // Perspective camera
     const camera = new THREE.PerspectiveCamera(60, mount.clientWidth / mount.clientHeight, 0.01, 500_000);
     camera.position.set(50, 50, 100);
     cameraRef.current = camera;
+
+    // Orthographic camera (same starting frustum, updated on resize)
+    const aspect = mount.clientWidth / mount.clientHeight;
+    const orthoSize = 100;
+    const ortho = new THREE.OrthographicCamera(
+      -orthoSize * aspect, orthoSize * aspect, orthoSize, -orthoSize, 0.01, 500_000
+    );
+    ortho.position.copy(camera.position);
+    orthoCameraRef.current = ortho;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -84,7 +125,16 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!running) return;
       rafRef.current = requestAnimationFrame(animate);
       controls.update();
-      renderer.render(scene, camera);
+      const isOrtho = useModelStore.getState().settings.orthographic;
+      const activeCamera = isOrtho ? orthoCameraRef.current! : camera;
+
+      // Sync ortho camera position/target to perspective controls
+      if (isOrtho) {
+        ortho.position.copy(camera.position);
+        ortho.quaternion.copy(camera.quaternion);
+      }
+
+      renderer.render(scene, activeCamera);
     };
     animate();
 
@@ -95,6 +145,11 @@ export function ViewportContainer({ onElementClick }: Props) {
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      const a = w / h;
+      const s = orthoSize;
+      ortho.left = -s * a; ortho.right = s * a;
+      ortho.top = s; ortho.bottom = -s;
+      ortho.updateProjectionMatrix();
     });
     ro.observe(mount);
 
@@ -119,10 +174,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     if (!settings.clipPlanes) {
       renderer.clippingPlanes = [];
-      if (clipHelperRef.current) {
-        scene.remove(clipHelperRef.current);
-        clipHelperRef.current = null;
-      }
+      if (clipHelperRef.current) { scene.remove(clipHelperRef.current); clipHelperRef.current = null; }
       return;
     }
 
@@ -135,19 +187,16 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (settings.clipFlip) normal.negate();
     const constant = settings.clipFlip ? -settings.clipPosition : settings.clipPosition;
     const plane = new THREE.Plane(normal, constant);
-
     renderer.clippingPlanes = [plane];
 
-    // Replace plane helper
     if (clipHelperRef.current) scene.remove(clipHelperRef.current);
-    const helperSize = 2000;
-    const helper = new THREE.PlaneHelper(plane, helperSize, 0x7aa2f7);
+    const helper = new THREE.PlaneHelper(plane, 2000, 0x7aa2f7);
     helper.name = "__clipHelper";
     scene.add(helper);
     clipHelperRef.current = helper;
   }, [settings.clipPlanes, settings.clipAxis, settings.clipPosition, settings.clipFlip]);
 
-  // ── Sync scene background ─────────────────────────────────────────────────
+  // ── Grid / axes visibility ────────────────────────────────────────────────
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
@@ -157,12 +206,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (axes) axes.visible = settings.axes ?? true;
   }, [settings.grid, settings.axes]);
 
-  // ── Sync models into scene (FIXED multi-model logic) ─────────────────────
+  // ── Sync models into scene ────────────────────────────────────────────────
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // Remove groups that are no longer in the store
     const storeIds = new Set(models.keys());
     for (const id of Array.from(sceneModelIds.current)) {
       if (!storeIds.has(id)) {
@@ -172,35 +220,101 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
     }
 
-    // Add / replace / update models
     models.forEach((model) => {
       const existing = scene.getObjectByName(`model:${model.id}`);
 
       if (!existing) {
-        // ID not yet in scene — add (works for placeholder AND real mesh)
         model.mesh.name = `model:${model.id}`;
         model.mesh.userData.modelId = model.id;
         scene.add(model.mesh);
         sceneModelIds.current.add(model.id);
       } else if (existing !== model.mesh) {
-        // ID already in scene but mesh object changed (placeholder → real geometry)
         scene.remove(existing);
         model.mesh.name = `model:${model.id}`;
         model.mesh.userData.modelId = model.id;
         scene.add(model.mesh);
       }
 
-      // Fit camera whenever a model finishes loading
       if (model.status === "loaded" && existing !== model.mesh) {
         requestAnimationFrame(() => fitAllLoaded());
       }
 
-      // Always sync visibility
+      // Model-level visibility
       const sceneObj = scene.getObjectByName(`model:${model.id}`);
       if (sceneObj) sceneObj.visible = model.visible;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models]);
+
+  // ── Element-level visibility (hide/isolate) ───────────────────────────────
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const state = useModelStore.getState();
+
+    scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
+      if (!obj.userData.expressId) return; // skip non-element meshes (highlight clones etc.)
+
+      let modelId = "";
+      let node: THREE.Object3D | null = obj;
+      while (node) {
+        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
+        node = node.parent;
+      }
+      if (!modelId) return;
+
+      const model = state.models.get(modelId);
+      if (!model || !model.visible) return;
+
+      const key = `${modelId}:${obj.userData.expressId}`;
+      if (state.isolatedElements !== null) {
+        obj.visible = state.isolatedElements.has(key);
+      } else {
+        obj.visible = !state.hiddenElements.has(key);
+      }
+    });
+  }, [hiddenElements, isolatedElements, models]);
+
+  // ── Highlight selected element (from hierarchy or viewport click) ─────────
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    if (highlightRef.current) { scene.remove(highlightRef.current); highlightRef.current = null; }
+    if (!selectedElement) return;
+
+    let targetMesh: THREE.Mesh | null = null;
+    scene.traverse((obj) => {
+      if (targetMesh) return;
+      if (
+        obj instanceof THREE.Mesh &&
+        obj.userData.expressId === selectedElement.expressId &&
+        !obj.userData.isHighlight
+      ) {
+        // Verify it belongs to the right model
+        let node: THREE.Object3D | null = obj;
+        while (node) {
+          if (node.userData.modelId === selectedElement.modelId) {
+            targetMesh = obj as THREE.Mesh;
+            break;
+          }
+          node = node.parent;
+        }
+      }
+    });
+
+    if (!targetMesh) return;
+
+    const hl = (targetMesh as THREE.Mesh).clone();
+    (hl as THREE.Mesh).material = new THREE.MeshLambertMaterial({
+      color: 0x7aa2f7, transparent: true, opacity: 0.55, depthTest: false,
+    });
+    hl.renderOrder = 999;
+    hl.userData = { isHighlight: true };
+    scene.add(hl);
+    highlightRef.current = hl as THREE.Mesh;
+  }, [selectedElement]);
 
   // ── Camera fit helpers ────────────────────────────────────────────────────
   const fitCameraToBox = useCallback((box: THREE.Box3) => {
@@ -218,13 +332,25 @@ export function ViewportContainer({ onElementClick }: Props) {
     const distance = (maxDim / (2 * Math.tan(fov / 2))) * 1.6;
 
     camera.position.copy(center).addScaledVector(
-      new THREE.Vector3(1, 0.7, 1).normalize(),
-      distance
+      new THREE.Vector3(1, 0.7, 1).normalize(), distance
     );
     controls.target.copy(center);
     camera.near = Math.max(0.01, distance * 0.0001);
     camera.far = distance * 250;
     camera.updateProjectionMatrix();
+
+    // Sync ortho frustum to same scale
+    const ortho = orthoCameraRef.current;
+    if (ortho) {
+      const aspect = (rendererRef.current?.domElement.clientWidth ?? 1) /
+                     (rendererRef.current?.domElement.clientHeight ?? 1);
+      const s = maxDim * 0.8;
+      ortho.left = -s * aspect; ortho.right = s * aspect;
+      ortho.top = s; ortho.bottom = -s;
+      ortho.position.copy(camera.position);
+      ortho.updateProjectionMatrix();
+    }
+
     controls.update();
   }, []);
 
@@ -236,81 +362,400 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (!allBox.isEmpty()) fitCameraToBox(allBox);
   }, [fitCameraToBox]);
 
-  // Global events
+  // ── Camera preset views ───────────────────────────────────────────────────
+  const setPresetView = useCallback((preset: string) => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+
+    const allBox = new THREE.Box3();
+    useModelStore.getState().models.forEach((m) => {
+      if (m.visible && !m.boundingBox.isEmpty()) allBox.union(m.boundingBox);
+    });
+    if (allBox.isEmpty()) return;
+
+    const center = new THREE.Vector3();
+    const size = new THREE.Vector3();
+    allBox.getCenter(center);
+    allBox.getSize(size);
+    const d = Math.max(size.x, size.y, size.z) * 1.5;
+
+    const dirs: Record<string, THREE.Vector3> = {
+      top:   new THREE.Vector3(0, d, 0),
+      bottom:new THREE.Vector3(0, -d, 0),
+      front: new THREE.Vector3(0, 0, d),
+      back:  new THREE.Vector3(0, 0, -d),
+      left:  new THREE.Vector3(-d, 0, 0),
+      right: new THREE.Vector3(d, 0, 0),
+    };
+
+    const dir = dirs[preset];
+    if (!dir) return;
+    camera.position.copy(center).add(dir);
+    controls.target.copy(center);
+    camera.up.set(0, preset === "top" || preset === "bottom" ? 0 : 1,
+                      preset === "top" ? -1 : preset === "bottom" ? 1 : 0);
+    camera.lookAt(center);
+    camera.updateProjectionMatrix();
+    controls.update();
+  }, []);
+
+  // ── Global events ─────────────────────────────────────────────────────────
   useEffect(() => {
     const onFitAll = () => fitAllLoaded();
     const onFitTo = (e: Event) => {
       const box = (e as CustomEvent<THREE.Box3>).detail;
       if (box) fitCameraToBox(box);
     };
+    const onPreset = (e: Event) => {
+      const preset = (e as CustomEvent<string>).detail;
+      setPresetView(preset);
+    };
+    const onExportGLTF = () => exportGLTF();
+    const onScreenshot = () => takeScreenshot();
+    const onClearMeasure = () => clearMeasure();
+
     window.addEventListener("viewer:fitAll", onFitAll);
     window.addEventListener("viewer:fitTo", onFitTo);
+    window.addEventListener("viewer:preset", onPreset);
+    window.addEventListener("viewer:exportGLTF", onExportGLTF);
+    window.addEventListener("viewer:screenshot", onScreenshot);
+    window.addEventListener("viewer:clearMeasure", onClearMeasure);
     return () => {
       window.removeEventListener("viewer:fitAll", onFitAll);
       window.removeEventListener("viewer:fitTo", onFitTo);
+      window.removeEventListener("viewer:preset", onPreset);
+      window.removeEventListener("viewer:exportGLTF", onExportGLTF);
+      window.removeEventListener("viewer:screenshot", onScreenshot);
+      window.removeEventListener("viewer:clearMeasure", onClearMeasure);
     };
-  }, [fitAllLoaded, fitCameraToBox]);
+  }, [fitAllLoaded, fitCameraToBox, setPresetView]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Raycasting ───────────────────────────────────────────────────────────
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const renderer = rendererRef.current;
+  // ── Measure label update (on controls change) ─────────────────────────────
+  const updateMeasureLabels = useCallback(() => {
     const camera = cameraRef.current;
-    const scene = sceneRef.current;
-    if (!renderer || !camera || !scene) return;
+    const renderer = rendererRef.current;
+    if (!camera || !renderer || measureMidpointsRef.current.length === 0) return;
 
     const rect = renderer.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1,
-    );
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, camera);
-
-    // Collect all selectable meshes
-    const meshes: THREE.Mesh[] = [];
-    scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh && obj.userData.expressId != null) meshes.push(obj);
+    const labels: MeasureLabel[] = measureMidpointsRef.current.map(({ a, b }) => {
+      const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+      const proj = mid.clone().project(camera);
+      const x = ((proj.x + 1) / 2) * rect.width;
+      const y = (-(proj.y - 1) / 2) * rect.height;
+      const dist = a.distanceTo(b);
+      const text = dist >= 1 ? `${dist.toFixed(3)} m` : `${(dist * 100).toFixed(1)} cm`;
+      return { x, y, text };
     });
+    setMeasureLabels(labels);
+  }, []);
 
-    const hits = raycaster.intersectObjects(meshes, false);
-    if (!hits.length) return;
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    controls.addEventListener("change", updateMeasureLabels);
+    return () => controls.removeEventListener("change", updateMeasureLabels);
+  }, [updateMeasureLabels]);
 
-    const hitMesh = hits[0].object as THREE.Mesh;
-    const expressId = hitMesh.userData.expressId as number;
+  // ── Measurement helper functions ──────────────────────────────────────────
+  const clearMeasure = useCallback(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    measureLinesRef.current.forEach((l) => scene.remove(l));
+    measureSpheresRef.current.forEach((s) => scene.remove(s));
+    measureLinesRef.current = [];
+    measureSpheresRef.current = [];
+    measureMidpointsRef.current = [];
+    pendingPointRef.current = null;
+    setMeasureLabels([]);
+    setMeasurePending(false);
+    clearMeasurements();
+  }, [clearMeasurements]);
 
-    // Find owning model by walking up the parent chain
-    let modelId = "";
-    let node: THREE.Object3D | null = hitMesh;
-    while (node) {
-      if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
-      node = node.parent;
+  const addSphere = useCallback((pos: THREE.Vector3) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0x7aa2f7, depthTest: false })
+    );
+    sphere.position.copy(pos);
+    sphere.renderOrder = 999;
+    scene.add(sphere);
+    measureSpheresRef.current.push(sphere);
+  }, []);
+
+  // ── Raycasting helper ─────────────────────────────────────────────────────
+  const raycastPoint = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>): { mesh: THREE.Mesh; point: THREE.Vector3; expressId: number; modelId: string } | null => {
+      const renderer = rendererRef.current;
+      const camera = cameraRef.current;
+      const scene = sceneRef.current;
+      if (!renderer || !camera || !scene) return null;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, camera);
+
+      const meshes: THREE.Mesh[] = [];
+      scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh && obj.userData.expressId != null && !obj.userData.isHighlight) {
+          meshes.push(obj);
+        }
+      });
+
+      const hits = raycaster.intersectObjects(meshes, false);
+      if (!hits.length) return null;
+
+      const hit = hits[0];
+      const hitMesh = hit.object as THREE.Mesh;
+      const expressId = hitMesh.userData.expressId as number;
+
+      let modelId = "";
+      let node: THREE.Object3D | null = hitMesh;
+      while (node) {
+        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
+        node = node.parent;
+      }
+
+      return { mesh: hitMesh, point: hit.point, expressId, modelId };
+    },
+    []
+  );
+
+  // ── Left click handler ────────────────────────────────────────────────────
+  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    setContextMenu(null);
+
+    const hit = raycastPoint(e);
+
+    if (activeTool === "measure") {
+      // Measure needs a 3D point even on empty space — use a large plane
+      const renderer = rendererRef.current;
+      const camera = cameraRef.current;
+      const scene = sceneRef.current;
+      if (!renderer || !camera || !scene) return;
+
+      let point: THREE.Vector3;
+      if (hit) {
+        point = hit.point;
+      } else {
+        // Project onto Y=0 plane
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const target = new THREE.Vector3();
+        if (!raycaster.ray.intersectPlane(plane, target)) return;
+        point = target;
+      }
+
+      if (!pendingPointRef.current) {
+        // First click: store point A
+        pendingPointRef.current = point.clone();
+        addSphere(point);
+        setMeasurePending(true);
+      } else {
+        // Second click: complete measurement
+        const a = pendingPointRef.current;
+        const b = point.clone();
+        addSphere(b);
+
+        // Draw line
+        const geo = new THREE.BufferGeometry().setFromPoints([a, b]);
+        const mat = new THREE.LineDashedMaterial({
+          color: 0x7aa2f7, dashSize: 0.3, gapSize: 0.15, linewidth: 2,
+        });
+        const line = new THREE.Line(geo, mat);
+        line.computeLineDistances();
+        line.renderOrder = 998;
+        scene.add(line);
+        measureLinesRef.current.push(line);
+
+        measureMidpointsRef.current.push({ a, b });
+        pendingPointRef.current = null;
+        setMeasurePending(false);
+
+        const dist = a.distanceTo(b);
+        addMeasurement({ id: uuidv4(), a: { x: a.x, y: a.y, z: a.z }, b: { x: b.x, y: b.y, z: b.z }, distance: dist });
+        updateMeasureLabels();
+      }
+      return;
     }
 
-    if (!modelId) return;
+    if (!hit) return;
 
-    onElementClick(modelId, expressId);
+    // Select tool: highlight + load properties
+    const scene = sceneRef.current!;
+    onElementClick(hit.modelId, hit.expressId);
 
-    // Highlight
     if (highlightRef.current) scene.remove(highlightRef.current);
-    const hl = hitMesh.clone();
-    (hl.material as THREE.MeshLambertMaterial) = new THREE.MeshLambertMaterial({
-      color: 0x7aa2f7,
-      transparent: true, opacity: 0.55, depthTest: false,
+    const hl = hit.mesh.clone();
+    (hl as THREE.Mesh).material = new THREE.MeshLambertMaterial({
+      color: 0x7aa2f7, transparent: true, opacity: 0.55, depthTest: false,
     });
     hl.renderOrder = 999;
-    hl.userData = {};
+    hl.userData = { isHighlight: true };
     scene.add(hl);
-    highlightRef.current = hl;
-  }, [onElementClick]);
+    highlightRef.current = hl as THREE.Mesh;
+  }, [activeTool, raycastPoint, addSphere, addMeasurement, updateMeasureLabels, onElementClick]);
+
+  // ── Right-click context menu ──────────────────────────────────────────────
+  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const hit = raycastPoint(e);
+    if (!hit) { setContextMenu(null); return; }
+    setContextMenu({ x: e.clientX, y: e.clientY, modelId: hit.modelId, expressId: hit.expressId });
+  }, [raycastPoint]);
+
+  // ── Export helpers ────────────────────────────────────────────────────────
+  const exportGLTF = useCallback(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const exporter = new GLTFExporter();
+    const meshes: THREE.Object3D[] = [];
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.userData.expressId != null && !obj.userData.isHighlight) {
+        meshes.push(obj);
+      }
+    });
+    if (meshes.length === 0) return;
+
+    const group = new THREE.Group();
+    meshes.forEach((m) => group.add(m.clone()));
+
+    exporter.parse(group, (result) => {
+      const blob = new Blob([result as ArrayBuffer], { type: "model/gltf-binary" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "modell.glb";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, (err) => console.error("[GLTFExporter]", err), { binary: true });
+  }, []);
+
+  const takeScreenshot = useCallback(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera) return;
+    renderer.render(scene, camera);
+    renderer.domElement.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `infracore-${Date.now()}.png`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  }, []);
+
+  // Cursor style per tool
+  const cursor = activeTool === "measure" ? "crosshair" : "default";
+
+  return (
+    <div className="w-full h-full relative">
+      <div
+        ref={mountRef}
+        className="w-full h-full"
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        style={{ cursor }}
+        data-viewport="main"
+      />
+
+      {/* Measurement hint */}
+      {activeTool === "measure" && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div className="bg-card/90 backdrop-blur border border-border rounded-full px-4 py-1.5 text-xs text-foreground">
+            {measurePending ? "Zweiten Punkt klicken · Esc = Abbrechen" : "Ersten Punkt klicken"}
+          </div>
+        </div>
+      )}
+
+      {/* Measure labels */}
+      {measureLabels.map((lbl, i) => (
+        <div
+          key={i}
+          className="absolute pointer-events-none bg-primary text-primary-foreground text-[11px] font-mono px-2 py-0.5 rounded shadow-lg"
+          style={{ left: lbl.x, top: lbl.y, transform: "translate(-50%, -100%)" }}
+        >
+          {lbl.text}
+        </div>
+      ))}
+
+      {/* Context menu */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          modelId={contextMenu.modelId}
+          expressId={contextMenu.expressId}
+          onClose={() => setContextMenu(null)}
+          onHide={() => { hideElement(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
+          onIsolate={() => { isolateElement(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
+          onShowAll={() => { showAll(); setContextMenu(null); }}
+          onFit={() => {
+            const model = useModelStore.getState().models.get(contextMenu.modelId);
+            if (model) window.dispatchEvent(new CustomEvent("viewer:fitTo", { detail: model.boundingBox }));
+            setContextMenu(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Context menu component ────────────────────────────────────────────────────
+
+function ContextMenu({
+  x, y, modelId, expressId, onClose, onHide, onIsolate, onShowAll, onFit,
+}: {
+  x: number; y: number; modelId: string; expressId: number;
+  onClose: () => void; onHide: () => void; onIsolate: () => void;
+  onShowAll: () => void; onFit: () => void;
+}) {
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener("click", handler, { once: true });
+    return () => window.removeEventListener("click", handler);
+  }, [onClose]);
 
   return (
     <div
-      ref={mountRef}
-      className="w-full h-full"
-      onClick={handleClick}
-      style={{ cursor: "crosshair" }}
-      data-viewport="main"
-    />
+      className="absolute z-50 bg-popover border border-border rounded-md shadow-xl text-xs min-w-[160px]"
+      style={{ left: x, top: y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="px-3 py-1.5 text-muted-foreground/60 text-[10px] border-b border-border font-mono">
+        #{expressId}
+      </div>
+      <button className="w-full text-left px-3 py-2 hover:bg-muted/60 text-foreground" onClick={onIsolate}>
+        Isolieren
+      </button>
+      <button className="w-full text-left px-3 py-2 hover:bg-muted/60 text-foreground" onClick={onHide}>
+        Ausblenden
+      </button>
+      <button className="w-full text-left px-3 py-2 hover:bg-muted/60 text-foreground" onClick={onShowAll}>
+        Alles einblenden
+      </button>
+      <div className="border-t border-border" />
+      <button className="w-full text-left px-3 py-2 hover:bg-muted/60 text-foreground" onClick={onFit}>
+        Modell einpassen
+      </button>
+      <div className="px-3 py-1.5 text-muted-foreground/40 text-[10px]">
+        Modell: {modelId.slice(0, 8)}…
+      </div>
+    </div>
   );
 }
