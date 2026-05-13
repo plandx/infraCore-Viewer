@@ -61,6 +61,7 @@ export default function App() {
         if (!currentOrigin) setWorldOrigin(newWorldOrigin);
         updateModel(id, { ...entry, id, status: "loaded" });
       } catch (err) {
+        console.error("[IFC Loader] Fehler beim Laden:", file.name, err);
         updateModel(id, { status: "error", error: String(err) });
       } finally {
         setLoadStates(p => { const n = new Map(p); n.delete(id); return n; });

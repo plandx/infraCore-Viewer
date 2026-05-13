@@ -50,7 +50,7 @@ function getIfcApi(): Promise<WebIFC.IfcAPI> {
 
     return api;
   })().catch((err) => {
-    // Reset so the next load attempt can retry
+    console.error("[web-ifc] Init fehlgeschlagen:", err);
     ifcApiPromise = null;
     throw err;
   });
