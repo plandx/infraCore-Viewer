@@ -1,216 +1,335 @@
 import { useState } from "react";
-import { ChevronRight, ChevronDown, Eye, EyeOff, Trash2, Focus, Layers } from "lucide-react";
-import * as THREE from "three";
-import { useModelStore } from "../store/modelStore";
+import {
+  ChevronRight, ChevronDown, Eye, EyeOff,
+  Trash2, Focus, Layers, LayoutList,
+} from "lucide-react";
 import { cn } from "../lib/utils";
-import { formatBytes, getSceneExtentKm } from "../utils/coordinateUtils";
-import type { IFCModelEntry } from "../types/ifc";
+import { useModelStore } from "../store/modelStore";
+import { formatBytes } from "../utils/coordinateUtils";
+import type { IFCModelEntry, SpatialNode, ElementNode } from "../types/ifc";
+
+type View = "spatial" | "type";
 
 interface Props {
   onFitTo: (id: string) => void;
   onRemove: (id: string) => void;
+  onSelectElement: (modelId: string, expressId: number) => void;
 }
 
-export function HierarchyPanel({ onFitTo, onRemove }: Props) {
+export function HierarchyPanel({ onFitTo, onRemove, onSelectElement }: Props) {
   const models = useModelStore((s) => s.models);
   const updateModel = useModelStore((s) => s.updateModel);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const selectedElement = useModelStore((s) => s.selectedElement);
+  const [view, setView] = useState<View>("spatial");
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
 
   const arr = Array.from(models.values());
 
   if (arr.length === 0) {
     return (
       <div className="flex flex-col h-full">
-        <PanelHeader title="Modelle" icon={<Layers size={14} />} />
+        <Header view={view} onView={setView} />
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground p-6 text-center">
-          <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-border flex items-center justify-center">
-            <Layers size={24} className="opacity-30" />
+          <div className="w-14 h-14 rounded-xl border-2 border-dashed border-border flex items-center justify-center">
+            <Layers size={22} className="opacity-30" />
           </div>
           <div>
             <p className="text-sm font-medium">Keine Modelle geladen</p>
-            <p className="text-xs mt-1 opacity-60">IFC-Dateien über die Toolbar öffnen</p>
+            <p className="text-xs mt-1 opacity-60">Öffne eine IFC-Datei über die Toolbar</p>
           </div>
         </div>
       </div>
     );
   }
 
+  const toggleModelExpand = (id: string) =>
+    setExpandedModels((p) => {
+      const n = new Set(p);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
   return (
     <div className="flex flex-col h-full">
-      <PanelHeader
-        title={`Modelle (${arr.length})`}
-        icon={<Layers size={14} />}
-        actions={
-          arr.length > 1 ? (
-            <button
-              className="toolbar-button p-1"
-              title="Alle Modelle anzeigen"
-              onClick={() => arr.forEach(m => updateModel(m.id, { visible: true }))}
-            >
-              <Eye size={13} />
-            </button>
-          ) : null
-        }
-      />
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {arr.map((model) => (
-          <ModelTreeItem
-            key={model.id}
-            model={model}
-            expanded={expanded.has(model.id)}
-            onToggleExpand={() => setExpanded(prev => {
-              const next = new Set(prev);
-              next.has(model.id) ? next.delete(model.id) : next.add(model.id);
-              return next;
-            })}
-            onToggleVisible={() => updateModel(model.id, { visible: !model.visible })}
-            onFitTo={() => onFitTo(model.id)}
-            onRemove={() => onRemove(model.id)}
-            onOpacityChange={(v) => {
-              updateModel(model.id, { opacity: v });
-              model.mesh.traverse((obj) => {
-                if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshLambertMaterial) {
-                  obj.material.opacity = v;
-                  obj.material.transparent = v < 1;
-                  obj.material.needsUpdate = true;
-                }
-              });
-            }}
-          />
-        ))}
+      <Header view={view} onView={setView} />
+
+      <div className="flex-1 overflow-y-auto scrollbar-thin text-[12px]">
+        {arr.map((model) => {
+          const isExpanded = expandedModels.has(model.id);
+          return (
+            <div key={model.id} className="border-b border-border/40">
+              {/* Model row */}
+              <div
+                className={cn(
+                  "flex items-center gap-1.5 px-2 py-1.5 cursor-pointer select-none",
+                  "hover:bg-muted/40 group"
+                )}
+                onClick={() => toggleModelExpand(model.id)}
+              >
+                <span className="text-muted-foreground shrink-0">
+                  {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </span>
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20"
+                  style={{ backgroundColor: model.color }}
+                />
+                <span className="flex-1 truncate font-semibold text-foreground" title={model.name}>
+                  {model.name}
+                </span>
+                <span className="text-muted-foreground/60 text-[10px] shrink-0">
+                  {formatBytes(model.size)}
+                </span>
+
+                {/* Hover actions */}
+                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                  onClick={(e) => e.stopPropagation()}>
+                  <button className="toolbar-button p-0.5" title="Zu Modell zoomen"
+                    onClick={() => onFitTo(model.id)}>
+                    <Focus size={11} />
+                  </button>
+                  <button className="toolbar-button p-0.5" title={model.visible ? "Ausblenden" : "Einblenden"}
+                    onClick={() => updateModel(model.id, { visible: !model.visible })}>
+                    {model.visible ? <Eye size={11} /> : <EyeOff size={11} />}
+                  </button>
+                  <button className="toolbar-button p-0.5 hover:text-destructive" title="Entfernen"
+                    onClick={() => onRemove(model.id)}>
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Model content */}
+              {isExpanded && (
+                <div className="pl-3">
+                  {view === "spatial"
+                    ? <SpatialView model={model} selectedId={selectedElement?.expressId} onSelect={(eid) => onSelectElement(model.id, eid)} />
+                    : <TypeView model={model} selectedId={selectedElement?.expressId} onSelect={(eid) => onSelectElement(model.id, eid)} />
+                  }
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function ModelTreeItem({
-  model, expanded, onToggleExpand, onToggleVisible, onFitTo, onRemove, onOpacityChange,
-}: {
+// ── Spatial Tree View ─────────────────────────────────────────────────────────
+
+function SpatialView({ model, selectedId, onSelect }: {
   model: IFCModelEntry;
-  expanded: boolean;
-  onToggleExpand: () => void;
-  onToggleVisible: () => void;
-  onFitTo: () => void;
-  onRemove: () => void;
-  onOpacityChange: (v: number) => void;
+  selectedId?: number;
+  onSelect: (eid: number) => void;
 }) {
-  const extent = getSceneExtentKm(model.boundingBox);
-  const isLoading = model.status === "loading";
-  const isError = model.status === "error";
+  if (!model.spatialTree) {
+    return <p className="px-3 py-3 text-muted-foreground text-[11px]">Keine Raumstruktur verfügbar</p>;
+  }
+  return (
+    <SpatialTreeNode node={model.spatialTree} depth={0} selectedId={selectedId} onSelect={onSelect} />
+  );
+}
+
+function SpatialTreeNode({ node, depth, selectedId, onSelect }: {
+  node: SpatialNode;
+  depth: number;
+  selectedId?: number;
+  onSelect: (eid: number) => void;
+}) {
+  const [open, setOpen] = useState(depth < 2);
+  const hasChildren = node.children.length > 0;
+  const isSelected = selectedId === node.expressId;
+
+  const isSpatialContainer = [
+    "IFCSITE", "IFCBUILDING", "IFCBUILDINGSTOREY",
+    "IFCSPACE", "IFCBRIDGEPART", "IFCFACILITYPART",
+  ].includes(node.type);
 
   return (
-    <div className={cn(
-      "border-b border-border/50 last:border-0",
-      !model.visible && "opacity-50",
-      isError && "border-l-2 border-l-destructive"
-    )}>
-      {/* Row */}
-      <div className={cn(
-        "tree-node hierarchy-item group",
-        isLoading && "animate-pulse"
-      )}>
-        <button
-          className="shrink-0 text-muted-foreground hover:text-foreground"
-          onClick={onToggleExpand}
-        >
-          {expanded
-            ? <ChevronDown size={14} />
-            : <ChevronRight size={14} />}
-        </button>
-
-        {/* Color dot */}
-        <div
-          className="shrink-0 w-2.5 h-2.5 rounded-full ring-1 ring-border"
-          style={{ backgroundColor: model.color }}
-        />
-
-        <span className="flex-1 text-xs truncate text-foreground" title={model.name}>
-          {model.name}
+    <div>
+      <div
+        className={cn(
+          "flex items-center gap-1 py-[3px] pr-2 cursor-pointer rounded-sm",
+          "hover:bg-muted/40 hierarchy-item",
+          isSelected && "selected bg-primary/10 border-l-2 border-l-primary"
+        )}
+        style={{ paddingLeft: `${depth * 12 + 4}px` }}
+        onClick={() => {
+          if (hasChildren) setOpen((o) => !o);
+          onSelect(node.expressId);
+        }}
+      >
+        {/* Expand icon */}
+        <span className="shrink-0 text-muted-foreground w-3.5">
+          {hasChildren
+            ? (open ? <ChevronDown size={11} /> : <ChevronRight size={11} />)
+            : null}
         </span>
 
-        {/* Status */}
-        {isLoading && (
-          <div className="w-3 h-3 border border-primary/40 border-t-primary rounded-full animate-spin shrink-0" />
-        )}
-        {isError && (
-          <span className="text-[10px] text-destructive shrink-0">Fehler</span>
-        )}
+        {/* Type icon */}
+        <span className="shrink-0 text-[10px] font-mono text-muted-foreground/60 w-5 text-center">
+          {typeIcon(node.type)}
+        </span>
 
-        {/* Actions (hover) */}
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button className="toolbar-button p-0.5" onClick={onFitTo} title="Zu Modell zoomen">
-            <Focus size={12} />
-          </button>
-          <button className="toolbar-button p-0.5" onClick={onToggleVisible} title={model.visible ? "Ausblenden" : "Einblenden"}>
-            {model.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-          </button>
-          <button className="toolbar-button p-0.5 hover:text-destructive" onClick={onRemove} title="Entfernen">
-            <Trash2 size={12} />
-          </button>
-        </div>
+        <span className={cn(
+          "flex-1 truncate",
+          isSpatialContainer ? "text-foreground font-medium" : "text-foreground/80"
+        )}>
+          {node.name}
+        </span>
+
+        {/* Element count badge */}
+        {hasChildren && (
+          <span className="text-[9px] text-muted-foreground/50 shrink-0">
+            {countLeaves(node)}
+          </span>
+        )}
       </div>
 
-      {/* Expanded details */}
-      {expanded && (
-        <div className="px-6 py-2 bg-muted/30 text-xs space-y-2">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-            <span>Größe</span>     <span className="text-foreground">{formatBytes(model.size)}</span>
-            <span>Ausdehnung</span> <span className="text-foreground">{extent}</span>
-            <span>Status</span>
-            <span className={cn(
-              model.status === "loaded" && "text-green-400",
-              model.status === "loading" && "text-primary",
-              model.status === "error" && "text-destructive",
-            )}>
-              {model.status === "loaded" ? "Geladen" : model.status === "loading" ? "Lädt…" : "Fehler"}
-            </span>
-            {model.originOffset.lengthSq() > 0 && (
-              <>
-                <span>Koordinaten-Offset</span>
-                <span className="text-foreground font-mono text-[10px]">
-                  {model.originOffset.x.toFixed(0)}, {model.originOffset.y.toFixed(0)}
-                </span>
-              </>
-            )}
-          </div>
-
-          {/* Opacity */}
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Transparenz</span>
-            <input
-              type="range" min={0} max={1} step={0.05}
-              value={model.opacity}
-              onChange={(e) => onOpacityChange(parseFloat(e.target.value))}
-              className="flex-1 accent-primary h-1"
+      {open && hasChildren && (
+        <div>
+          {node.children.map((child) => (
+            <SpatialTreeNode
+              key={child.expressId}
+              node={child}
+              depth={depth + 1}
+              selectedId={selectedId}
+              onSelect={onSelect}
             />
-            <span className="text-foreground w-8 text-right">{Math.round(model.opacity * 100)}%</span>
-          </div>
-
-          {/* Color */}
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Farbe</span>
-            <input
-              type="color" value={model.color}
-              onChange={(e) => useModelStore.getState().updateModel(model.id, { color: e.target.value })}
-              className="w-6 h-6 rounded cursor-pointer border border-border bg-transparent p-0"
-            />
-          </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function PanelHeader({ title, icon, actions }: {
-  title: string;
-  icon?: React.ReactNode;
-  actions?: React.ReactNode;
+// ── By-Type View ──────────────────────────────────────────────────────────────
+
+function TypeView({ model, selectedId, onSelect }: {
+  model: IFCModelEntry;
+  selectedId?: number;
+  onSelect: (eid: number) => void;
 }) {
+  const groups = Object.entries(model.elementsByType).sort(([a], [b]) => a.localeCompare(b));
+  if (groups.length === 0) {
+    return <p className="px-3 py-3 text-muted-foreground text-[11px]">Keine Elemente gefunden</p>;
+  }
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30 shrink-0">
-      {icon && <span className="text-muted-foreground">{icon}</span>}
-      <span className="text-xs font-semibold text-foreground flex-1">{title}</span>
-      {actions}
+    <div>
+      {groups.map(([typeName, elements]) => (
+        <TypeGroup
+          key={typeName}
+          typeName={typeName}
+          elements={elements}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
+      ))}
     </div>
   );
+}
+
+function TypeGroup({ typeName, elements, selectedId, onSelect }: {
+  typeName: string;
+  elements: ElementNode[];
+  selectedId?: number;
+  onSelect: (eid: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-1.5 px-2 py-[3px] cursor-pointer hover:bg-muted/40 select-none"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="text-muted-foreground shrink-0">
+          {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        </span>
+        <span className="flex-1 text-foreground font-medium">{typeName}</span>
+        <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 rounded shrink-0">
+          {elements.length}
+        </span>
+      </div>
+
+      {open && (
+        <div>
+          {elements.map((el) => {
+            const isSelected = selectedId === el.expressId;
+            return (
+              <div
+                key={el.expressId}
+                className={cn(
+                  "flex items-center gap-1.5 pl-7 pr-2 py-[3px] cursor-pointer",
+                  "hover:bg-muted/40 hierarchy-item",
+                  isSelected && "selected bg-primary/10 border-l-2 border-l-primary"
+                )}
+                onClick={() => onSelect(el.expressId)}
+              >
+                <span className="flex-1 truncate text-foreground/80" title={el.name}>
+                  {el.name}
+                </span>
+                <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0">
+                  #{el.expressId}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Header ────────────────────────────────────────────────────────────────────
+
+function Header({ view, onView }: { view: View; onView: (v: View) => void }) {
+  return (
+    <div className="shrink-0 border-b border-border">
+      <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+        <Layers size={13} className="text-muted-foreground" />
+        <span className="text-xs font-semibold text-foreground flex-1">Projektstruktur</span>
+      </div>
+      <div className="flex border-b border-border bg-[var(--tabs-bg)]">
+        {([
+          { id: "spatial" as View, label: "Räumlich",   icon: <Layers size={11} /> },
+          { id: "type"    as View, label: "Nach Typ",   icon: <LayoutList size={11} /> },
+        ]).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => onView(t.id)}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium transition-colors",
+              "border-t-2",
+              view === t.id
+                ? "border-t-primary bg-[var(--tab-active-bg)] text-[var(--tab-active-text)]"
+                : "border-t-transparent text-[var(--tab-text)] hover:text-foreground"
+            )}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function typeIcon(type: string): string {
+  const icons: Record<string, string> = {
+    IFCSITE: "⬡",
+    IFCBUILDING: "⬜",
+    IFCBUILDINGSTOREY: "▬",
+    IFCSPACE: "□",
+    IFCBRIDGEPART: "⌒",
+    IFCFACILITYPART: "◈",
+  };
+  return icons[type] ?? "·";
+}
+
+function countLeaves(node: SpatialNode): number {
+  if (node.children.length === 0) return 0;
+  return node.children.reduce((sum, c) => sum + Math.max(1, countLeaves(c)), 0);
 }

@@ -45,6 +45,7 @@ export default function App() {
         originOffset: new THREE.Vector3(),
         properties: {}, loadedAt: new Date(),
         size: file.size, status: "loading",
+        spatialTree: null, elementsByType: {},
       };
       addModel(placeholder);
       setLoadStates(p => new Map(p).set(id, { phase: "Initialisieren", progress: 0, fileName: file.name }));
@@ -123,7 +124,7 @@ export default function App() {
           {/* Left: Hierarchy */}
           <Panel defaultSize={20} minSize={12} collapsible>
             <div className="h-full overflow-hidden border-r border-border">
-              <HierarchyPanel onFitTo={handleFitTo} onRemove={handleRemove} />
+              <HierarchyPanel onFitTo={handleFitTo} onRemove={handleRemove} onSelectElement={handleElementClick} />
             </div>
           </Panel>
 

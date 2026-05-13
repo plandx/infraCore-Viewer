@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import * as WebIFC from "web-ifc";
-import type { IFCModelEntry, PropertySet } from "../types/ifc";
+import type { IFCModelEntry, PropertySet, SpatialNode, ElementNode } from "../types/ifc";
 import {
   computeModelOffset,
   generateModelColor,
@@ -163,7 +163,10 @@ export async function loadIFCFile(
 
   const bbox = new THREE.Box3().setFromObject(group);
 
-  onProgress({ phase: "Abschließen", progress: 90 });
+  onProgress({ phase: "Struktur extrahieren", progress: 80 });
+  const { spatialTree, elementsByType } = await extractStructure(api, modelId);
+
+  onProgress({ phase: "Abschließen", progress: 95 });
   api.CloseModel(modelId);
   onProgress({ phase: "Fertig", progress: 100 });
 
@@ -177,6 +180,8 @@ export async function loadIFCFile(
     boundingBox: bbox,
     originOffset,
     properties: {},
+    spatialTree,
+    elementsByType,
     loadedAt: new Date(),
     size: file.size,
     status: "loaded",
@@ -245,4 +250,103 @@ export async function loadIFCProperties(
   }
 
   return { properties: props, psets };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Spatial structure + element-type extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** IFC types that represent elements (not spatial containers) */
+const ELEMENT_TYPES: Record<number, string> = {
+  [WebIFC.IFCWALL]:              "Wand",
+  [WebIFC.IFCWALLSTANDARDCASE]: "Wand",
+  [WebIFC.IFCBEAM]:              "Träger",
+  [WebIFC.IFCCOLUMN]:            "Stütze",
+  [WebIFC.IFCSLAB]:              "Decke/Platte",
+  [WebIFC.IFCDOOR]:              "Tür",
+  [WebIFC.IFCWINDOW]:            "Fenster",
+  [WebIFC.IFCROOF]:              "Dach",
+  [WebIFC.IFCSTAIR]:             "Treppe",
+  [WebIFC.IFCSTAIRFLIGHT]:       "Treppenflug",
+  [WebIFC.IFCRAILING]:           "Geländer",
+  [WebIFC.IFCSPACE]:             "Raum",
+  [WebIFC.IFCPLATE]:             "Platte",
+  [WebIFC.IFCMEMBER]:            "Bauteil",
+  [WebIFC.IFCFOOTING]:           "Fundament",
+  [WebIFC.IFCPILE]:              "Pfahl",
+  [WebIFC.IFCCOVERING]:          "Verkleidung",
+  [WebIFC.IFCFURNISHINGELEMENT]: "Möbel",
+  [WebIFC.IFCFLOWSEGMENT]:       "Leitungssegment",
+  [WebIFC.IFCPIPESEGMENT]:       "Rohr",
+  [WebIFC.IFCDUCTFITTING]:       "Lüftungsformstück",
+  [WebIFC.IFCDUCTSEGMENT]:       "Lüftungskanal",
+  [WebIFC.IFCCABLEFITTING]:      "Kabelformstück",
+  [WebIFC.IFCCABLESEGMENT]:      "Kabel",
+  [WebIFC.IFCBUILDINGELEMENTPROXY]: "Generisches Element",
+  [WebIFC.IFCCIVILELEMENT]:      "Infrastrukturelement",
+  [WebIFC.IFCTRANSPORTELEMENT]:  "Fördertechnik",
+};
+
+function getLabel(line: Record<string, unknown> | null): string {
+  if (!line) return "";
+  const name = (line.Name as { value?: string } | undefined)?.value
+    ?? (line.LongName as { value?: string } | undefined)?.value
+    ?? "";
+  return name.trim();
+}
+
+async function extractStructure(
+  api: WebIFC.IfcAPI,
+  modelId: number
+): Promise<{ spatialTree: SpatialNode | null; elementsByType: Record<string, ElementNode[]> }> {
+  const elementsByType: Record<string, ElementNode[]> = {};
+
+  // ── 1. Spatial tree ──────────────────────────────────────────────────────
+  let spatialTree: SpatialNode | null = null;
+  try {
+    const raw = await api.properties.getSpatialStructure(modelId, false);
+
+    function convert(node: { expressID: number; type: string; children?: unknown[] }): SpatialNode {
+      const line = api.GetLine(modelId, node.expressID) as Record<string, unknown> | null;
+      const children: SpatialNode[] = (node.children ?? []).map((c) =>
+        convert(c as { expressID: number; type: string; children?: unknown[] })
+      );
+      return {
+        expressId: node.expressID,
+        type: node.type,
+        name: getLabel(line) || node.type,
+        children,
+      };
+    }
+
+    spatialTree = convert(raw as { expressID: number; type: string; children?: unknown[] });
+  } catch (e) {
+    console.warn("[IFC] Spatial structure extraction failed:", e);
+  }
+
+  // ── 2. Elements by type ──────────────────────────────────────────────────
+  for (const [typeNum, label] of Object.entries(ELEMENT_TYPES)) {
+    try {
+      const ids = api.GetLineIDsWithType(modelId, Number(typeNum));
+      if (ids.size() === 0) continue;
+
+      const nodes: ElementNode[] = [];
+      for (let i = 0; i < ids.size(); i++) {
+        const eid = ids.get(i);
+        const line = api.GetLine(modelId, eid) as Record<string, unknown> | null;
+        nodes.push({
+          expressId: eid,
+          type: label,
+          name: getLabel(line) || `${label} #${eid}`,
+        });
+      }
+      if (nodes.length > 0) {
+        elementsByType[label] = (elementsByType[label] ?? []).concat(nodes);
+      }
+    } catch {
+      // type not in this model — skip silently
+    }
+  }
+
+  return { spatialTree, elementsByType };
 }
