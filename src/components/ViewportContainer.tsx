@@ -767,6 +767,10 @@ export function ViewportContainer({ onElementClick }: Props) {
       const box = (e as CustomEvent<THREE.Box3>).detail;
       if (box) fitCameraToBox(box);
     };
+    const onZoomToElement = (e: Event) => {
+      const { modelId, expressId } = (e as CustomEvent<{ modelId: string; expressId: number }>).detail;
+      ctxZoomTo(modelId, expressId);
+    };
     const onPreset = (e: Event) => {
       const preset = (e as CustomEvent<string>).detail;
       setPresetView(preset);
@@ -777,6 +781,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     window.addEventListener("viewer:fitAll", onFitAll);
     window.addEventListener("viewer:fitTo", onFitTo);
+    window.addEventListener("viewer:zoomToElement", onZoomToElement);
     window.addEventListener("viewer:preset", onPreset);
     window.addEventListener("viewer:exportGLTF", onExportGLTF);
     window.addEventListener("viewer:screenshot", onScreenshot);
@@ -784,12 +789,13 @@ export function ViewportContainer({ onElementClick }: Props) {
     return () => {
       window.removeEventListener("viewer:fitAll", onFitAll);
       window.removeEventListener("viewer:fitTo", onFitTo);
+      window.removeEventListener("viewer:zoomToElement", onZoomToElement);
       window.removeEventListener("viewer:preset", onPreset);
       window.removeEventListener("viewer:exportGLTF", onExportGLTF);
       window.removeEventListener("viewer:screenshot", onScreenshot);
       window.removeEventListener("viewer:clearMeasure", onClearMeasure);
     };
-  }, [fitAllLoaded, fitCameraToBox, setPresetView]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fitAllLoaded, fitCameraToBox, ctxZoomTo, setPresetView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Measure label update (on controls change) ─────────────────────────────
   const updateMeasureLabels = useCallback(() => {

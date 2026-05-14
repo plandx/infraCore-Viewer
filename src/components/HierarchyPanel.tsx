@@ -438,6 +438,10 @@ function SpatialTreeNode({ node, depth, modelId, multiSelected, activeKey, expan
           const childKeys = hasChildren ? collectSpatialElementKeys(node, modelId) : undefined;
           onItemClick(modelId, node.expressId, e, childKeys);
         }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent("viewer:zoomToElement", { detail: { modelId, expressId: node.expressId } }));
+        }}
       >
         <span className="shrink-0 text-muted-foreground w-3.5">
           {hasChildren ? (isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />) : null}
@@ -565,6 +569,7 @@ function TypeGroup({ typeName, elements, modelId, multiSelected, activeKey, expa
                   (isHidden || isDimmedByIsolation) && "opacity-40"
                 )}
                 onClick={(e) => onItemClick(modelId, el.expressId, e)}
+                onDoubleClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent("viewer:zoomToElement", { detail: { modelId, expressId: el.expressId } })); }}
               >
                 <span className="flex-1 truncate text-foreground/80" title={el.name}>{el.name}</span>
                 <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0">#{el.expressId}</span>
