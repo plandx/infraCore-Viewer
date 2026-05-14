@@ -86,9 +86,9 @@ export function SecondaryWindow({ panel }: { panel: string }) {
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden text-xs">
       {/* Slim title bar */}
       <div className="flex items-center gap-2 h-8 px-3 shrink-0 border-b border-border bg-card/80 select-none">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-primary shrink-0">
-          <polygon points="12,2 22,8 22,16 12,22 2,16 2,8" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-          <polygon points="12,7 17,10 17,14 12,17 7,14 7,10" fill="currentColor" opacity="0.3"/>
+        <svg width="14" height="14" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[2px]">
+          <rect width="32" height="32" rx="5" fill="#E8312A"/>
+          <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
         </svg>
         <span className="font-semibold text-[11px] text-foreground">infraCore</span>
         <span className="text-muted-foreground text-[10px]">·</span>

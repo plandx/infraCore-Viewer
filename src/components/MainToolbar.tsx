@@ -78,9 +78,9 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
       <div className="flex items-center h-11 px-3 gap-1 border-b bg-card text-card-foreground shrink-0 select-none">
         {/* Logo */}
         <div className="flex items-center gap-2 pr-3 mr-1 border-r border-border">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-primary">
-            <polygon points="12,2 22,8 22,16 12,22 2,16 2,8" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-            <polygon points="12,7 17,10 17,14 12,17 7,14 7,10" fill="currentColor" opacity="0.3"/>
+          <svg width="20" height="20" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[4px]">
+            <rect width="32" height="32" rx="5" fill="#E8312A"/>
+            <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
           </svg>
           <span className="font-bold text-sm tracking-tight text-foreground">infraCore</span>
           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-medium">IFC Viewer</span>
@@ -376,9 +376,9 @@ function InfoModal({ onClose }: { onClose: () => void }) {
       <div className="bg-card border border-border rounded-xl shadow-2xl p-6 w-[400px] max-w-full" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="text-primary">
-              <polygon points="12,2 22,8 22,16 12,22 2,16 2,8" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-              <polygon points="12,7 17,10 17,14 12,17 7,14 7,10" fill="currentColor" opacity="0.3"/>
+            <svg width="22" height="22" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[4px]">
+              <rect width="32" height="32" rx="5" fill="#E8312A"/>
+              <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
             </svg>
             <span className="font-bold text-sm">infraCore IFC Viewer</span>
           </div>
@@ -386,7 +386,9 @@ function InfoModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="text-xs text-muted-foreground space-y-1 mb-4">
-          <p>Basierend auf web-ifc 0.0.77 + Three.js</p>
+          <p className="font-medium text-foreground">IFC Viewer by iC consulenten ZT GmbH</p>
+          <p className="text-[11px]">Kompetenzbereich VDC</p>
+          <p className="pt-1">Basierend auf web-ifc 0.0.77 + Three.js</p>
           <p>Unterstützt Multi-Modell-Ansichten und große Koordinatensysteme (bis 20 km)</p>
         </div>
 
@@ -400,6 +402,7 @@ function InfoModal({ onClose }: { onClose: () => void }) {
               ["C", "Schnittebene"],
               ["Q", "SQL-Panel"],
               ["L", "Lens Rules"],
+              ["V", "SmartViews"],
               ["Esc", "Abbrechen / Deselektieren"],
               ["Entf", "Auswahl ausblenden"],
             ].map(([key, desc]) => (
