@@ -58,6 +58,11 @@ function useSecondarySync() {
 export function SecondaryWindow({ panel }: { panel: string }) {
   useSecondarySync();
 
+  const theme = useModelStore((s) => s.settings.theme);
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, [theme]);
+
   // Load properties locally so the secondary's own PropertiesPanel works.
   // The state sync broadcasts the selection (including properties) to main.
   const handleElementClick = useCallback(async (modelId: string, expressId: number) => {
