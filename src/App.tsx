@@ -12,6 +12,7 @@ import { LandingOverlay } from "./components/LandingOverlay";
 import { ClipPlaneControl } from "./components/ClipPlaneControl";
 import { SQLPanel } from "./components/SQLPanel";
 import { ListPanel } from "./components/ListPanel";
+import { SelectionBasket } from "./components/SelectionBasket";
 
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
@@ -316,6 +317,11 @@ function MainApp() {
               <div className="flex-1 relative overflow-hidden min-h-0">
                 <ViewportContainer onElementClick={handleElementClick} />
                 <ClipPlaneControl />
+
+                {/* Selection basket — floating bottom-left */}
+                <div className="absolute bottom-4 left-3 z-30 pointer-events-auto">
+                  <SelectionBasket />
+                </div>
 
                 {!hasModels && activeLoads === 0 && (
                   <LandingOverlay onOpenFiles={handleFiles} loading={false} />
