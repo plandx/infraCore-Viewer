@@ -84,15 +84,13 @@ export function SecondaryWindow({ panel }: { panel: string }) {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden text-xs">
-      {/* Slim title bar */}
-      <div className="flex items-center gap-2 h-8 px-3 shrink-0 border-b border-border bg-card/80 select-none">
-        <svg width="14" height="14" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[2px]">
+      {/* Title bar */}
+      <div className="flex items-center gap-2.5 h-10 px-3 shrink-0 border-b border-border bg-card select-none">
+        <svg width="16" height="16" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[3px]">
           <rect width="32" height="32" rx="5" fill="#E8312A"/>
           <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
         </svg>
-        <span className="font-semibold text-[11px] text-foreground">infraCore</span>
-        <span className="text-muted-foreground text-[10px]">·</span>
-        <span className="text-muted-foreground text-[10px]">
+        <span className="font-bold text-sm text-foreground">
           {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage" }[panelType] ?? panel}
         </span>
         <div className="flex-1" />
