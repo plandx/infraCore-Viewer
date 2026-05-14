@@ -58,6 +58,9 @@ Interne Features:
 - Sichtbarkeits-Toggle pro Element (Auge-Icon)
 - Ausblenden / Isolieren via Kontext-Buttons
 - Farb-/Opazitäts-Regler pro Modell
+- **Mehrfachauswahl**: Shift+Klick fügt Elemente zur Auswahl hinzu; Shift+Klick auf zweites Element = Bereichsauswahl (alle sichtbaren Einträge zwischen Anker und Ziel in DFS-Reihenfolge)
+- **Aktionsleiste** (erscheint bei ≥2 Auswahl): Alle ausblenden / Alle isolieren / In Auswahlkorb / Auswahl aufheben
+- Expand-State des Spatial-Baums ist nach oben gehoben (für Bereichsauswahl nötig), Default-offen: Tiefe 0 und 1
 
 ---
 
