@@ -30,6 +30,7 @@
     "three": "^0.184.0",
     "uuid": "^14.0.0",
     "web-ifc": "^0.0.77",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.13"
   },
   "devDependencies": {

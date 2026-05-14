@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X, Download, FileDown, Table2, Loader2, Check, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import * as XLSX from "xlsx";
+import { X, Download, Upload, Table2, Loader2, Check, TriangleAlert, Info } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { loadBasketProperties } from "../utils/ifcLoader";
-import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
 import type { PropertySet } from "../types/ifc";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -15,53 +15,46 @@ interface EditorRow {
   expressId: number;
   name: string;
   type: string;
+  globalId: string;
   directProps: Record<string, unknown>;
   psets: PropertySet[];
 }
 
 interface EditorCol {
-  key: string;    // "AttrName" or "PsetName.PropName"
-  label: string;  // short label (part after last ".")
-  group: string;  // "Direkte Attribute" or pset name
-}
-
-interface ColGroup {
+  key: string;
   label: string;
-  span: number;
-  sticky?: boolean;
+  group: string;
 }
 
-// ── Constants ────────────────────────────────────────────────────────────────
+interface ImportResult {
+  applied: number;
+  skipped: number;
+  notFound: string[];
+}
 
-const COL_W_NAME   = 200;
-const COL_W_TYPE   = 130;
-const COL_W_MODEL  = 160;
-const COL_W_PROP   = 160;
-const FROZEN_COLS  = 3;
-const FROZEN_W     = COL_W_NAME + COL_W_TYPE + COL_W_MODEL;
-
+// Fixed info columns that are always first in the sheet
+const INFO_COLS = ["GlobalId", "Name", "Typ", "Modell"];
 const PRIO_DIRECT = ["Name", "Description", "ObjectType", "Tag", "GlobalId"];
 
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function BasketEditor({ onClose }: { onClose: () => void }) {
-  const models          = useModelStore((s) => s.models);
-  const selectionBasket = useModelStore((s) => s.selectionBasket);
+  const models             = useModelStore((s) => s.models);
+  const selectionBasket    = useModelStore((s) => s.selectionBasket);
   const applyPropertyEdits = useModelStore((s) => s.applyPropertyEdits);
 
-  const [rows, setRows]                 = useState<EditorRow[]>([]);
-  const [columns, setColumns]           = useState<EditorCol[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [loadMsg, setLoadMsg]           = useState("");
-  const [edits, setEdits]               = useState<Map<string, string>>(new Map());
-  const [editingCell, setEditingCell]   = useState<{ rowKey: string; colKey: string } | null>(null);
-  const [editValue, setEditValue]       = useState("");
-  const [exporting, setExporting]       = useState(false);
-  const [saved, setSaved]               = useState(false);
-  const [exportError, setExportError]   = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows]             = useState<EditorRow[]>([]);
+  const [columns, setColumns]       = useState<EditorCol[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [loadMsg, setLoadMsg]       = useState("");
+  const [exporting, setExporting]   = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError, setImportError]   = useState<string | null>(null);
+  const [importing, setImporting]       = useState(false);
 
-  // ── Load ──────────────────────────────────────────────────────────────────
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Load basket properties ────────────────────────────────────────────────
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +62,6 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
     async function load() {
       setLoading(true);
 
-      // Group basket keys by model
       const byModel = new Map<string, number[]>();
       for (const key of selectionBasket) {
         const colon = key.indexOf(":");
@@ -97,6 +89,7 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
             const el = elements.find((e) => e.expressId === eid);
             if (el) { name = el.name; type = typeName; break; }
           }
+          const directProps = data?.properties ?? {};
           newRows.push({
             key: `${modelId}:${eid}`,
             modelId,
@@ -104,7 +97,8 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
             expressId: eid,
             name,
             type,
-            directProps: data?.properties ?? {},
+            globalId: String(directProps["GlobalId"] ?? ""),
+            directProps,
             psets: data?.psets ?? [],
           });
         }
@@ -112,7 +106,7 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
 
       if (cancelled) return;
 
-      // ── Build columns ──────────────────────────────────────────────────────
+      // Build property columns
       const directSet = new Set<string>();
       const psetMap   = new Map<string, Set<string>>();
 
@@ -127,10 +121,10 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
       }
 
       const cols: EditorCol[] = [];
-      const seenDirect = new Set<string>();
+      const seen = new Set<string>();
       for (const k of [...PRIO_DIRECT, ...Array.from(directSet).sort()]) {
-        if (directSet.has(k) && !seenDirect.has(k)) {
-          seenDirect.add(k);
+        if (directSet.has(k) && !seen.has(k)) {
+          seen.add(k);
           cols.push({ key: k, label: k, group: "Direkte Attribute" });
         }
       }
@@ -153,31 +147,9 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-focus input when editing starts
-  useEffect(() => {
-    if (editingCell) inputRef.current?.focus();
-  }, [editingCell]);
+  // ── Cell value helper ─────────────────────────────────────────────────────
 
-  // ── Column groups for header ──────────────────────────────────────────────
-
-  const colGroups = useMemo<ColGroup[]>(() => {
-    const groups: ColGroup[] = [
-      { label: "Element", span: FROZEN_COLS, sticky: true },
-    ];
-    let i = 0;
-    while (i < columns.length) {
-      const g = columns[i].group;
-      let span = 0;
-      while (i + span < columns.length && columns[i + span].group === g) span++;
-      groups.push({ label: g, span });
-      i += span;
-    }
-    return groups;
-  }, [columns]);
-
-  // ── Cell helpers ──────────────────────────────────────────────────────────
-
-  const getOriginalValue = useCallback((row: EditorRow, colKey: string): string => {
+  const getCellValue = useCallback((row: EditorRow, colKey: string): string => {
     if (colKey.includes(".")) {
       const dot      = colKey.indexOf(".");
       const psetName = colKey.slice(0, dot);
@@ -190,159 +162,210 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
     return val != null ? String(val) : "";
   }, []);
 
-  const getCellValue = useCallback((row: EditorRow, colKey: string): string => {
-    const editKey = `${row.key}:${colKey}`;
-    return edits.has(editKey) ? edits.get(editKey)! : getOriginalValue(row, colKey);
-  }, [edits, getOriginalValue]);
+  // ── XLSX Export ───────────────────────────────────────────────────────────
 
-  const isEdited = useCallback((row: EditorRow, colKey: string) =>
-    edits.has(`${row.key}:${colKey}`), [edits]);
-
-  // ── Edit lifecycle ────────────────────────────────────────────────────────
-
-  function startEdit(row: EditorRow, colKey: string) {
-    setEditingCell({ rowKey: row.key, colKey });
-    setEditValue(getCellValue(row, colKey));
-  }
-
-  function commitEdit() {
-    if (!editingCell) return;
-    const editKey = `${editingCell.rowKey}:${editingCell.colKey}`;
-    const row = rows.find((r) => r.key === editingCell.rowKey);
-    const original = row ? getOriginalValue(row, editingCell.colKey) : "";
-    setEdits((prev) => {
-      const next = new Map(prev);
-      if (editValue === original) {
-        next.delete(editKey); // revert to original
-      } else {
-        next.set(editKey, editValue);
-      }
-      return next;
-    });
-    setEditingCell(null);
-  }
-
-  function cancelEdit() { setEditingCell(null); }
-
-  function handleCellKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
-    if (e.key === "Escape") cancelEdit();
-    if (e.key === "Tab")   { e.preventDefault(); commitEdit(); }
-  }
-
-  // ── Actions ───────────────────────────────────────────────────────────────
-
-  function handleApply() {
-    const editList: Array<{ modelId: string; expressId: number; key: string; value: string }> = [];
-    for (const [editKey, value] of edits) {
-      const row = rows.find((r) => editKey.startsWith(r.key + ":"));
-      if (!row) continue;
-      const colKey = editKey.slice(row.key.length + 1);
-      editList.push({ modelId: row.modelId, expressId: row.expressId, key: colKey, value });
-    }
-    applyPropertyEdits(editList);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
-  async function handleExportIFC() {
+  function handleExport() {
     setExporting(true);
-    setExportError(null);
     try {
-      // Group edits by modelId → expressId
-      const byModel = new Map<string, Map<number, Record<string, string>>>();
-      for (const [editKey, value] of edits) {
-        const row = rows.find((r) => editKey.startsWith(r.key + ":"));
-        if (!row) continue;
-        const colKey = editKey.slice(row.key.length + 1);
-        if (!byModel.has(row.modelId)) byModel.set(row.modelId, new Map());
-        const eidMap = byModel.get(row.modelId)!;
-        eidMap.set(row.expressId, { ...(eidMap.get(row.expressId) ?? {}), [colKey]: value });
+      // Header row: info cols first, then all property cols
+      const propColKeys = columns.map((c) => c.key);
+      const header = [...INFO_COLS, ...propColKeys];
+
+      const sheetData: unknown[][] = [header];
+
+      for (const row of rows) {
+        const cells: unknown[] = [
+          row.globalId,
+          row.name,
+          row.type,
+          row.modelName,
+          ...propColKeys.map((k) => {
+            const raw = k.includes(".")
+              ? (() => {
+                  const dot = k.indexOf(".");
+                  const pset = row.psets.find((p) => p.name === k.slice(0, dot));
+                  return pset?.properties.find((p) => p.name === k.slice(dot + 1))?.value ?? null;
+                })()
+              : (row.directProps[k] ?? null);
+            // Return native number/boolean when possible
+            if (typeof raw === "number" || typeof raw === "boolean") return raw;
+            return raw != null ? String(raw) : "";
+          }),
+        ];
+        sheetData.push(cells);
       }
 
-      for (const [modelId, eidMap] of byModel) {
-        const model = models.get(modelId);
-        if (!model?.file) continue;
-        const elementOverrides = Array.from(eidMap.entries()).map(([expressId, overrides]) => ({
-          expressId,
-          overrides,
-        }));
-        const result = await writeIFCWithOverrides(model.file, elementOverrides);
-        const baseName = model.name.replace(/\.ifc$/i, "");
-        downloadFile(result, `${baseName}_bearbeitet.ifc`);
-      }
-    } catch (err) {
-      setExportError(String(err));
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+      // Column widths
+      ws["!cols"] = header.map((h) => ({
+        wch: h === "GlobalId" ? 24 : h === "Name" ? 28 : h === "Modell" ? 20 : 18,
+      }));
+
+      // Freeze first row + first column (GlobalId as key)
+      ws["!freeze"] = { xSplit: 1, ySplit: 1 };
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "InfraCore Eigenschaften");
+      XLSX.writeFile(wb, "auswahlkorb_eigenschaften.xlsx");
     } finally {
       setExporting(false);
     }
   }
 
-  function handleExportCSV() {
-    const infoHeader = ["Name", "Typ", "Modell"];
-    const propHeader = columns.map((c) => c.key);
-    const header     = [...infoHeader, ...propHeader];
+  // ── XLSX Import ───────────────────────────────────────────────────────────
 
-    const csvRows = rows.map((row) => {
-      const cells = [
-        row.name,
-        row.type,
-        row.modelName,
-        ...columns.map((c) => getCellValue(row, c.key)),
-      ];
-      return cells.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",");
-    });
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setImportResult(null);
+    setImportError(null);
 
-    const csv  = [header.join(","), ...csvRows].join("\r\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = "auswahlkorb_eigenschaften.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const data = await file.arrayBuffer();
+      const wb   = XLSX.read(data, { type: "array" });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) throw new Error("Keine Tabelle in der Datei gefunden.");
+
+      // sheet_to_json maps header row → object keys
+      const xlsxRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+        defval: "",
+        raw: false,   // all values as strings for predictable comparison
+      });
+
+      if (xlsxRows.length === 0) throw new Error("Die Tabelle ist leer.");
+
+      // Build GUID → row lookup from currently loaded basket data
+      const guidIndex = new Map<string, EditorRow>();
+      for (const row of rows) {
+        if (row.globalId) guidIndex.set(row.globalId, row);
+      }
+
+      const edits: Array<{ modelId: string; expressId: number; key: string; value: string }> = [];
+      const notFound: string[] = [];
+      let skipped = 0;
+
+      for (const xlsxRow of xlsxRows) {
+        const guid = String(xlsxRow["GlobalId"] ?? "").trim();
+        if (!guid) { skipped++; continue; }
+
+        const match = guidIndex.get(guid);
+        if (!match) {
+          notFound.push(guid);
+          continue;
+        }
+
+        // Compare each property column value
+        for (const [colKey, rawValue] of Object.entries(xlsxRow)) {
+          if (INFO_COLS.includes(colKey)) continue; // skip non-editable info cols
+          const newVal   = String(rawValue ?? "").trim();
+          const original = getCellValue(match, colKey).trim();
+          if (newVal !== original) {
+            edits.push({ modelId: match.modelId, expressId: match.expressId, key: colKey, value: newVal });
+          }
+        }
+      }
+
+      if (edits.length > 0) applyPropertyEdits(edits);
+
+      const appliedElements = new Set(edits.map((e) => `${e.modelId}:${e.expressId}`)).size;
+      setImportResult({ applied: appliedElements, skipped, notFound });
+    } catch (err) {
+      setImportError(String(err));
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const editCount = edits.size;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm bg-black/60">
       <div
-        className="flex flex-col w-full max-w-[96vw] h-[88vh] bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
+        className="flex flex-col w-full max-w-[92vw] h-[85vh] bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* ── Header ───────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0 bg-card/95">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
           <Table2 size={16} className="text-primary shrink-0" />
-          <span className="font-semibold text-sm">Eigenschaften bearbeiten</span>
+          <span className="font-semibold text-sm">Eigenschaften-Export / -Import</span>
           <span className="text-xs text-muted-foreground">
             — {selectionBasket.size} {selectionBasket.size === 1 ? "Element" : "Elemente"}
           </span>
-
-          {editCount > 0 && (
-            <span className="ml-1 text-xs bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full">
-              {editCount} Änderung{editCount !== 1 ? "en" : ""}
-            </span>
-          )}
-
           <div className="flex-1" />
-
           <button
             onClick={onClose}
             className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-            title="Schließen"
           >
             <X size={15} />
           </button>
         </div>
 
-        {/* ── Body ─────────────────────────────────────────────────────────── */}
-        <div className="flex-1 min-h-0 overflow-auto relative">
+        {/* ── Action bar ───────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border shrink-0 bg-muted/30">
+          {/* Export */}
+          <button
+            onClick={handleExport}
+            disabled={loading || rows.length === 0 || exporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="Alle Eigenschaften als XLSX herunterladen"
+          >
+            {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            Als XLSX exportieren
+          </button>
+
+          {/* Import */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading || rows.length === 0 || importing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-muted hover:bg-muted/80 text-foreground border border-border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="Geänderte XLSX importieren (Matching per GlobalId)"
+          >
+            {importing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+            XLSX importieren
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); }}
+          />
+
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground ml-auto">
+            <Info size={11} />
+            <span>Spalte <code className="font-mono bg-muted px-1 rounded">GlobalId</code> nicht ändern — wird als Schlüssel verwendet</span>
+          </div>
+        </div>
+
+        {/* ── Import result / error ─────────────────────────────────────────── */}
+        {(importResult || importError) && (
+          <div className={cn(
+            "flex items-start gap-2 px-4 py-2 text-xs shrink-0 border-b border-border",
+            importError ? "bg-destructive/10 text-destructive" : "bg-green-500/10 text-green-400"
+          )}>
+            {importError ? (
+              <><TriangleAlert size={13} className="mt-px shrink-0" /><span>{importError}</span></>
+            ) : importResult && (
+              <>
+                <Check size={13} className="mt-px shrink-0" />
+                <span>
+                  {importResult.applied > 0
+                    ? `${importResult.applied} Element${importResult.applied !== 1 ? "e" : ""} aktualisiert`
+                    : "Keine Änderungen festgestellt"}
+                  {importResult.skipped > 0 && ` · ${importResult.skipped} Zeile${importResult.skipped !== 1 ? "n" : ""} übersprungen`}
+                  {importResult.notFound.length > 0 && ` · ${importResult.notFound.length} GlobalId nicht gefunden`}
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Preview table ─────────────────────────────────────────────────── */}
+        <div className="flex-1 min-h-0 overflow-auto">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-              <Loader2 size={24} className="animate-spin text-primary" />
+              <Loader2 size={22} className="animate-spin text-primary" />
               <span className="text-sm">{loadMsg || "Lade Eigenschaften …"}</span>
             </div>
           ) : rows.length === 0 ? (
@@ -350,133 +373,74 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
               Keine Elemente im Auswahlkorb.
             </div>
           ) : (
-            <table className="text-xs border-collapse">
-              <thead className="sticky top-0 z-20">
-                {/* ── Group row ──────────────────────────────────────────────── */}
+            <table className="text-xs border-collapse min-w-full">
+              <thead className="sticky top-0 z-10">
                 <tr>
-                  {colGroups.map((g, gi) => (
+                  {/* Frozen info cols */}
+                  {INFO_COLS.map((col, i) => (
                     <th
-                      key={gi}
-                      colSpan={g.span}
+                      key={col}
                       className={cn(
-                        "border-b border-r border-border/60 px-2 py-1 text-center font-semibold text-[10px] uppercase tracking-wide text-muted-foreground bg-muted/50",
-                        g.sticky && "sticky left-0 z-30"
+                        "sticky z-20 bg-muted border-b border-r border-border px-3 py-1.5 text-left font-medium whitespace-nowrap",
+                        col === "GlobalId" && "text-primary/80"
                       )}
-                      style={g.sticky ? { minWidth: FROZEN_W } : undefined}
+                      style={{
+                        left: [0, 200, 330, 460][i],
+                        minWidth: [200, 130, 130, 160][i],
+                        width:    [200, 130, 130, 160][i],
+                      }}
                     >
-                      {g.label}
+                      {col === "GlobalId" ? "🔑 GlobalId" : col}
                     </th>
                   ))}
-                </tr>
-
-                {/* ── Column name row ────────────────────────────────────────── */}
-                <tr>
-                  <th
-                    className="sticky left-0 z-30 bg-muted border-b border-r border-border text-left px-3 py-1.5 font-medium whitespace-nowrap"
-                    style={{ minWidth: COL_W_NAME, width: COL_W_NAME }}
-                  >
-                    Name
-                  </th>
-                  <th
-                    className="sticky z-30 bg-muted border-b border-r border-border text-left px-3 py-1.5 font-medium whitespace-nowrap"
-                    style={{ left: COL_W_NAME, minWidth: COL_W_TYPE, width: COL_W_TYPE }}
-                  >
-                    Typ
-                  </th>
-                  <th
-                    className="sticky z-30 bg-muted border-b border-r border-border text-left px-3 py-1.5 font-medium whitespace-nowrap"
-                    style={{ left: COL_W_NAME + COL_W_TYPE, minWidth: COL_W_MODEL, width: COL_W_MODEL }}
-                  >
-                    Modell
-                  </th>
                   {columns.map((col) => (
                     <th
                       key={col.key}
-                      className="bg-muted border-b border-r border-border text-left px-3 py-1.5 font-medium whitespace-nowrap"
-                      style={{ minWidth: COL_W_PROP, width: COL_W_PROP }}
                       title={col.key}
+                      className="bg-muted border-b border-r border-border px-3 py-1.5 text-left font-medium whitespace-nowrap"
+                      style={{ minWidth: 150, width: 150 }}
                     >
-                      {col.label}
+                      <div className="truncate max-w-[140px]">{col.label}</div>
+                      {col.group !== "Direkte Attribute" && (
+                        <div className="text-[10px] text-muted-foreground/60 truncate max-w-[140px]">{col.group}</div>
+                      )}
                     </th>
                   ))}
                 </tr>
               </thead>
-
               <tbody>
                 {rows.map((row, ri) => (
                   <tr key={row.key} className={ri % 2 === 0 ? "bg-background" : "bg-muted/20"}>
-                    {/* ── Frozen: Name ─────────────────────────────────────── */}
-                    <td
-                      className={cn(
-                        "sticky left-0 z-10 border-b border-r border-border/40 px-3 py-1.5 font-medium truncate",
-                        ri % 2 === 0 ? "bg-background" : "bg-muted/20"
-                      )}
-                      style={{ minWidth: COL_W_NAME, maxWidth: COL_W_NAME }}
-                      title={row.name}
-                    >
-                      {row.name}
-                    </td>
-
-                    {/* ── Frozen: Typ ──────────────────────────────────────── */}
-                    <td
-                      className={cn(
-                        "sticky z-10 border-b border-r border-border/40 px-3 py-1.5 text-muted-foreground truncate",
-                        ri % 2 === 0 ? "bg-background" : "bg-muted/20"
-                      )}
-                      style={{ left: COL_W_NAME, minWidth: COL_W_TYPE, maxWidth: COL_W_TYPE }}
-                    >
-                      {row.type}
-                    </td>
-
-                    {/* ── Frozen: Modell ───────────────────────────────────── */}
-                    <td
-                      className={cn(
-                        "sticky z-10 border-b border-r border-border/40 px-3 py-1.5 text-muted-foreground truncate",
-                        ri % 2 === 0 ? "bg-background" : "bg-muted/20"
-                      )}
-                      style={{ left: COL_W_NAME + COL_W_TYPE, minWidth: COL_W_MODEL, maxWidth: COL_W_MODEL }}
-                      title={row.modelName}
-                    >
-                      {row.modelName}
-                    </td>
-
-                    {/* ── Property columns ─────────────────────────────────── */}
+                    {/* Info cells (sticky) */}
+                    {[row.globalId, row.name, row.type, row.modelName].map((val, i) => (
+                      <td
+                        key={i}
+                        className={cn(
+                          "sticky z-10 border-b border-r border-border/40 px-3 py-1.5 truncate",
+                          ri % 2 === 0 ? "bg-background" : "bg-muted/20",
+                          i === 0 && "font-mono text-[10px] text-primary/70"
+                        )}
+                        style={{
+                          left: [0, 200, 330, 460][i],
+                          minWidth: [200, 130, 130, 160][i],
+                          maxWidth: [200, 130, 130, 160][i],
+                        }}
+                        title={val}
+                      >
+                        {val}
+                      </td>
+                    ))}
+                    {/* Property cells */}
                     {columns.map((col) => {
-                      const isActive =
-                        editingCell?.rowKey === row.key && editingCell?.colKey === col.key;
-                      const edited = isEdited(row, col.key);
-                      const display = getCellValue(row, col.key);
-
+                      const val = getCellValue(row, col.key);
                       return (
                         <td
                           key={col.key}
-                          className={cn(
-                            "border-b border-r border-border/40 px-0 py-0 cursor-text select-none",
-                            edited && !isActive && "bg-amber-500/10"
-                          )}
-                          style={{ minWidth: COL_W_PROP, maxWidth: COL_W_PROP }}
-                          onDoubleClick={() => startEdit(row, col.key)}
+                          className="border-b border-r border-border/40 px-3 py-1.5 text-foreground/70 truncate"
+                          style={{ minWidth: 150, maxWidth: 150 }}
+                          title={val}
                         >
-                          {isActive ? (
-                            <input
-                              ref={inputRef}
-                              className="w-full h-full px-3 py-1.5 bg-primary/10 border border-primary outline-none text-xs"
-                              value={editValue}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              onKeyDown={handleCellKeyDown}
-                              onBlur={commitEdit}
-                            />
-                          ) : (
-                            <div
-                              className={cn(
-                                "px-3 py-1.5 truncate",
-                                edited ? "text-amber-400" : "text-foreground/80"
-                              )}
-                              title={display}
-                            >
-                              {display}
-                            </div>
-                          )}
+                          {val}
                         </td>
                       );
                     })}
@@ -488,65 +452,15 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* ── Footer ───────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2 px-4 py-3 border-t border-border shrink-0 bg-card/95">
-          <span className="text-xs text-muted-foreground flex-1">
-            {!loading && (
-              <>
-                {rows.length} Element{rows.length !== 1 ? "e" : ""}
-                {columns.length > 0 && ` · ${columns.length} Spalte${columns.length !== 1 ? "n" : ""}`}
-                {editCount > 0 && ` · ${editCount} Änderung${editCount !== 1 ? "en" : ""}`}
-              </>
-            )}
-            {exportError && (
-              <span className="text-destructive ml-2 flex items-center gap-1">
-                <TriangleAlert size={12} /> {exportError}
-              </span>
+        <div className="flex items-center gap-2 px-4 py-2.5 border-t border-border shrink-0 text-xs text-muted-foreground">
+          <span className="flex-1">
+            {!loading && rows.length > 0 && (
+              `${rows.length} Element${rows.length !== 1 ? "e" : ""} · ${columns.length} Eigenschaft${columns.length !== 1 ? "en" : ""}`
             )}
           </span>
-
-          {/* Apply to session */}
-          <button
-            onClick={handleApply}
-            disabled={editCount === 0 || loading}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors",
-              saved
-                ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                : "bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 disabled:opacity-40 disabled:cursor-not-allowed"
-            )}
-            title="Änderungen in der Sitzung übernehmen"
-          >
-            {saved ? <Check size={12} /> : <Check size={12} />}
-            {saved ? "Übernommen" : "Übernehmen"}
-          </button>
-
-          {/* Export IFC */}
-          <button
-            onClick={handleExportIFC}
-            disabled={editCount === 0 || loading || exporting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-muted hover:bg-muted/80 text-foreground border border-border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Geänderte IFC-Datei(en) herunterladen"
-          >
-            {exporting ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
-            Als IFC exportieren
-          </button>
-
-          {/* Export CSV */}
-          <button
-            onClick={handleExportCSV}
-            disabled={loading || rows.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-muted hover:bg-muted/80 text-foreground border border-border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Als CSV exportieren"
-          >
-            <Download size={12} />
-            CSV
-          </button>
-
-          <div className="w-px h-4 bg-border" />
-
           <button
             onClick={onClose}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium hover:bg-muted/60 text-muted-foreground transition-colors"
+            className="px-3 py-1.5 rounded hover:bg-muted/60 transition-colors"
           >
             Schließen
           </button>
