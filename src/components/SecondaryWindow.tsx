@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { useModelStore } from "../store/modelStore";
 import { loadIFCProperties } from "../utils/ifcLoader";
 import { SYNC_CHANNEL, serializeState } from "../utils/windowSync";
-import type { SyncMsg, SyncAction, PanelType } from "../utils/windowSync";
+import type { SyncMsg, PanelType } from "../utils/windowSync";
 
 import { HierarchyPanel } from "./HierarchyPanel";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -10,69 +10,65 @@ import { ListPanel } from "./ListPanel";
 import { SQLPanel } from "./SQLPanel";
 
 // ── sync hook for secondary windows ──────────────────────────────────────────
+// Bidirectional: receives state from main, broadcasts own state changes back.
+// applyingRef prevents echo: when we're applying incoming state the subscription
+// fires synchronously (Zustand is sync), so we can guard with a simple flag.
 
 function useSecondarySync() {
   const applyRemoteState = useModelStore((s) => s.applyRemoteState);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const applyingRef = useRef(false);
 
   useEffect(() => {
     const ch = new BroadcastChannel(SYNC_CHANNEL);
     channelRef.current = ch;
 
     ch.onmessage = (e: MessageEvent<SyncMsg>) => {
-      if (e.data.t === "state") applyRemoteState(e.data.s);
+      if (e.data.t === "state") {
+        applyingRef.current = true;
+        applyRemoteState(e.data.s);
+        applyingRef.current = false;
+      }
     };
 
-    // Ask main window for current state
+    // Broadcast every local store change back to main (skip echo-induced changes)
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = useModelStore.subscribe(() => {
+      if (applyingRef.current) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        ch.postMessage({ t: "state", s: serializeState(useModelStore.getState()) } satisfies SyncMsg);
+      }, 80);
+    });
+
     ch.postMessage({ t: "req" } satisfies SyncMsg);
 
-    return () => { ch.close(); channelRef.current = null; };
+    return () => {
+      ch.close();
+      channelRef.current = null;
+      unsub();
+      if (timer) clearTimeout(timer);
+    };
   }, [applyRemoteState]);
-
-  const sendAction = useCallback((a: SyncAction) => {
-    channelRef.current?.postMessage({ t: "act", a } satisfies SyncMsg);
-  }, []);
-
-  return { sendAction };
 }
 
 // ── panel wrapper ─────────────────────────────────────────────────────────────
 
 export function SecondaryWindow({ panel }: { panel: string }) {
-  const { sendAction } = useSecondarySync();
+  useSecondarySync();
 
-  // Element click: load properties locally + notify main
+  // Load properties locally so the secondary's own PropertiesPanel works.
+  // The state sync broadcasts the selection (including properties) to main.
   const handleElementClick = useCallback(async (modelId: string, expressId: number) => {
     const store = useModelStore.getState();
-    const model = store.models.get(modelId);
     store.setSelected({ modelId, expressId, properties: {}, psets: [] });
-    sendAction({ k: "select", modelId, expressId });
+    const model = store.models.get(modelId);
     if (model?.file) {
       try {
         const { properties, psets } = await loadIFCProperties(model.file, expressId);
         useModelStore.getState().setSelected({ modelId, expressId, properties, psets });
       } catch { /* keep empty */ }
     }
-  }, [sendAction]);
-
-  const handleHide = useCallback((modelId: string, expressId: number) => {
-    useModelStore.getState().hideElement(modelId, expressId);
-    sendAction({ k: "hide", modelId, expressId });
-  }, [sendAction]);
-
-  const handleShowAll = useCallback(() => {
-    useModelStore.getState().showAll();
-    sendAction({ k: "showAll" });
-  }, [sendAction]);
-
-  const handleIsolate = useCallback((modelId: string, expressId: number) => {
-    useModelStore.getState().isolateElement(modelId, expressId);
-    sendAction({ k: "isolate", modelId, expressId });
-  }, [sendAction]);
-
-  const handleFitTo = useCallback((id: string) => {
-    const model = useModelStore.getState().models.get(id);
-    if (model) window.dispatchEvent(new CustomEvent("viewer:fitTo", { detail: model.boundingBox }));
   }, []);
 
   const panelType = panel as PanelType;

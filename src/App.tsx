@@ -38,6 +38,7 @@ export default function App() {
 
 function useMainWindowSync(handleElementClick: (modelId: string, expressId: number) => Promise<void>) {
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const applyingRef = useRef(false);
 
   useEffect(() => {
     const ch = new BroadcastChannel(SYNC_CHANNEL);
@@ -47,6 +48,11 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
       const msg = e.data;
       if (msg.t === "req") {
         ch.postMessage({ t: "state", s: serializeState(useModelStore.getState()) } satisfies SyncMsg);
+      } else if (msg.t === "state") {
+        // State broadcast from a secondary window — apply it and skip echoing
+        applyingRef.current = true;
+        useModelStore.getState().applyRemoteState(msg.s);
+        applyingRef.current = false;
       } else if (msg.t === "act") {
         const store = useModelStore.getState();
         const a = msg.a;
@@ -64,9 +70,10 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
       }
     };
 
-    // Broadcast state on every store change (debounced)
+    // Broadcast state on every store change (debounced); skip echo-induced changes
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unsub = useModelStore.subscribe(() => {
+      if (applyingRef.current) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         if (channelRef.current) {
