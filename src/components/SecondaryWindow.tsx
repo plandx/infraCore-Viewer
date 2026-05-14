@@ -71,6 +71,9 @@ export function SecondaryWindow({ panel }: { panel: string }) {
     }
   }, []);
 
+  // No 3D viewport in secondary — fit-to is a no-op
+  const handleFitTo = useCallback(() => { /* no viewport */ }, []);
+
   const panelType = panel as PanelType;
 
   return (
@@ -97,9 +100,6 @@ export function SecondaryWindow({ panel }: { panel: string }) {
             onFitTo={handleFitTo}
             onRemove={() => { /* not supported in secondary */ }}
             onSelectElement={handleElementClick}
-            onHideOverride={handleHide}
-            onShowAllOverride={handleShowAll}
-            onIsolateOverride={handleIsolate}
           />
         )}
         {panelType === "properties" && <PropertiesPanel />}
