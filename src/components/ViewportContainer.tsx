@@ -632,6 +632,11 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     if (!selectedElement) return;
 
+    const key = `${selectedElement.modelId}:${selectedElement.expressId}`;
+    const isHidden = hiddenElements.has(key);
+    const isExcludedByIsolation = isolatedElements !== null && !isolatedElements.has(key);
+    if (isHidden || isExcludedByIsolation) return;
+
     const hlMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(0xf59e0b),
       emissive: new THREE.Color(0xf59e0b),
@@ -665,7 +670,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       scene.add(hl);
       highlightRef.current.push(hl);
     });
-  }, [selectedElement]);
+  }, [selectedElement, hiddenElements, isolatedElements]);
 
   // ── Camera fit helpers ────────────────────────────────────────────────────
   const fitCameraToBox = useCallback((box: THREE.Box3) => {
