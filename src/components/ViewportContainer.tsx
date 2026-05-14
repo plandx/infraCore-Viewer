@@ -79,10 +79,8 @@ export function ViewportContainer({ onElementClick }: Props) {
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
 
-  // Basket overlay/ghost material refs
-  const basketOverlaysRef = useRef<THREE.Mesh[]>([]);
-  const basketOverlayMatRef = useRef<THREE.Material | null>(null);
-  const basketGhostMatsRef = useRef<Map<THREE.Mesh, THREE.Material | THREE.Material[]>>(new Map());
+  // Basket material overrides: stores original material per mesh for restore
+  const basketMatsRef = useRef<Map<THREE.Mesh, THREE.Material | THREE.Material[]>>(new Map());
 
   // ── Init scene ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -533,24 +531,17 @@ export function ViewportContainer({ onElementClick }: Props) {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // Cleanup previous overlays and ghost materials
-    basketOverlaysRef.current.forEach((m) => scene.remove(m));
-    basketOverlaysRef.current = [];
-    basketOverlayMatRef.current?.dispose();
-    basketOverlayMatRef.current = null;
-    basketGhostMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
-    basketGhostMatsRef.current.clear();
+    // Restore all previously overridden materials
+    basketMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
+    basketMatsRef.current.clear();
 
     if (!basketMode || basketMode === "isolate" || selectionBasket.size === 0) return;
 
-    const hlMat = basketMode === "highlight"
-      ? new THREE.MeshLambertMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.55, depthTest: false })
-      : null;
-    if (hlMat) basketOverlayMatRef.current = hlMat;
+    const createdMats: THREE.Material[] = [];
 
     scene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
-      if (obj.userData.isHighlight || obj.userData.isBasketOverlay || obj.userData.isSectionVisual) return;
+      if (obj.userData.isHighlight || obj.userData.isSectionVisual) return;
       if (obj.userData.expressId == null) return;
 
       let modelId = "";
@@ -563,24 +554,36 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       const key = `${modelId}:${obj.userData.expressId}`;
       const inBasket = selectionBasket.has(key);
+      const orig = obj.material as THREE.Material;
 
-      if (basketMode === "highlight" && inBasket && hlMat) {
-        const hl = obj.clone();
-        hl.material = hlMat;
-        hl.renderOrder = 997;
-        hl.userData = { isBasketOverlay: true };
-        scene.add(hl);
-        basketOverlaysRef.current.push(hl);
+      if (basketMode === "highlight" && inBasket) {
+        // Bright amber material — fully replaces original so it's clearly visible
+        const hlMat = new THREE.MeshStandardMaterial({
+          color: 0xf59e0b,
+          emissive: new THREE.Color(0xf59e0b),
+          emissiveIntensity: 0.5,
+          roughness: 0.35,
+          metalness: 0.1,
+        });
+        basketMatsRef.current.set(obj, orig);
+        obj.material = hlMat;
+        createdMats.push(hlMat);
       } else if (basketMode === "ghost" && !inBasket) {
-        const orig = obj.material;
-        const ghost = (obj.material as THREE.Material).clone() as THREE.MeshLambertMaterial;
+        const ghost = orig.clone() as THREE.MeshLambertMaterial;
         ghost.transparent = true;
-        ghost.opacity = 0.12;
+        ghost.opacity = 0.10;
         ghost.needsUpdate = true;
-        basketGhostMatsRef.current.set(obj, orig);
+        basketMatsRef.current.set(obj, orig);
         obj.material = ghost;
+        createdMats.push(ghost);
       }
     });
+
+    return () => {
+      basketMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
+      basketMatsRef.current.clear();
+      createdMats.forEach((m) => m.dispose());
+    };
   }, [selectionBasket, basketMode, models]);
 
   // ── Highlight selected element (from hierarchy or viewport click) ─────────

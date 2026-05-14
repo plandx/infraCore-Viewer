@@ -318,8 +318,8 @@ function MainApp() {
                 <ViewportContainer onElementClick={handleElementClick} />
                 <ClipPlaneControl />
 
-                {/* Selection basket — floating bottom-left */}
-                <div className="absolute bottom-4 left-3 z-30 pointer-events-auto">
+                {/* Selection basket — floating top-left */}
+                <div className="absolute top-3 left-3 z-30 pointer-events-auto">
                   <SelectionBasket />
                 </div>
 
