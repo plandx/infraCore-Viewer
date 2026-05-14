@@ -151,7 +151,7 @@ applyPropertyEdits(edits: Array<{
 clearPropertyOverrides(): void
 ```
 
-### SmartViews / Lens Rules
+### SmartViews
 ```typescript
 addSmartView(view: SmartView): void
 updateSmartView(id, patch): void
@@ -159,8 +159,11 @@ removeSmartView(id): void
 setStagedSmartViewId(id: string | null): void
 
 applySmartView(id: string): void
-// Evaluiert alle Regeln → setzt hiddenElements/isolatedElements/colorGroups
-// Sichert vorherigen Zustand in preSmartViewState
+// Iteriert über view.tiers top-to-bottom:
+//   tier.action === "hide"      → matching Element-Keys in newHidden
+//   tier.action === "color"     → ColorGroup mit tier.color
+//   tier.action === "autoColor" → mehrere ColorGroups gruppiert nach tier.colorByKey
+// Setzt hiddenElements, colorGroups, sichert Vorzustand in preSmartViewState
 
 deactivateSmartView(): void
 // Stellt preSmartViewState wieder her

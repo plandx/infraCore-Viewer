@@ -131,18 +131,23 @@ Zwei Tabs:
 - Sichtbarkeits-Toggle pro Gruppe
 - Buttons: **Farben anwenden** (→ `setColorGroups`), **Reset**, **CSV-Export**
 
-### Tab „Lens Rules"
+### Tab „SmartViews"
 
-*(früher „SmartViews")*
-
-- Liste gespeicherter Lens Rules mit Aktivieren / Bearbeiten / Löschen
-- **Klick auf eine Kategorie** isoliert deren Elemente via `isolateEntries()`
-- **Esc** setzt die Isolierung zurück (`showAll()`)
+- Liste gespeicherter SmartViews mit Aktivieren / Bearbeiten / Löschen
+- Jede SmartView zeigt kompakte Ebenen-Badges (Name, Aktion, Farbe oder Auto-Farbe-Schlüssel)
+- Aktive SmartView zeigt **Farblegende** (collapsible, max-h-32) mit Farb-Swatch + Label + Anzahl
 - Inline-Editor (`SmartViewEditor`):
+  - Name-Eingabe
+  - Scrollbare Liste von `TierEditor`-Karten (max-h-[60vh])
+  - „Ebene hinzufügen"-Button (gestrichelt)
+  - Speichern disabled wenn Name leer oder keine Ebenen
+- **TierEditor** (pro Ebene):
+  - Header mit Name-Eingabe + Auf/Ab-Pfeil + Löschen-Button
   - Regel-Zeilen: `[Eigenschaft][Bedingung][Wert][×]`
-  - AND / OR Logik
-  - Aktion: Anzeigen / Ausblenden / Farbe
-  - Farb-Picker für Color-Aktion
+  - AND / OR Logik (nur bei ≥2 Regeln sichtbar)
+  - Aktions-Buttons: **Ausblenden** / **Einfärben** / **Auto-Farbe**
+  - Bei Einfärben: Farb-Swatch + Hidden Color Input
+  - Bei Auto-Farbe: „Nach:"-Label + PropKeyPicker für `colorByKey`
 - Doppelklick-Hinweis wenn SmartView staged
 
 ### PropertyLoader (intern)

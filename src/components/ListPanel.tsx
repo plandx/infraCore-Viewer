@@ -1,27 +1,19 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Download, Eye, EyeOff, Play, RotateCcw, RefreshCw,
-  ChevronDown, Search, Plus, Pencil, Trash2, X, Check,
+  ChevronDown, ChevronUp, Search, Plus, Pencil, Trash2, X, Check, Layers,
 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { loadAllElementProperties } from "../utils/ifcLoader";
 import {
-  CONDITION_LABELS, CONDITIONS_WITHOUT_VALUE,
+  CONDITION_LABELS, CONDITIONS_WITHOUT_VALUE, PALETTE,
 } from "../utils/smartViewUtils";
 import type {
   ColorGroup, IFCModelEntry, SpatialNode, FlatElementProps,
-  SmartView, SmartRule, SmartCondition, SmartAction,
+  SmartView, SmartTier, SmartRule, SmartCondition, TierAction,
 } from "../types/ifc";
-
-// ── palette ───────────────────────────────────────────────────────────────────
-
-const PALETTE = [
-  "#7aa2f7", "#9ece6a", "#f7768e", "#e0af68", "#bb9af7",
-  "#73daca", "#ff9e64", "#2ac3de", "#b4f9f8", "#cfc9c2",
-  "#1abc9c", "#e056fd", "#fd9644", "#45aaf2", "#a55eea",
-];
 
 // ── built-in "virtual" property keys (no load required) ───────────────────────
 
@@ -407,21 +399,184 @@ function ListenTab() {
 
 const CONDITION_OPTIONS = Object.entries(CONDITION_LABELS) as [SmartCondition, string][];
 
-const ACTION_LABELS: Record<SmartAction, string> = {
-  show:  "Nur anzeigen",
-  hide:  "Ausblenden",
-  color: "Einfärben",
+const TIER_ACTION_LABELS: Record<TierAction, string> = {
+  hide:      "Ausblenden",
+  color:     "Einfärben",
+  autoColor: "Auto-Farbe",
 };
 
-function emptyView(): SmartView {
-  return {
-    id: uuidv4(), name: "Neue SmartView",
-    rules: [], logic: "AND", action: "color", color: PALETTE[0],
-  };
-}
+const TIER_BADGE_CLASSES: Record<TierAction, string> = {
+  hide:      "bg-red-500/20 text-red-400",
+  color:     "bg-blue-500/20 text-blue-400",
+  autoColor: "bg-violet-500/20 text-violet-400",
+};
 
 function emptyRule(): SmartRule {
   return { id: uuidv4(), property: "_type", condition: "eq", value: "" };
+}
+
+function emptyTier(index: number): SmartTier {
+  return {
+    id: uuidv4(),
+    name: `Ebene ${index + 1}`,
+    rules: [],
+    logic: "AND",
+    action: "color",
+    color: PALETTE[index % PALETTE.length],
+    colorByKey: "_type",
+  };
+}
+
+function emptyView(): SmartView {
+  return { id: uuidv4(), name: "Neue SmartView", tiers: [emptyTier(0)] };
+}
+
+// ── TierEditor ────────────────────────────────────────────────────────────────
+
+function TierEditor({
+  tier, index, total, onChange, onDelete, onMoveUp, onMoveDown,
+}: {
+  tier: SmartTier;
+  index: number;
+  total: number;
+  onChange: (patch: Partial<SmartTier>) => void;
+  onDelete: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const colorRef = useRef<HTMLInputElement>(null);
+  const noValueNeeded = (cond: SmartCondition) => CONDITIONS_WITHOUT_VALUE.includes(cond);
+
+  const updRule = (id: string, patch: Partial<SmartRule>) =>
+    onChange({ rules: tier.rules.map((r) => r.id === id ? { ...r, ...patch } : r) });
+
+  return (
+    <div className="border border-border rounded-md bg-card/20 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-1.5 px-2 py-1.5 bg-card/40 border-b border-border">
+        <Layers size={11} className="text-muted-foreground shrink-0" />
+        <input
+          className="flex-1 bg-transparent text-xs font-medium text-foreground focus:outline-none placeholder:text-muted-foreground min-w-0"
+          placeholder={`Ebene ${index + 1}`}
+          value={tier.name}
+          onChange={(e) => onChange({ name: e.target.value })}
+        />
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            className="p-0.5 rounded text-muted-foreground/60 hover:text-foreground disabled:opacity-30"
+            title="Nach oben"
+            disabled={index === 0}
+            onClick={onMoveUp}
+          ><ChevronUp size={12} /></button>
+          <button
+            className="p-0.5 rounded text-muted-foreground/60 hover:text-foreground disabled:opacity-30"
+            title="Nach unten"
+            disabled={index === total - 1}
+            onClick={onMoveDown}
+          ><ChevronDown size={12} /></button>
+          <button
+            className="p-0.5 rounded text-muted-foreground/60 hover:text-destructive"
+            title="Ebene löschen"
+            onClick={onDelete}
+          ><X size={12} /></button>
+        </div>
+      </div>
+
+      <div className="p-2 space-y-2">
+        {/* Rules */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Regeln</span>
+            <button
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+              onClick={() => onChange({ rules: [...tier.rules, emptyRule()] })}
+            ><Plus size={10} />Hinzufügen</button>
+          </div>
+
+          {tier.rules.length === 0 && (
+            <div className="text-[11px] text-muted-foreground/60 py-0.5">
+              Keine Regeln — alle Elemente werden erfasst
+            </div>
+          )}
+
+          {tier.rules.map((rule) => (
+            <div key={rule.id} className="flex items-center gap-1">
+              <div className="flex-1 min-w-0">
+                <PropKeyPicker value={rule.property} onChange={(k) => updRule(rule.id, { property: k })} />
+              </div>
+              <select
+                className="bg-background border border-border rounded px-1 py-1 text-xs text-foreground focus:outline-none shrink-0"
+                value={rule.condition}
+                onChange={(e) => updRule(rule.id, { condition: e.target.value as SmartCondition })}
+              >
+                {CONDITION_OPTIONS.map(([k, lbl]) => <option key={k} value={k}>{lbl}</option>)}
+              </select>
+              {!noValueNeeded(rule.condition) && (
+                <input
+                  className="w-20 bg-background border border-border rounded px-1.5 py-1 text-xs focus:outline-none shrink-0"
+                  placeholder="Wert"
+                  value={rule.value}
+                  onChange={(e) => updRule(rule.id, { value: e.target.value })}
+                />
+              )}
+              <button
+                className="p-0.5 text-muted-foreground/60 hover:text-destructive shrink-0"
+                onClick={() => onChange({ rules: tier.rules.filter((r) => r.id !== rule.id) })}
+              ><X size={11} /></button>
+            </div>
+          ))}
+        </div>
+
+        {/* Logic toggle */}
+        {tier.rules.length > 1 && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-muted-foreground">Verknüpfung:</span>
+            {(["AND", "OR"] as const).map((l) => (
+              <button
+                key={l}
+                className={cn("px-2 py-0.5 rounded text-[11px] border transition-colors",
+                  tier.logic === l ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50")}
+                onClick={() => onChange({ logic: l })}
+              >{l === "AND" ? "Alle (UND)" : "Eine (ODER)"}</button>
+            ))}
+          </div>
+        )}
+
+        {/* Action */}
+        <div className="space-y-1.5">
+          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Aktion</span>
+          <div className="flex gap-1 flex-wrap">
+            {(["hide", "color", "autoColor"] as TierAction[]).map((a) => (
+              <button
+                key={a}
+                className={cn("px-2 py-0.5 rounded text-[11px] border transition-colors",
+                  tier.action === a ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50")}
+                onClick={() => onChange({ action: a })}
+              >{TIER_ACTION_LABELS[a]}</button>
+            ))}
+          </div>
+          {tier.action === "color" && (
+            <div className="flex items-center gap-2">
+              <button
+                className="w-5 h-5 rounded ring-1 ring-black/20 hover:ring-2 hover:ring-primary shrink-0"
+                style={{ background: tier.color }}
+                onClick={() => colorRef.current?.click()}
+              />
+              <input ref={colorRef} type="color" className="sr-only" value={tier.color}
+                onChange={(e) => onChange({ color: e.target.value })} />
+              <span className="text-[11px] text-muted-foreground">{tier.color}</span>
+            </div>
+          )}
+          {tier.action === "autoColor" && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground shrink-0">Nach:</span>
+              <PropKeyPicker value={tier.colorByKey} onChange={(k) => onChange({ colorByKey: k })} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── SmartView editor ──────────────────────────────────────────────────────────
@@ -433,14 +588,30 @@ function SmartViewEditor({
   onSave: (view: SmartView) => void;
   onCancel: () => void;
 }) {
-  const [view, setView] = useState<SmartView>(() => ({ ...initial, rules: initial.rules.map((r) => ({ ...r })) }));
-  const colorRef = useRef<HTMLInputElement>(null);
+  const [view, setView] = useState<SmartView>(() => ({
+    ...initial,
+    tiers: initial.tiers.map((t) => ({ ...t, rules: t.rules.map((r) => ({ ...r })) })),
+  }));
 
-  const upd = (patch: Partial<SmartView>) => setView((v) => ({ ...v, ...patch }));
-  const updRule = (id: string, patch: Partial<SmartRule>) =>
-    setView((v) => ({ ...v, rules: v.rules.map((r) => r.id === id ? { ...r, ...patch } : r) }));
+  const updTier = (tierId: string, patch: Partial<SmartTier>) =>
+    setView((v) => ({ ...v, tiers: v.tiers.map((t) => t.id === tierId ? { ...t, ...patch } : t) }));
 
-  const noValueNeeded = (cond: SmartCondition) => CONDITIONS_WITHOUT_VALUE.includes(cond);
+  const deleteTier = (tierId: string) =>
+    setView((v) => ({ ...v, tiers: v.tiers.filter((t) => t.id !== tierId) }));
+
+  const moveTier = (index: number, dir: -1 | 1) =>
+    setView((v) => {
+      const tiers = [...v.tiers];
+      const target = index + dir;
+      if (target < 0 || target >= tiers.length) return v;
+      [tiers[index], tiers[target]] = [tiers[target], tiers[index]];
+      return { ...v, tiers };
+    });
+
+  const addTier = () =>
+    setView((v) => ({ ...v, tiers: [...v.tiers, emptyTier(v.tiers.length)] }));
+
+  const canSave = view.name.trim() !== "" && view.tiers.length > 0;
 
   return (
     <div className="flex flex-col gap-3 p-3 bg-card/30 border-b border-border">
@@ -449,103 +620,36 @@ function SmartViewEditor({
         className="w-full bg-background border border-border rounded px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary/60"
         placeholder="Name"
         value={view.name}
-        onChange={(e) => upd({ name: e.target.value })}
+        onChange={(e) => setView((v) => ({ ...v, name: e.target.value }))}
       />
 
-      {/* Rules */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Regeln</span>
-          <button
-            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-            onClick={() => upd({ rules: [...view.rules, emptyRule()] })}
-          ><Plus size={10} />Hinzufügen</button>
-        </div>
-
-        {view.rules.length === 0 && (
-          <div className="text-[11px] text-muted-foreground/60 py-1">
-            Keine Regeln — alle Elemente werden erfasst
-          </div>
-        )}
-
-        {view.rules.map((rule) => (
-          <div key={rule.id} className="flex items-center gap-1">
-            {/* Property */}
-            <div className="flex-1 min-w-0">
-              <PropKeyPicker value={rule.property} onChange={(k) => updRule(rule.id, { property: k })} />
-            </div>
-            {/* Condition */}
-            <select
-              className="bg-background border border-border rounded px-1 py-1 text-xs text-foreground focus:outline-none shrink-0"
-              value={rule.condition}
-              onChange={(e) => updRule(rule.id, { condition: e.target.value as SmartCondition })}
-            >
-              {CONDITION_OPTIONS.map(([k, lbl]) => <option key={k} value={k}>{lbl}</option>)}
-            </select>
-            {/* Value */}
-            {!noValueNeeded(rule.condition) && (
-              <input
-                className="w-20 bg-background border border-border rounded px-1.5 py-1 text-xs focus:outline-none shrink-0"
-                placeholder="Wert"
-                value={rule.value}
-                onChange={(e) => updRule(rule.id, { value: e.target.value })}
-              />
-            )}
-            {/* Delete rule */}
-            <button
-              className="p-0.5 text-muted-foreground/60 hover:text-destructive shrink-0"
-              onClick={() => upd({ rules: view.rules.filter((r) => r.id !== rule.id) })}
-            ><X size={11} /></button>
-          </div>
+      {/* Tiers */}
+      <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-0.5">
+        {view.tiers.map((tier, i) => (
+          <TierEditor
+            key={tier.id}
+            tier={tier}
+            index={i}
+            total={view.tiers.length}
+            onChange={(patch) => updTier(tier.id, patch)}
+            onDelete={() => deleteTier(tier.id)}
+            onMoveUp={() => moveTier(i, -1)}
+            onMoveDown={() => moveTier(i, 1)}
+          />
         ))}
       </div>
 
-      {/* Logic */}
-      {view.rules.length > 1 && (
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">Verknüpfung:</span>
-          {(["AND", "OR"] as const).map((l) => (
-            <button
-              key={l}
-              className={cn("px-2 py-0.5 rounded text-[11px] border transition-colors",
-                view.logic === l ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50")}
-              onClick={() => upd({ logic: l })}
-            >{l === "AND" ? "Alle (UND)" : "Eine (ODER)"}</button>
-          ))}
-        </div>
-      )}
-
-      {/* Action */}
-      <div className="space-y-1.5">
-        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Aktion</span>
-        <div className="flex gap-1.5 flex-wrap">
-          {(["show", "hide", "color"] as SmartAction[]).map((a) => (
-            <button
-              key={a}
-              className={cn("px-2.5 py-1 rounded text-[11px] border transition-colors",
-                view.action === a ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50")}
-              onClick={() => upd({ action: a })}
-            >{ACTION_LABELS[a]}</button>
-          ))}
-        </div>
-        {view.action === "color" && (
-          <div className="flex items-center gap-2">
-            <button
-              className="w-6 h-6 rounded ring-1 ring-black/20 hover:ring-2 hover:ring-primary"
-              style={{ background: view.color }}
-              onClick={() => colorRef.current?.click()}
-            />
-            <input ref={colorRef} type="color" className="sr-only" value={view.color}
-              onChange={(e) => upd({ color: e.target.value })} />
-            <span className="text-[11px] text-muted-foreground">{view.color}</span>
-          </div>
-        )}
-      </div>
+      {/* Add tier */}
+      <button
+        className="flex items-center justify-center gap-1.5 py-1.5 rounded text-[11px] border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors"
+        onClick={addTier}
+      ><Plus size={11} />Ebene hinzufügen</button>
 
       {/* Buttons */}
       <div className="flex gap-2 pt-1">
         <button
-          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-[11px] font-medium bg-primary text-primary-foreground hover:opacity-90"
+          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-[11px] font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          disabled={!canSave}
           onClick={() => onSave(view)}
         ><Check size={12} />Speichern</button>
         <button
@@ -563,6 +667,7 @@ function SmartViewsTab() {
   const smartViews = useModelStore((s) => s.smartViews);
   const activeSmartViewId = useModelStore((s) => s.activeSmartViewId);
   const stagedSmartViewId = useModelStore((s) => s.stagedSmartViewId);
+  const colorGroups = useModelStore((s) => s.colorGroups);
   const addSmartView = useModelStore((s) => s.addSmartView);
   const updateSmartView = useModelStore((s) => s.updateSmartView);
   const removeSmartView = useModelStore((s) => s.removeSmartView);
@@ -570,7 +675,7 @@ function SmartViewsTab() {
   const applySmartView = useModelStore((s) => s.applySmartView);
   const deactivateSmartView = useModelStore((s) => s.deactivateSmartView);
 
-  const [editingId, setEditingId] = useState<string | null>(null); // null = not editing, "new" = creating
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [draftView, setDraftView] = useState<SmartView | null>(null);
 
   const startCreate = () => {
@@ -581,7 +686,10 @@ function SmartViewsTab() {
 
   const startEdit = (id: string) => {
     const v = smartViews.find((s) => s.id === id);
-    if (v) { setDraftView({ ...v, rules: v.rules.map((r) => ({ ...r })) }); setEditingId(id); }
+    if (v) {
+      setDraftView({ ...v, tiers: v.tiers.map((t) => ({ ...t, rules: t.rules.map((r) => ({ ...r })) })) });
+      setEditingId(id);
+    }
   };
 
   const handleSave = (view: SmartView) => {
@@ -596,12 +704,6 @@ function SmartViewsTab() {
     if (activeSmartViewId === id) deactivateSmartView();
     else applySmartView(id);
   }, [activeSmartViewId, applySmartView, deactivateSmartView]);
-
-  const ACTION_BADGE: Record<SmartAction, { label: string; className: string }> = {
-    show:  { label: "Zeige", className: "bg-emerald-500/20 text-emerald-400" },
-    hide:  { label: "Verstecke", className: "bg-red-500/20 text-red-400" },
-    color: { label: "Farbe", className: "bg-blue-500/20 text-blue-400" },
-  };
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -627,6 +729,22 @@ function SmartViewsTab() {
           <button className="text-muted-foreground hover:text-foreground" onClick={deactivateSmartView}>
             <X size={11} />
           </button>
+        </div>
+      )}
+
+      {/* Color legend */}
+      {activeSmartViewId && colorGroups && colorGroups.length > 0 && (
+        <div className="px-3 py-2 border-b border-border shrink-0 bg-muted/10">
+          <div className="text-[10px] font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">Farblegende</div>
+          <div className="space-y-0.5 max-h-32 overflow-y-auto">
+            {colorGroups.map((g) => (
+              <div key={g.id} className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-sm shrink-0 ring-1 ring-black/20" style={{ background: g.color }} />
+                <span className="text-[10px] text-foreground truncate flex-1" title={g.label}>{g.label}</span>
+                <span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">{g.entries.length}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -659,24 +777,27 @@ function SmartViewsTab() {
                   )}
                   onClick={() => setStagedSmartViewId(stagedSmartViewId === sv.id ? null : sv.id)}
                 >
-                  {/* Color dot or action badge */}
-                  {sv.action === "color" ? (
-                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: sv.color }} />
-                  ) : (
-                    <div className="w-2.5 h-2.5 shrink-0" />
-                  )}
-
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className={cn("text-[11px] font-medium truncate", activeSmartViewId === sv.id && "text-primary")}>
                         {sv.name}
                       </span>
-                      <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0", ACTION_BADGE[sv.action].className)}>
-                        {ACTION_BADGE[sv.action].label}
+                      <span className="text-[10px] text-muted-foreground/60 shrink-0">
+                        {sv.tiers.length} Ebene{sv.tiers.length !== 1 ? "n" : ""}
                       </span>
                     </div>
-                    <div className="text-[10px] text-muted-foreground/60 mt-0.5">
-                      {sv.rules.length === 0 ? "Keine Regeln" : `${sv.rules.length} Regel${sv.rules.length > 1 ? "n" : ""} · ${sv.logic}`}
+                    <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                      {sv.tiers.map((tier) => (
+                        <span key={tier.id} className={cn("flex items-center gap-0.5 text-[9px] px-1 py-0.5 rounded font-medium", TIER_BADGE_CLASSES[tier.action])}>
+                          {tier.name}
+                          {tier.action === "color" && (
+                            <span className="w-2 h-2 rounded-full inline-block ml-0.5 ring-1 ring-black/10" style={{ background: tier.color }} />
+                          )}
+                          {tier.action === "autoColor" && tier.colorByKey && (
+                            <span className="text-[8px] opacity-70 ml-0.5">/{tier.colorByKey.split(".").pop()}</span>
+                          )}
+                        </span>
+                      ))}
                     </div>
                   </div>
 
