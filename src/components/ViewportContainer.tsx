@@ -1000,12 +1000,6 @@ export function ViewportContainer({ onElementClick }: Props) {
     mouseDownPosRef.current  = { x: e.clientX, y: e.clientY };
     clickSuppressedRef.current = false;
 
-    // Set orbit pivot to geometry under cursor so rotation feels natural
-    const hitForPivot = raycastPoint(e);
-    if (hitForPivot && controlsRef.current) {
-      controlsRef.current.target.copy(hitForPivot.point);
-    }
-
     const handle   = sectionHandleRef.current;
     const renderer = rendererRef.current;
     const camera   = cameraRef.current;
