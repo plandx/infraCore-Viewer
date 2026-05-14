@@ -117,10 +117,6 @@ function MainApp() {
     document.documentElement.classList.toggle("dark", settings.theme === "dark");
   }, [settings.theme]);
 
-  useEffect(() => {
-    document.documentElement.classList.add("dark");
-  }, []);
-
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

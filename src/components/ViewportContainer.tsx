@@ -406,6 +406,15 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (axes) axes.visible = settings.axes ?? true;
   }, [settings.grid, settings.axes]);
 
+  // ── Scene background follows theme ────────────────────────────────────────
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.background = new THREE.Color(
+      settings.theme === "light" ? "#e8edf2" : (settings.background ?? "#1a1b26")
+    );
+  }, [settings.theme, settings.background]);
+
   // ── Sync models into scene ────────────────────────────────────────────────
   useEffect(() => {
     const scene = sceneRef.current;
