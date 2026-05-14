@@ -31,6 +31,7 @@ Ein einziger globaler Store für den gesamten App-Zustand.
 |---|---|---|
 | `selectionBasket` | `Set<string>` | Akkumulierte Elementauswahl, Keys `"modelId:expressId"` |
 | `basketMode` | `BasketMode \| null` | `"highlight"` / `"ghost"` / `"isolate"` |
+| `propertyOverrides` | `Map<string, Map<number, Record<string,string>>>` | In-Session-Editierungen (modelId → expressId → key → Wert); **nicht** synchronisiert |
 
 ### Werkzeuge & UI
 | Feld | Typ | Beschreibung |
@@ -117,6 +118,9 @@ addToBasket(modelId, expressId): void
 removeFromBasket(modelId, expressId): void
 clearBasket(): void
 setBasketMode(mode: BasketMode | null): void
+// Eigenschafts-Overrides (nicht synchronisiert)
+applyPropertyEdits(edits: Array<{modelId, expressId, key, value}>): void
+clearPropertyOverrides(): void
 ```
 
 ### SmartViews

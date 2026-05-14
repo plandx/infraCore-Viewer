@@ -43,6 +43,49 @@ Batch-Laden für alle Elemente (einmal Datei öffnen, alle lesen):
 
 **Wichtig:** `FlatElementProps = Record<string, unknown>` ist in `types/ifc.ts` definiert.
 
+### `loadBasketProperties(file, expressIds)`
+
+Batch-Laden für Auswahlkorb-Elemente (einmal Datei öffnen):
+- Gibt `Map<number, { properties: Record<string,unknown>; psets: PropertySet[] }>` zurück
+- Anders als `loadAllElementProperties` bleiben `properties` und `psets` getrennt
+  (wird vom `BasketEditor` benötigt um direkte Attribute von Pset-Werten zu unterscheiden)
+
+### `getIfcApi()` *(exportiert)*
+
+Gibt die gemeinsame `IfcAPI`-Instanz zurück (Singleton). Wird auch von `ifcWriter.ts` genutzt.
+
+---
+
+## ifcWriter.ts
+
+**Pfad:** `src/utils/ifcWriter.ts`
+
+Schreibt eine modifizierte IFC-Datei mit Eigenschafts-Overrides zurück.
+
+### `writeIFCWithOverrides(file, elementOverrides)`
+
+```typescript
+interface ElementEditOverride {
+  expressId: number;
+  overrides: Record<string, string>; // "AttrName" oder "PsetName.PropName" → neuer Wert
+}
+async function writeIFCWithOverrides(
+  file: File,
+  elementOverrides: ElementEditOverride[]
+): Promise<Uint8Array>
+```
+
+- Öffnet die IFC-Datei, wendet Overrides an, gibt serialisierte IFC als `Uint8Array` zurück
+- Direkte Attribute (kein `.` im Key): modifiziert das Element-Line-Objekt via `GetLine` / `WriteLine`
+- Pset-Eigenschaften (`"PsetName.PropName"`): navigiert via `getPropertySets` zum
+  `IFCPROPERTYSINGLEVALUE`, modifiziert `NominalValue`, schreibt via `WriteLine`
+- Fehler bei einzelnen Properties werden übersprungen (best-effort)
+- Gibt mit `WriteFile(modelId)` die vollständige modifizierte IFC zurück
+
+### `downloadFile(data, filename, mimeType?)`
+
+Hilfsfunktion für Browser-Download eines `Uint8Array`.
+
 ---
 
 ## sqlEngine.ts

@@ -142,18 +142,47 @@ Mini-SQL-Interface über `alasql`:
 
 **Datei:** `src/components/SelectionBasket.tsx`
 
-Floating-Bar unten-links im Viewport (`absolute bottom-4 left-3 z-30`).
+Floating-Bar oben-links im Viewport (`absolute top-3 left-3 z-30`).
+
+Props:
+```typescript
+{ onOpenEditor?: () => void }
+```
 
 Operatoren:
 - `=` — Korb = aktuell selektiertes Element
 - `+` — Element hinzufügen (disabled wenn bereits drin)
 - `−` — Element entfernen (disabled wenn nicht drin)
 - `×` — Korb leeren + Modus deaktivieren
+- **Bearbeiten** — öffnet `BasketEditor` (Table2-Icon, nur sichtbar wenn Korb > 0)
 
 Darstellungsmodi (nur sichtbar wenn Korb > 0):
-- **HV** (Hervorheben) — amber Overlay-Meshes auf Korb-Elementen
-- **Geist** — Nicht-Korb-Elemente auf 12% Opacity
+- **HV** (Hervorheben) — amber Material-Override auf Korb-Elementen
+- **Geist** — Nicht-Korb-Elemente auf 10% Opacity
 - **ISO** (Isolieren) — Nicht-Korb-Elemente ausgeblendet
+
+---
+
+## BasketEditor
+
+**Datei:** `src/components/BasketEditor.tsx`
+
+Modales Bearbeitungsfenster (fixed Overlay) für alle Elemente im Auswahlkorb.
+
+Props:
+```typescript
+{ onClose: () => void }
+```
+
+Features:
+- Lädt alle Eigenschaften via `loadBasketProperties` (öffnet IFC-Datei einmal pro Modell)
+- Excel-Style-Tabelle: Spalten Name / Typ / Modell sticky-eingefroren, weitere scrollbar
+- Spaltengruppenzeile im Header (Direkte Attribute | Pset-Gruppen)
+- Doppelklick auf Zelle → Inline-Edit (Enter = übernehmen, Escape = abbrechen)
+- Geänderte Zellen amber hervorgehoben; Zähler in der Kopfzeile
+- **Übernehmen** → speichert Änderungen in `propertyOverrides` im Store
+- **Als IFC exportieren** → schreibt modifizierte IFC via `writeIFCWithOverrides`, löst Download aus
+- **CSV** → exportiert alle Zeilen inkl. Änderungen als UTF-8-CSV (BOM für Excel)
 
 ---
 
