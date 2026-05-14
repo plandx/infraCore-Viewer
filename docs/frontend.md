@@ -24,11 +24,11 @@ Oberste Toolbar-Leiste. Enthält:
 - Datei öffnen / hinzufügen (File-Input, akzeptiert `.ifc`)
 - Fit All (`F`)
 - Werkzeug-Buttons: Auswahl (`S`), Messen (`M`), Schnitt (`C`)
-- Ansichts-Toggles: Grid (Raster), Räume, Kanten (EdgesGeometry-Toggle), Orthografisch
+- Ansichts-Toggles: Grid (Raster), Räume, **Kanten** (Box-Icon, `settings.edges`, Standard: ein), Orthografisch
 - Theme-Toggle (Dark/Light)
 - Kamera-Preset-Dropdown (Oben, Vorne, Links, …)
 - Export: GLTF, Screenshot
-- Listen-Panel (`L`), SQL-Panel (`Q`)
+- **Lens Rules**-Panel (`L`), SQL-Panel (`Q`)
 - Sekundär-Fenster öffnen (Dropdown mit 4 Panel-Typen)
 
 ---
@@ -47,7 +47,7 @@ interface Props {
   onFitTo: (id: string) => void;         // Kamera auf Modell
   onRemove: (id: string) => void;        // Modell entfernen
   onSelectElement: (modelId: string, expressId: number) => void;
-  onHideOverride?: (modelId: string, expressId: number) => void;   // optional für Sekundär-Fenster
+  onHideOverride?: (modelId: string, expressId: number) => void;
   onShowAllOverride?: () => void;
   onIsolateOverride?: (modelId: string, expressId: number) => void;
 }
@@ -59,11 +59,17 @@ Interne Features:
 - Ausblenden / Isolieren via Kontext-Buttons
 - Farb-/Opazitäts-Regler pro Modell
 - **Mehrfachauswahl**: Shift+Klick fügt Elemente zur Auswahl hinzu; Shift+Klick auf zweites Element = Bereichsauswahl (alle sichtbaren Einträge zwischen Anker und Ziel in DFS-Reihenfolge)
-- **Aktionsleiste** (erscheint bei ≥2 Auswahl): Alle ausblenden / Alle isolieren / In Auswahlkorb / Auswahl aufheben
-- Expand-State des Spatial-Baums ist nach oben gehoben (für Bereichsauswahl nötig), Default-offen: Tiefe 0 und 1
-- **Externe Selektion** (Viewport-Klick, SQL, etc.) wird automatisch hervorgehoben: `activeKey` = `selectedElement`-Key wenn keine Mehrfachauswahl aktiv; zugehörige Knoten werden aufgeklappt und per `scrollIntoView` ins Bild gebracht (60 ms Verzögerung nach React-Flush)
+- **Aktionsleiste** (erscheint bei ≥2 Auswahl): Alle ausblenden / Alle isolieren / **+Korb** (hinzufügen) / **=Korb** (Korb ersetzen) / Auswahl aufheben
+- **Elternelement-Klick**: Klick auf einen nicht-blättrigen Knoten (mit Kindern) wählt **alle enthaltenen Blatt-Elemente** aus (rekursiv gesammelt via `collectSpatialElementKeys`)
+- **Doppelklick-Zoom**: Doppelklick auf ein Element → `viewer:zoomToElement`-Event → Kamera zoomt auf das Element; bei Elternknoten werden alle Kind-Element-IDs gesammelt und die kombinierte Bounding Box verwendet
+- Expand-State des Spatial-Baums ist nach oben gehoben, Default-offen: Tiefe 0 und 1
+- **Externe Selektion** (Viewport-Klick, SQL, etc.) wird automatisch hervorgehoben: `activeKey` = `selectedElement`-Key wenn keine Mehrfachauswahl aktiv; zugehörige Knoten werden aufgeklappt und per `scrollIntoView` ins Bild gebracht (60 ms Verzögerung)
 - `lastPanelClickRef` verhindert, dass eigene Panel-Klicks als externe Änderung interpretiert werden
 - Alle Zeilen tragen `data-mid` / `data-eid` Attribute für querySelector-basiertes Scroll-Targeting
+
+### `collectSpatialElementKeys(node, modelId)`
+
+Interne Hilfsfunktion: Sammelt rekursiv alle Blatt-Knoten (Knoten ohne Kinder) eines Spatial-Baums als `"modelId:expressId"`-Keys. Blatt = `children.length === 0`.
 
 ---
 
@@ -86,10 +92,30 @@ interface Props {
 
 **Datei:** `src/components/PropertiesPanel.tsx`
 
-Zeigt Eigenschaften des selektierten Elements (`selectedElement` aus Store):
-- Direkte IFC-Attribute (Name, Typ, GUID, …)
-- Alle Property-Sets (aufklappbar)
-- Leer-Zustand wenn nichts selektiert
+Zeigt Eigenschaften des selektierten Elements (`selectedElement` aus Store). Vier Tabs:
+
+- **Attribute** — Direkte IFC-Attribute (Name, Typ, GUID, …)
+- **Eigenschaften** — Property-Sets (ohne `Qto_`-Präfix)
+- **Mengen** — Quantity-Sets (`Qto_`-Präfix)
+- **`</>`** — Raw JSON-Ansicht mit Kopier-Button
+
+### Inline-Bearbeitung
+
+Jede Eigenschaftszeile hat einen Bearbeiten-Button (Stift-Icon, erscheint bei Hover):
+- Öffnet ein Inline-Eingabefeld mit Wert + Typ-Dropdown
+- **Typ-Dropdown**: STRING(1), REAL(14), INTEGER(16), BOOLEAN(18), TEXT(3), IDENTIFIER(2)
+- Der erkannte IFC-Typ wird automatisch vorbelegt (aus `r.type` oder Wrapped-Value)
+- Bestätigen mit `Enter` oder Haken-Button → `applyPropertyEdits()` im Store
+- Abbrechen mit `Escape` oder X-Button
+- Geänderte Werte werden amber hervorgehoben mit Stift-Icon und durchgestrichenem Originalwert
+
+### Overrides-Banner
+
+Erscheint wenn das aktuell selektierte Element Overrides hat:
+- Zeigt Anzahl der geänderten Eigenschaften
+- **IFC Export**-Button: exportiert das gesamte Modell mit allen Overrides als `.ifc`-Datei
+  - Ruft `writeIFCWithOverrides()` + `downloadFile()` auf
+  - Spinner während Export läuft
 
 ---
 
@@ -105,8 +131,13 @@ Zwei Tabs:
 - Sichtbarkeits-Toggle pro Gruppe
 - Buttons: **Farben anwenden** (→ `setColorGroups`), **Reset**, **CSV-Export**
 
-### Tab „SmartViews"
-- Liste gespeicherter SmartViews mit Aktivieren / Bearbeiten / Löschen
+### Tab „Lens Rules"
+
+*(früher „SmartViews")*
+
+- Liste gespeicherter Lens Rules mit Aktivieren / Bearbeiten / Löschen
+- **Klick auf eine Kategorie** isoliert deren Elemente via `isolateEntries()`
+- **Esc** setzt die Isolierung zurück (`showAll()`)
 - Inline-Editor (`SmartViewEditor`):
   - Regel-Zeilen: `[Eigenschaft][Bedingung][Wert][×]`
   - AND / OR Logik
@@ -229,7 +260,7 @@ Wrapper für Sekundär-Fenster. Nutzt `useSecondarySync()` für bidirektionalen 
 Rendert je nach `panel`-Parameter:
 - `hierarchy` → `<HierarchyPanel>` (onFitTo = no-op, keine Overrides)
 - `properties` → `<PropertiesPanel>`
-- `lists` → `<ListPanel>`
+- `lists` → `<ListPanel>` (Titel: „Lens Rules")
 - `sql` → `<SQLPanel>`
 
 Enthält `SyncIndicator` (Verbindungs-Status-Punkt in der Titelleiste).

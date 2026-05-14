@@ -17,6 +17,7 @@ THREE.Scene
 ├── AxesHelper (500 Einheiten) name="__axes"
 ├── model:<uuid>            ← Three.js Group je Modell
 │   └── Mesh[]             ← Geometrie-Meshes, userData.expressId gesetzt
+│       └── LineSegments[] ← Kanten-Overlay (userData.isEdge=true), ein Kind je Mesh
 ├── __sectionGroup          ← Schnittebene-Visuals (nur wenn aktiv)
 │   ├── PlaneGeometry (disc)
 │   ├── GridLines
@@ -33,6 +34,15 @@ THREE.Scene
 **Orthografisch**: `OrthographicCamera` — wird synchron zur Perspektiv-Kamera gehalten. Wechsel via `settings.orthographic`. Die Frustum-Größe wird aus der Perspektiv-Entfernung berechnet damit Zoom funktioniert.
 
 **OrbitControls**: `enableDamping=false`, `screenSpacePanning=true` — kein Nachdrehen nach Mausloslassen
+
+### Maustasten-Belegung
+```typescript
+controls.mouseButtons = {
+  LEFT:   THREE.MOUSE.ROTATE,
+  MIDDLE: THREE.MOUSE.PAN,    // Mittlere Maustaste = Pan
+  RIGHT:  THREE.MOUSE.ROTATE, // Rechte Maustaste = ebenfalls Rotate
+};
+```
 
 ---
 
@@ -68,7 +78,7 @@ THREE.Scene
 8. **Element-Sichtbarkeit** — `hiddenElements, isolatedElements, selectionBasket, basketMode, models` → traversiert Szene, setzt `obj.visible`
 9. **ColorGroup-Overrides** — `colorGroups` → ersetzt Materialien, speichert Originale in `userData.originalMaterial`
 10. **Korb-Overrides** — `selectionBasket, basketMode, models` → Overlay-Meshes (highlight) oder Ghost-Materialien
-11. **Selektion-Highlight** — `selectedElement` → findet alle Sub-Meshes, fügt amber Overlay-Meshes ein (`matrixWorld`-Kopie, `depthTest=false`)
+11. **Selektion-Highlight** — `selectedElement, hiddenElements, isolatedElements` → findet alle Sub-Meshes, fügt amber Overlay-Meshes ein (`matrixWorld`-Kopie, `depthTest=false`); **kein Highlight wenn Element ausgeblendet oder isoliert**
 
 ---
 
@@ -114,6 +124,7 @@ Drei unabhängige Override-Ebenen (müssen in Reihenfolge aufgebaut/abgebaut wer
 
 ### Selektion-Highlight
 - Findet alle Sub-Meshes des selektierten Elements per `traverse`
+- Nur wenn Element weder ausgeblendet noch isoliert (sonst kein Highlight)
 - `new THREE.Mesh(geometry, mat)` + `updateWorldMatrix(true,false)` + `matrix.copy(matrixWorld)` + `matrixAutoUpdate=false` → korrekter World-Space-Overlay
 - `MeshLambertMaterial(0xf59e0b, opacity=0.45, depthTest=false)` (amber)
 - `renderOrder = 999`
@@ -122,7 +133,7 @@ Drei unabhängige Override-Ebenen (müssen in Reihenfolge aufgebaut/abgebaut wer
 ### Kanten (Edges)
 - Beim Laden jedes Modells: `EdgesGeometry(geometry, 15°)` + `LineSegments` als Kind jedes Mesh
 - `userData.isEdge = true` auf allen Kanten-Objekten
-- Sichtbarkeit gesteuert via `settings.edges` (Standard: ein)
+- Sichtbarkeit gesteuert via `settings.edges` (Standard: **ein**)
 - Toggle-Button in der Toolbar (Box-Icon)
 
 **Raycasting überspringt** alle Meshes mit `isHighlight`, `isBasketOverlay`, `isSectionVisual`.
@@ -133,6 +144,7 @@ Drei unabhängige Override-Ebenen (müssen in Reihenfolge aufgebaut/abgebaut wer
 
 ### Select (Standard)
 - Linksklick → `raycastPoint()` → `onElementClick(modelId, expressId)`
+- Doppelklick → `raycastPoint()` → `ctxZoomTo(modelId, [expressId])` (Kamera zoomt auf Element)
 
 ### Measure
 - 1. Klick: Punkt A speichern
@@ -165,20 +177,28 @@ Drei unabhängige Override-Ebenen (müssen in Reihenfolge aufgebaut/abgebaut wer
 |---|---|---|
 | `viewer:fitAll` | Taste `F`, Toolbar-Button | Kamera auf alle sichtbaren Modelle |
 | `viewer:fitTo` | HierarchyPanel | Kamera auf BoundingBox (CustomEvent.detail) |
+| `viewer:zoomToElement` | HierarchyPanel, Doppelklick im Viewport | Kamera auf ein oder mehrere Elemente; `detail: { modelId, expressIds: number[] }` |
 | `viewer:preset` | Toolbar-Dropdown | Kamera auf Preset (top/front/left/…) |
 | `viewer:exportGLTF` | Toolbar | GLTF-Export |
 | `viewer:screenshot` | Toolbar | PNG-Screenshot |
 | `viewer:clearMeasure` | Esc-Key, Toolbar | Alle Messungen löschen |
+
+### `ctxZoomTo(modelId, expressIds)`
+
+Interne Funktion: Sammelt BoundingBoxen aller angegebenen Express-IDs, berechnet die kombinierte Box und setzt `controls.target` + `camera.position` so dass alle Elemente ins Bild passen.
 
 ---
 
 ## Rechtsklick-Kontextmenü
 
 Erscheint bei Rechtsklick auf ein Element. Optionen:
-- Isolieren
-- Ausblenden
-- Alles einblenden
-- Modell einpassen
+- **Zoom to** — zoomt auf das geklickte Element (`ctxZoomTo`)
+- **Isolieren** — `isolateElement()`
+- **Ausblenden** — `hideElement()`
+- **Alles einblenden** — `showAll()`
+- **Zum Korb hinzufügen / Aus Korb entfernen** — `addToBasket()` / `removeFromBasket()`
+- **Gleiche Klasse wählen** — wählt alle Elemente desselben IFC-Typs (`setBasket`)
+- **Gleiches Geschoss wählen** — traversiert Spatial-Tree, findet das Storey des Elements, wählt alle Elemente darunter
 
 Schließt sich bei nächstem `click`-Event (einmaliger Window-Listener).
 
@@ -186,7 +206,9 @@ Schließt sich bei nächstem `click`-Event (einmaliger Window-Listener).
 
 ## Doppelklick
 
-Wendet die `stagedSmartViewId` an (wenn vorhanden und noch nicht aktiv).
+- Raycasts auf das angeklickte Element
+- Ruft `ctxZoomTo(modelId, [expressId])` auf → Kamera zoomt auf das Element
+- Auch aus dem HierarchyPanel auslösbar via `viewer:zoomToElement`-Event (für Eltern-Knoten: alle Kind-IDs)
 
 ---
 

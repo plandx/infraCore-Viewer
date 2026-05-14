@@ -7,6 +7,20 @@ Ein einziger globaler Store für den gesamten App-Zustand.
 
 ---
 
+## Typen
+
+### `PropOverride`
+
+```typescript
+interface PropOverride {
+  value: string;      // Neuer Wert als String
+  ifcType?: number;   // IFC-Typ-Code: 1=STRING, 2=IDENTIFIER, 3=TEXT,
+                      //               14=REAL, 16=INTEGER, 18=BOOLEAN
+}
+```
+
+---
+
 ## Felder
 
 ### Modelle
@@ -31,7 +45,11 @@ Ein einziger globaler Store für den gesamten App-Zustand.
 |---|---|---|
 | `selectionBasket` | `Set<string>` | Akkumulierte Elementauswahl, Keys `"modelId:expressId"` |
 | `basketMode` | `BasketMode \| null` | `"highlight"` / `"ghost"` / `"isolate"` |
-| `propertyOverrides` | `Map<string, Map<number, Record<string,string>>>` | In-Session-Editierungen (modelId → expressId → key → Wert); **nicht** synchronisiert |
+
+### Eigenschafts-Overrides
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| `propertyOverrides` | `Map<string, Map<number, Record<string, PropOverride>>>` | In-Session-Editierungen: modelId → expressId → key → PropOverride; **nicht** BroadcastChannel-synchronisiert |
 
 ### Werkzeuge & UI
 | Feld | Typ | Beschreibung |
@@ -40,20 +58,20 @@ Ein einziger globaler Store für den gesamten App-Zustand.
 | `settings` | `ViewerSettings` | Alle Viewer-Einstellungen (s.u.) |
 | `measurements` | `Measurement[]` | Gespeicherte Messungen |
 | `sqlPanelOpen` | `boolean` | SQL-Panel sichtbar |
-| `listPanelOpen` | `boolean` | Listen-Panel sichtbar |
+| `listPanelOpen` | `boolean` | Lens Rules-Panel sichtbar |
 
 ### Farben
 | Feld | Typ | Beschreibung |
 |---|---|---|
 | `colorGroups` | `ColorGroup[] \| null` | Aktive Farb-Gruppen aus Listen-Tab |
 
-### SmartViews
+### SmartViews / Lens Rules
 | Feld | Typ | Beschreibung |
 |---|---|---|
-| `smartViews` | `SmartView[]` | Alle gespeicherten SmartViews |
-| `activeSmartViewId` | `string \| null` | Aktuell angewendete SmartView |
-| `stagedSmartViewId` | `string \| null` | Im Listen-Tab markierte SmartView (bereit für Doppelklick) |
-| `preSmartViewState` | `PreSmartViewState \| null` | Gesicherter Zustand vor SmartView-Anwendung |
+| `smartViews` | `SmartView[]` | Alle gespeicherten Lens Rules |
+| `activeSmartViewId` | `string \| null` | Aktuell angewendete Lens Rule |
+| `stagedSmartViewId` | `string \| null` | Im Listen-Tab markierte Lens Rule (bereit für Doppelklick) |
+| `preSmartViewState` | `PreSmartViewState \| null` | Gesicherter Zustand vor Lens-Rule-Anwendung |
 
 ### Properties-Cache
 | Feld | Typ | Beschreibung |
@@ -70,7 +88,7 @@ interface ViewerSettings {
   background: string;          // Hex-Farbe der Szene
   grid: boolean;
   axes: boolean;
-  edges: boolean;
+  edges: boolean;              // Kanten-Overlay (EdgesGeometry), Standard: true
   shadows: boolean;
   fog: boolean;
   logDepthBuffer: boolean;
@@ -108,22 +126,32 @@ showElement(modelId, expressId): void
 showElements(modelId, expressIds[]): void
 isolateElement(modelId, expressId): void
 isolateElements(modelId, expressIds[]): void
+isolateEntries(entries: Array<{ modelId: string; expressId: number }>): void  // modell-übergreifend
 showAll(): void   // löscht hiddenElements + isolatedElements
 ```
 
 ### Auswahlkorb
 ```typescript
-setBasket(basket: Set<string>): void      // Korb komplett ersetzen
+setBasket(basket: Set<string>): void      // Korb komplett ersetzen (=Korb)
 addToBasket(modelId, expressId): void
 removeFromBasket(modelId, expressId): void
 clearBasket(): void
 setBasketMode(mode: BasketMode | null): void
-// Eigenschafts-Overrides (nicht synchronisiert)
-applyPropertyEdits(edits: Array<{modelId, expressId, key, value}>): void
+```
+
+### Eigenschafts-Overrides
+```typescript
+applyPropertyEdits(edits: Array<{
+  modelId: string;
+  expressId: number;
+  key: string;          // "AttrName" oder "PsetName.PropName"
+  value: string;
+  ifcType?: number;     // IFC-Typ-Code (optional)
+}>): void
 clearPropertyOverrides(): void
 ```
 
-### SmartViews
+### SmartViews / Lens Rules
 ```typescript
 addSmartView(view: SmartView): void
 updateSmartView(id, patch): void
@@ -190,7 +218,9 @@ Checkliste:
 1. `ModelStore` Interface erweitern
 2. Initialwert in `create()` setzen
 3. Aktion implementieren
-4. In `SyncState` (types/ifc.ts) ergänzen
+4. In `SyncState` (types/ifc.ts) ergänzen *(wenn synchronisierbar)*
 5. In `serializeState()` (windowSync.ts) serialisieren
-6. In `applyRemoteState()` deserialisiern
+6. In `applyRemoteState()` deserialisieren
 7. `docs/state-management.md` aktualisieren
+
+**Hinweis:** `propertyOverrides` wird bewusst **nicht** synchronisiert — Eigenschafts-Editierungen sind session-lokal.

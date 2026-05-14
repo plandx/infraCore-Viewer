@@ -108,6 +108,8 @@ interface SyncState {
 }
 ```
 
+**Nicht serialisiert:** `propertyOverrides` — Eigenschafts-Editierungen sind bewusst session-lokal und werden nicht zwischen Fenstern synchronisiert.
+
 ### SyncModel (kein Three.js!)
 ```typescript
 interface SyncModel {
@@ -145,7 +147,7 @@ Wendet `SyncState` auf den lokalen Store an:
 export const PANEL_META: Record<PanelType, { label: string; w: number; h: number }> = {
   hierarchy:  { label: "Hierarchiebaum",      w: 380, h: 700 },
   properties: { label: "Eigenschaften",       w: 420, h: 600 },
-  lists:      { label: "Listen & SmartViews", w: 480, h: 640 },
+  lists:      { label: "Lens Rules",          w: 480, h: 640 },
   sql:        { label: "SQL-Abfrage",         w: 760, h: 480 },
 };
 
@@ -163,8 +165,9 @@ Aufruf aus `MainToolbar` via Dropdown.
 
 - BroadcastChannel funktioniert nur **same-origin** (gleiches Protokoll + Domain + Port)
 - Sekundär-Fenster haben **kein 3D-Viewport** (kein `ViewportContainer`)
-- `viewer:fitAll`, `viewer:fitTo` Events funktionieren nur im Main-Fenster
+- `viewer:fitAll`, `viewer:fitTo`, `viewer:zoomToElement` Events funktionieren nur im Main-Fenster
 - IFC-Ladefortschritt läuft nur im Main-Fenster
+- `propertyOverrides` wird **nicht** synchronisiert
 
 ---
 
@@ -174,7 +177,7 @@ Damit der Multi-Window-Sync funktioniert, müssen neue Felder an **vier Stellen*
 
 1. `ModelStore` Interface (`modelStore.ts`)
 2. Initialwert in `create()` (`modelStore.ts`)
-3. `SyncState` Interface (`types/ifc.ts`)
+3. `SyncState` Interface (`types/ifc.ts`) *(wenn synchronisierbar)*
 4. `serializeState()` (`windowSync.ts`)
 5. `applyRemoteState()` (`modelStore.ts`)
 6. `docs/state-management.md` + `docs/window-system.md` aktualisieren
