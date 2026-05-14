@@ -399,16 +399,17 @@ function ListenTab() {
 
 const CONDITION_OPTIONS = Object.entries(CONDITION_LABELS) as [SmartCondition, string][];
 
-const TIER_ACTION_LABELS: Record<TierAction, string> = {
-  hide:      "Ausblenden",
-  color:     "Einfärben",
-  autoColor: "Auto-Farbe",
-};
-
 const TIER_BADGE_CLASSES: Record<TierAction, string> = {
-  hide:      "bg-red-500/20 text-red-400",
-  color:     "bg-blue-500/20 text-blue-400",
-  autoColor: "bg-violet-500/20 text-violet-400",
+  add:              "bg-emerald-500/20 text-emerald-400",
+  remove:           "bg-red-500/20 text-red-400",
+  removeOthers:     "bg-orange-500/20 text-orange-400",
+  color:            "bg-blue-500/20 text-blue-400",
+  transparent:      "bg-cyan-500/20 text-cyan-400",
+  opaque:           "bg-slate-500/20 text-slate-400",
+  autoColor:        "bg-violet-500/20 text-violet-400",
+  addAndColor:      "bg-blue-500/20 text-blue-300",
+  addAndTransparent:"bg-cyan-500/20 text-cyan-300",
+  addAndAutoColor:  "bg-violet-500/20 text-violet-300",
 };
 
 function emptyRule(): SmartRule {
@@ -424,6 +425,7 @@ function emptyTier(index: number): SmartTier {
     action: "color",
     color: PALETTE[index % PALETTE.length],
     colorByKey: "_type",
+    opacity: 0.15,
   };
 }
 
@@ -545,17 +547,32 @@ function TierEditor({
         {/* Action */}
         <div className="space-y-1.5">
           <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Aktion</span>
-          <div className="flex gap-1 flex-wrap">
-            {(["hide", "color", "autoColor"] as TierAction[]).map((a) => (
-              <button
-                key={a}
-                className={cn("px-2 py-0.5 rounded text-[11px] border transition-colors",
-                  tier.action === a ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50")}
-                onClick={() => onChange({ action: a })}
-              >{TIER_ACTION_LABELS[a]}</button>
-            ))}
-          </div>
-          {tier.action === "color" && (
+          <select
+            className="w-full bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
+            value={tier.action}
+            onChange={(e) => onChange({ action: e.target.value as TierAction })}
+          >
+            <optgroup label="Sichtbarkeit">
+              <option value="add">Hinzufügen</option>
+              <option value="remove">Entfernen</option>
+              <option value="removeOthers">Andere entfernen</option>
+            </optgroup>
+            <optgroup label="Farbe">
+              <option value="color">Farbig einstellen</option>
+              <option value="autoColor">Auto-Farbe</option>
+              <option value="addAndColor">Hinzufügen + Einfärben</option>
+              <option value="addAndAutoColor">Hinzufügen + Auto-Farbe</option>
+            </optgroup>
+            <optgroup label="Transparenz">
+              <option value="transparent">Durchsichtig einstellen</option>
+              <option value="opaque">Undurchsichtig einstellen</option>
+              <option value="addAndTransparent">Hinzufügen + Durchsichtig</option>
+            </optgroup>
+          </select>
+
+          {/* Color picker — shown for color-based actions */}
+          {(tier.action === "color" || tier.action === "transparent" || tier.action === "opaque" ||
+            tier.action === "addAndColor" || tier.action === "addAndTransparent") && (
             <div className="flex items-center gap-2">
               <button
                 className="w-5 h-5 rounded ring-1 ring-black/20 hover:ring-2 hover:ring-primary shrink-0"
@@ -567,7 +584,25 @@ function TierEditor({
               <span className="text-[11px] text-muted-foreground">{tier.color}</span>
             </div>
           )}
-          {tier.action === "autoColor" && (
+
+          {/* Opacity slider — shown for transparent actions */}
+          {(tier.action === "transparent" || tier.action === "addAndTransparent") && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground shrink-0 w-16">Deckkraft:</span>
+              <input
+                type="range" min={0} max={1} step={0.05}
+                value={tier.opacity}
+                className="flex-1 h-1.5 accent-primary"
+                onChange={(e) => onChange({ opacity: parseFloat(e.target.value) })}
+              />
+              <span className="text-[11px] text-muted-foreground w-8 text-right tabular-nums">
+                {Math.round(tier.opacity * 100)}%
+              </span>
+            </div>
+          )}
+
+          {/* PropKeyPicker — shown for autoColor actions */}
+          {(tier.action === "autoColor" || tier.action === "addAndAutoColor") && (
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-muted-foreground shrink-0">Nach:</span>
               <PropKeyPicker value={tier.colorByKey} onChange={(k) => onChange({ colorByKey: k })} />
@@ -790,11 +825,15 @@ function SmartViewsTab() {
                       {sv.tiers.map((tier) => (
                         <span key={tier.id} className={cn("flex items-center gap-0.5 text-[9px] px-1 py-0.5 rounded font-medium", TIER_BADGE_CLASSES[tier.action])}>
                           {tier.name}
-                          {tier.action === "color" && (
+                          {(tier.action === "color" || tier.action === "transparent" || tier.action === "opaque" ||
+                            tier.action === "addAndColor" || tier.action === "addAndTransparent") && (
                             <span className="w-2 h-2 rounded-full inline-block ml-0.5 ring-1 ring-black/10" style={{ background: tier.color }} />
                           )}
-                          {tier.action === "autoColor" && tier.colorByKey && (
+                          {(tier.action === "autoColor" || tier.action === "addAndAutoColor") && tier.colorByKey && (
                             <span className="text-[8px] opacity-70 ml-0.5">/{tier.colorByKey.split(".").pop()}</span>
+                          )}
+                          {(tier.action === "transparent" || tier.action === "addAndTransparent") && (
+                            <span className="text-[8px] opacity-70 ml-0.5">{Math.round(tier.opacity * 100)}%</span>
                           )}
                         </span>
                       ))}

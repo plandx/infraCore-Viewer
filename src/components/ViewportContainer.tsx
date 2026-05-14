@@ -535,11 +535,12 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     if (!colorGroups || colorGroups.length === 0) return;
 
-    const colorMap = new Map<string, string>();
+    const colorMap = new Map<string, { color: string; opacity: number }>();
     colorGroups.forEach((group) => {
       if (!group.visible) return;
+      const opacity = group.opacity ?? 1;
       group.entries.forEach(({ modelId, expressId }) => {
-        colorMap.set(`${modelId}:${expressId}`, group.color);
+        colorMap.set(`${modelId}:${expressId}`, { color: group.color, opacity });
       });
     });
 
@@ -556,10 +557,14 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!modelId) return;
 
       const key = `${modelId}:${obj.userData.expressId}`;
-      const color = colorMap.get(key);
-      if (color === undefined) return;
+      const entry = colorMap.get(key);
+      if (entry === undefined) return;
 
-      const newMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
+      const newMat = new THREE.MeshLambertMaterial({
+        color: new THREE.Color(entry.color),
+        transparent: entry.opacity < 1,
+        opacity: entry.opacity,
+      });
       obj.userData.originalMaterial = obj.material;
       obj.material = newMat;
       colorMaterialsRef.current.push(newMat);

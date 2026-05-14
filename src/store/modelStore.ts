@@ -247,7 +247,38 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     const newHidden = new Set(state.hiddenElements);
     const allColorGroups: ColorGroup[] = [];
 
+    const getAllKeys = () => {
+      const all = new Set<string>();
+      state.models.forEach((model) => {
+        for (const elements of Object.values(model.elementsByType))
+          for (const el of elements) all.add(`${model.id}:${el.expressId}`);
+      });
+      return all;
+    };
+
+    const toEntries = (keys: Set<string>): ColorGroupEntry[] =>
+      Array.from(keys).map((k) => {
+        const sep = k.indexOf(":");
+        return { modelId: k.slice(0, sep), expressId: parseInt(k.slice(sep + 1)) };
+      });
+
+    const pushAutoColorGroups = (tierId: string, matchedProps: Map<string, FlatElementProps>, colorByKey: string) => {
+      const groups = new Map<string, ColorGroupEntry[]>();
+      for (const [k, props] of matchedProps.entries()) {
+        const sep = k.indexOf(":");
+        const entry: ColorGroupEntry = { modelId: k.slice(0, sep), expressId: parseInt(k.slice(sep + 1)) };
+        const val = String(props[colorByKey] ?? "–");
+        if (!groups.has(val)) groups.set(val, []);
+        groups.get(val)!.push(entry);
+      }
+      const sorted = Array.from(groups.entries()).sort((a, b) => b[1].length - a[1].length);
+      let palIdx = allColorGroups.length;
+      for (const [val, entries] of sorted)
+        allColorGroups.push({ id: `${tierId}--${val}`, label: val, color: PALETTE[palIdx++ % PALETTE.length], entries, visible: true });
+    };
+
     for (const tier of view.tiers) {
+      const matchedKeys = new Set<string>();
       const matchedProps = new Map<string, FlatElementProps>();
 
       state.models.forEach((model) => {
@@ -261,42 +292,56 @@ export const useModelStore = create<ModelStore>((set, get) => ({
               ...(modelProps?.get(el.expressId) ?? {}),
             };
             if (evaluateTier(tier as SmartTier, props)) {
-              matchedProps.set(`${model.id}:${el.expressId}`, props);
+              const key = `${model.id}:${el.expressId}`;
+              matchedKeys.add(key);
+              matchedProps.set(key, props);
             }
           }
         }
       });
 
-      if (tier.action === "hide") {
-        for (const k of matchedProps.keys()) newHidden.add(k);
-      } else if (tier.action === "color") {
-        const entries: ColorGroupEntry[] = Array.from(matchedProps.keys()).map((k) => {
-          const sep = k.indexOf(":");
-          return { modelId: k.slice(0, sep), expressId: parseInt(k.slice(sep + 1)) };
-        });
-        if (entries.length > 0) {
-          allColorGroups.push({ id: tier.id, label: tier.name, color: tier.color, entries, visible: true });
+      const entries = toEntries(matchedKeys);
+
+      switch (tier.action) {
+        case "add":
+          for (const k of matchedKeys) newHidden.delete(k);
+          break;
+        case "remove":
+          for (const k of matchedKeys) newHidden.add(k);
+          break;
+        case "removeOthers": {
+          for (const k of getAllKeys()) if (!matchedKeys.has(k)) newHidden.add(k);
+          break;
         }
-      } else if (tier.action === "autoColor") {
-        const groups = new Map<string, ColorGroupEntry[]>();
-        for (const [k, props] of matchedProps.entries()) {
-          const sep = k.indexOf(":");
-          const entry: ColorGroupEntry = { modelId: k.slice(0, sep), expressId: parseInt(k.slice(sep + 1)) };
-          const val = String(props[tier.colorByKey] ?? "–");
-          if (!groups.has(val)) groups.set(val, []);
-          groups.get(val)!.push(entry);
-        }
-        const sorted = Array.from(groups.entries()).sort((a, b) => b[1].length - a[1].length);
-        let palIdx = allColorGroups.length;
-        for (const [val, entries] of sorted) {
-          allColorGroups.push({
-            id: `${tier.id}--${val}`,
-            label: val,
-            color: PALETTE[palIdx++ % PALETTE.length],
-            entries,
-            visible: true,
-          });
-        }
+        case "color":
+          if (entries.length > 0)
+            allColorGroups.push({ id: tier.id, label: tier.name, color: tier.color, entries, visible: true });
+          break;
+        case "transparent":
+          if (entries.length > 0)
+            allColorGroups.push({ id: tier.id, label: tier.name, color: tier.color, entries, visible: true, opacity: tier.opacity });
+          break;
+        case "opaque":
+          if (entries.length > 0)
+            allColorGroups.push({ id: tier.id, label: tier.name, color: tier.color, entries, visible: true, opacity: 1 });
+          break;
+        case "autoColor":
+          pushAutoColorGroups(tier.id, matchedProps, tier.colorByKey);
+          break;
+        case "addAndColor":
+          for (const k of matchedKeys) newHidden.delete(k);
+          if (entries.length > 0)
+            allColorGroups.push({ id: tier.id, label: tier.name, color: tier.color, entries, visible: true });
+          break;
+        case "addAndTransparent":
+          for (const k of matchedKeys) newHidden.delete(k);
+          if (entries.length > 0)
+            allColorGroups.push({ id: tier.id, label: tier.name, color: tier.color, entries, visible: true, opacity: tier.opacity });
+          break;
+        case "addAndAutoColor":
+          for (const k of matchedKeys) newHidden.delete(k);
+          pushAutoColorGroups(tier.id, matchedProps, tier.colorByKey);
+          break;
       }
     }
 

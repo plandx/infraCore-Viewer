@@ -145,9 +145,13 @@ Zwei Tabs:
   - Header mit Name-Eingabe + Auf/Ab-Pfeil + Löschen-Button
   - Regel-Zeilen: `[Eigenschaft][Bedingung][Wert][×]`
   - AND / OR Logik (nur bei ≥2 Regeln sichtbar)
-  - Aktions-Buttons: **Ausblenden** / **Einfärben** / **Auto-Farbe**
-  - Bei Einfärben: Farb-Swatch + Hidden Color Input
-  - Bei Auto-Farbe: „Nach:"-Label + PropKeyPicker für `colorByKey`
+  - **Aktions-Dropdown** (`<select>` mit `<optgroup>`):
+    - Sichtbarkeit: Hinzufügen / Entfernen / Andere entfernen
+    - Farbe: Farbig einstellen / Auto-Farbe / Hinzufügen + Einfärben / Hinzufügen + Auto-Farbe
+    - Transparenz: Durchsichtig / Undurchsichtig / Hinzufügen + Durchsichtig
+  - Bei Farb-Aktionen: Farb-Swatch + Hidden Color Input
+  - Bei Transparenz-Aktionen: zusätzlich Opacity-Slider (0–100%)
+  - Bei Auto-Farbe-Aktionen: „Nach:"-Label + PropKeyPicker für `colorByKey`
 - Doppelklick-Hinweis wenn SmartView staged
 
 ### PropertyLoader (intern)

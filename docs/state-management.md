@@ -19,6 +19,37 @@ interface PropOverride {
 }
 ```
 
+### `TierAction`
+
+```typescript
+type TierAction =
+  | "add"               // Hinzufügen: matched einblenden
+  | "remove"            // Entfernen: matched ausblenden
+  | "removeOthers"      // Andere entfernen: nicht-matched ausblenden
+  | "color"             // Farbig einstellen: Flat-Color (opacity 1)
+  | "transparent"       // Durchsichtig: Flat-Color + tier.opacity
+  | "opaque"            // Undurchsichtig: Flat-Color + opacity 1
+  | "autoColor"         // Auto-Farbe: Palette-Gruppen nach tier.colorByKey
+  | "addAndColor"       // Hinzufügen + Einfärben
+  | "addAndTransparent" // Hinzufügen + Durchsichtig
+  | "addAndAutoColor";  // Hinzufügen + Auto-Farbe
+```
+
+### `SmartTier`
+
+```typescript
+interface SmartTier {
+  id: string;
+  name: string;
+  rules: SmartRule[];
+  logic: "AND" | "OR";
+  action: TierAction;
+  color: string;        // hex, für color/transparent/opaque/addAnd*
+  colorByKey: string;   // Attribut-Key für autoColor/addAndAutoColor
+  opacity: number;      // 0–1, für transparent/addAndTransparent (Standard 0.15)
+}
+```
+
 ---
 
 ## Felder
@@ -159,10 +190,17 @@ removeSmartView(id): void
 setStagedSmartViewId(id: string | null): void
 
 applySmartView(id: string): void
-// Iteriert über view.tiers top-to-bottom:
-//   tier.action === "hide"      → matching Element-Keys in newHidden
-//   tier.action === "color"     → ColorGroup mit tier.color
-//   tier.action === "autoColor" → mehrere ColorGroups gruppiert nach tier.colorByKey
+// Iteriert über view.tiers top-to-bottom.  Aktionen pro Tier:
+//   "add"              → matched aus newHidden entfernen (einblenden)
+//   "remove"           → matched zu newHidden hinzufügen (ausblenden)
+//   "removeOthers"     → alle nicht-matched ausblenden
+//   "color"            → ColorGroup mit tier.color (opacity 1)
+//   "transparent"      → ColorGroup mit tier.color + tier.opacity (< 1)
+//   "opaque"           → ColorGroup mit tier.color + opacity 1
+//   "autoColor"        → mehrere ColorGroups gruppiert nach tier.colorByKey
+//   "addAndColor"      → add + color
+//   "addAndTransparent"→ add + transparent
+//   "addAndAutoColor"  → add + autoColor
 // Setzt hiddenElements, colorGroups, sichert Vorzustand in preSmartViewState
 
 deactivateSmartView(): void

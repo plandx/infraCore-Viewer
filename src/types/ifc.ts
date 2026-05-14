@@ -22,7 +22,17 @@ export type SmartCondition =
   | "is_true" | "is_false"
   | "exists" | "not_exists";
 
-export type TierAction = "hide" | "color" | "autoColor";
+export type TierAction =
+  | "add"               // Hinzufügen — show matched (remove from hidden)
+  | "remove"            // Entfernen — hide matched
+  | "removeOthers"      // Andere entfernen — hide all non-matched
+  | "color"             // Farbig einstellen — apply flat color
+  | "transparent"       // Durchsichtig einstellen — apply color at low opacity
+  | "opaque"            // Undurchsichtig einstellen — apply color at full opacity
+  | "autoColor"         // Auto-Farbe — group by key, palette colors
+  | "addAndColor"       // Hinzufügen + Einfärben
+  | "addAndTransparent" // Hinzufügen + Durchsichtig
+  | "addAndAutoColor";  // Hinzufügen + Auto-Farbe
 
 export interface SmartRule {
   id: string;
@@ -37,8 +47,9 @@ export interface SmartTier {
   rules: SmartRule[];
   logic: "AND" | "OR";
   action: TierAction;
-  color: string;        // hex, used when action === "color"
-  colorByKey: string;   // property key, used when action === "autoColor"
+  color: string;        // hex, used for color/transparent/opaque/addAnd* actions
+  colorByKey: string;   // property key, used for autoColor / addAndAutoColor
+  opacity: number;      // 0–1, used for transparent / addAndTransparent (default 0.15)
 }
 
 export interface SmartView {
@@ -166,6 +177,7 @@ export interface ColorGroup {
   color: string;
   entries: ColorGroupEntry[];
   visible: boolean;
+  opacity?: number;   // if < 1 renders semi-transparent; omit or 1 = fully opaque
 }
 
 export interface ViewerSettings {
