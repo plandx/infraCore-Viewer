@@ -248,10 +248,13 @@ function ListenTab() {
   const colorGroups = useModelStore((s) => s.colorGroups);
   const setColorGroups = useModelStore((s) => s.setColorGroups);
   const loadedProperties = useModelStore((s) => s.loadedProperties);
+  const isolateEntries = useModelStore((s) => s.isolateEntries);
+  const showAll = useModelStore((s) => s.showAll);
 
   const [groupBy, setGroupBy] = useState<GroupBy>("type");
   const [propKey, setPropKey] = useState("");
   const [localGroups, setLocalGroups] = useState<ColorGroup[]>([]);
+  const [isolatedGroupId, setIsolatedGroupId] = useState<string | null>(null);
   const colorInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
   const isApplied = colorGroups !== null;
 
@@ -265,6 +268,25 @@ function ListenTab() {
       return builtGroups.map((g) => ({ ...g, color: prevColors.get(g.label) ?? g.color }));
     });
   }, [builtGroups]);
+
+  useEffect(() => {
+    if (!isolatedGroupId) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { showAll(); setIsolatedGroupId(null); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isolatedGroupId, showAll]);
+
+  function handleGroupClick(g: ColorGroup) {
+    if (isolatedGroupId === g.id) {
+      showAll();
+      setIsolatedGroupId(null);
+    } else {
+      isolateEntries(g.entries);
+      setIsolatedGroupId(g.id);
+    }
+  }
 
   function exportCSV() {
     const rows: string[][] = [["Gruppe", "Farbe", "Modell", "ExpressID"]];
@@ -340,25 +362,38 @@ function ListenTab() {
           </div>
         ) : (
           <div className="divide-y divide-border/40">
-            {localGroups.map((g) => (
-              <div key={g.id} className={cn("flex items-center gap-2 px-3 py-1.5 hover:bg-muted/20", !g.visible && "opacity-60")}>
-                <button
-                  className="w-3.5 h-3.5 rounded-sm shrink-0 ring-1 ring-black/20 hover:ring-2 hover:ring-primary"
-                  style={{ background: g.color }}
-                  onClick={() => colorInputRefs.current.get(g.id)?.click()}
-                />
-                <input ref={(el) => { if (el) colorInputRefs.current.set(g.id, el); else colorInputRefs.current.delete(g.id); }}
-                  type="color" className="sr-only" value={g.color}
-                  onChange={(e) => setLocalGroups((prev) => prev.map((x) => x.id === g.id ? { ...x, color: e.target.value } : x))}
-                />
-                <span className="flex-1 truncate text-[11px]" title={g.label}>{g.label}</span>
-                <span className="text-muted-foreground/60 shrink-0 tabular-nums">{g.entries.length.toLocaleString()}</span>
-                <button
-                  className={cn("shrink-0 p-0.5 rounded transition-colors", g.visible ? "text-muted-foreground/50 hover:text-foreground" : "text-amber-400")}
-                  onClick={() => setLocalGroups((prev) => prev.map((x) => x.id === g.id ? { ...x, visible: !x.visible } : x))}
-                >{g.visible ? <Eye size={11} /> : <EyeOff size={11} />}</button>
-              </div>
-            ))}
+            {localGroups.map((g) => {
+              const isIsolated = isolatedGroupId === g.id;
+              return (
+                <div
+                  key={g.id}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors",
+                    isIsolated ? "bg-primary/10 hover:bg-primary/15" : "hover:bg-muted/20",
+                    !g.visible && "opacity-60",
+                  )}
+                  title={isIsolated ? "Klicken zum Zurücksetzen (oder Esc)" : "Klicken zum Isolieren"}
+                  onClick={() => handleGroupClick(g)}
+                >
+                  <button
+                    className="w-3.5 h-3.5 rounded-sm shrink-0 ring-1 ring-black/20 hover:ring-2 hover:ring-primary"
+                    style={{ background: g.color }}
+                    onClick={(e) => { e.stopPropagation(); colorInputRefs.current.get(g.id)?.click(); }}
+                  />
+                  <input ref={(el) => { if (el) colorInputRefs.current.set(g.id, el); else colorInputRefs.current.delete(g.id); }}
+                    type="color" className="sr-only" value={g.color}
+                    onChange={(e) => setLocalGroups((prev) => prev.map((x) => x.id === g.id ? { ...x, color: e.target.value } : x))}
+                  />
+                  <span className={cn("flex-1 truncate text-[11px]", isIsolated && "text-primary font-semibold")} title={g.label}>{g.label}</span>
+                  {isIsolated && <span className="text-[9px] text-primary font-medium shrink-0 uppercase tracking-wide">ISO</span>}
+                  <span className="text-muted-foreground/60 shrink-0 tabular-nums">{g.entries.length.toLocaleString()}</span>
+                  <button
+                    className={cn("shrink-0 p-0.5 rounded transition-colors", g.visible ? "text-muted-foreground/50 hover:text-foreground" : "text-amber-400")}
+                    onClick={(e) => { e.stopPropagation(); setLocalGroups((prev) => prev.map((x) => x.id === g.id ? { ...x, visible: !x.visible } : x)); }}
+                  >{g.visible ? <Eye size={11} /> : <EyeOff size={11} />}</button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
