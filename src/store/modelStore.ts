@@ -2,9 +2,9 @@ import { create } from "zustand";
 import * as THREE from "three";
 import type {
   IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement,
-  ColorGroup, SmartView, FlatElementProps, SyncState, BasketMode, PropOverride,
+  ColorGroup, ColorGroupEntry, SmartView, SmartTier, FlatElementProps, SyncState, BasketMode, PropOverride,
 } from "../types/ifc";
-import { evaluateSmartView } from "../utils/smartViewUtils";
+import { evaluateTier, PALETTE } from "../utils/smartViewUtils";
 
 interface PreSmartViewState {
   hiddenElements: Set<string>;
@@ -222,7 +222,6 @@ export const useModelStore = create<ModelStore>((set, get) => ({
         smartViews: next,
         activeSmartViewId: wasActive ? null : state.activeSmartViewId,
         stagedSmartViewId: wasStaged ? null : state.stagedSmartViewId,
-        // Restore visibility state if the deleted view was active
         ...(wasActive && state.preSmartViewState ? {
           hiddenElements: state.preSmartViewState.hiddenElements,
           isolatedElements: state.preSmartViewState.isolatedElements,
@@ -234,62 +233,80 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   setStagedSmartViewId: (id) => set({ stagedSmartViewId: id }),
 
-  applySmartView: (id) => {
+  applySmartView: (id: string) => {
     const state = get();
     const view = state.smartViews.find((v) => v.id === id);
     if (!view) return;
 
-    // Save current visibility/color state so we can restore on deactivate
-    const preState: PreSmartViewState = {
+    const pre: PreSmartViewState = {
       hiddenElements: new Set(state.hiddenElements),
       isolatedElements: state.isolatedElements ? new Set(state.isolatedElements) : null,
       colorGroups: state.colorGroups ? [...state.colorGroups] : null,
     };
 
-    // Evaluate rules for every element in every model
-    const matches = new Set<string>();
-    state.models.forEach((model) => {
-      const modelProps = state.loadedProperties?.get(model.id);
-      for (const [typeName, elements] of Object.entries(model.elementsByType)) {
-        for (const el of elements) {
-          const props: FlatElementProps = {
-            _type: typeName,
-            _name: el.name,
-            _model: model.name,
-            ...(modelProps?.get(el.expressId) ?? {}),
-          };
-          if (evaluateSmartView(view, props)) {
-            matches.add(`${model.id}:${el.expressId}`);
+    const newHidden = new Set(state.hiddenElements);
+    const allColorGroups: ColorGroup[] = [];
+
+    for (const tier of view.tiers) {
+      const matchedProps = new Map<string, FlatElementProps>();
+
+      state.models.forEach((model) => {
+        const modelProps = state.loadedProperties?.get(model.id);
+        for (const [typeName, elements] of Object.entries(model.elementsByType)) {
+          for (const el of elements) {
+            const props: FlatElementProps = {
+              _type: typeName,
+              _name: el.name,
+              _model: model.name,
+              ...(modelProps?.get(el.expressId) ?? {}),
+            };
+            if (evaluateTier(tier as SmartTier, props)) {
+              matchedProps.set(`${model.id}:${el.expressId}`, props);
+            }
           }
         }
-      }
-    });
-
-    let newHidden = new Set(state.hiddenElements);
-    let newIsolated: Set<string> | null = state.isolatedElements;
-    let newColorGroups = state.colorGroups;
-
-    if (view.action === "hide") {
-      newHidden = new Set([...state.hiddenElements, ...matches]);
-    } else if (view.action === "show") {
-      newIsolated = matches;
-    } else if (view.action === "color") {
-      const entries = Array.from(matches).map((k) => {
-        const sep = k.indexOf(":");
-        return { modelId: k.slice(0, sep), expressId: parseInt(k.slice(sep + 1)) };
       });
-      newColorGroups = [{
-        id: view.id, label: view.name, color: view.color, entries, visible: true,
-      }];
+
+      if (tier.action === "hide") {
+        for (const k of matchedProps.keys()) newHidden.add(k);
+      } else if (tier.action === "color") {
+        const entries: ColorGroupEntry[] = Array.from(matchedProps.keys()).map((k) => {
+          const sep = k.indexOf(":");
+          return { modelId: k.slice(0, sep), expressId: parseInt(k.slice(sep + 1)) };
+        });
+        if (entries.length > 0) {
+          allColorGroups.push({ id: tier.id, label: tier.name, color: tier.color, entries, visible: true });
+        }
+      } else if (tier.action === "autoColor") {
+        const groups = new Map<string, ColorGroupEntry[]>();
+        for (const [k, props] of matchedProps.entries()) {
+          const sep = k.indexOf(":");
+          const entry: ColorGroupEntry = { modelId: k.slice(0, sep), expressId: parseInt(k.slice(sep + 1)) };
+          const val = String(props[tier.colorByKey] ?? "–");
+          if (!groups.has(val)) groups.set(val, []);
+          groups.get(val)!.push(entry);
+        }
+        const sorted = Array.from(groups.entries()).sort((a, b) => b[1].length - a[1].length);
+        let palIdx = allColorGroups.length;
+        for (const [val, entries] of sorted) {
+          allColorGroups.push({
+            id: `${tier.id}--${val}`,
+            label: val,
+            color: PALETTE[palIdx++ % PALETTE.length],
+            entries,
+            visible: true,
+          });
+        }
+      }
     }
 
     set({
       activeSmartViewId: id,
       stagedSmartViewId: id,
-      preSmartViewState: preState,
+      preSmartViewState: pre,
       hiddenElements: newHidden,
-      isolatedElements: newIsolated,
-      colorGroups: newColorGroups,
+      isolatedElements: state.isolatedElements,
+      colorGroups: allColorGroups.length > 0 ? allColorGroups : null,
     });
   },
 
@@ -352,8 +369,6 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   applyRemoteState: (state) =>
     set((s) => {
-      // Rebuild models map: keep existing meshes/boundingBox if the model is
-      // already loaded in this window; otherwise create an empty placeholder.
       const models = new Map<string, IFCModelEntry>();
       state.models.forEach((sm) => {
         const existing = s.models.get(sm.id);

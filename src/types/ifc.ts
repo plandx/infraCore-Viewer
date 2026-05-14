@@ -22,7 +22,7 @@ export type SmartCondition =
   | "is_true" | "is_false"
   | "exists" | "not_exists";
 
-export type SmartAction = "show" | "hide" | "color";
+export type TierAction = "hide" | "color" | "autoColor";
 
 export interface SmartRule {
   id: string;
@@ -31,14 +31,24 @@ export interface SmartRule {
   value: string;       // ignored for exists / not_exists / is_true / is_false
 }
 
-export interface SmartView {
+export interface SmartTier {
   id: string;
   name: string;
   rules: SmartRule[];
   logic: "AND" | "OR";
-  action: SmartAction;
-  color: string;       // hex, used when action === "color"
+  action: TierAction;
+  color: string;        // hex, used when action === "color"
+  colorByKey: string;   // property key, used when action === "autoColor"
 }
+
+export interface SmartView {
+  id: string;
+  name: string;
+  tiers: SmartTier[];
+}
+
+// Keep SmartAction as alias for backward compat with any remaining refs
+export type SmartAction = TierAction;
 
 // ── Multi-window sync ──────────────────────────────────────────────────────────
 

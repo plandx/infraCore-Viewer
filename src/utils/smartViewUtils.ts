@@ -1,4 +1,4 @@
-import type { SmartRule, SmartView, FlatElementProps, SmartCondition } from "../types/ifc";
+import type { SmartRule, SmartTier, FlatElementProps, SmartCondition } from "../types/ifc";
 
 const LABEL: Record<SmartCondition, string> = {
   eq:           "=",
@@ -21,6 +21,12 @@ export const CONDITION_LABELS = LABEL;
 
 export const CONDITIONS_WITHOUT_VALUE: SmartCondition[] = [
   "is_true", "is_false", "exists", "not_exists",
+];
+
+export const PALETTE = [
+  "#7aa2f7", "#9ece6a", "#f7768e", "#e0af68", "#bb9af7",
+  "#73daca", "#ff9e64", "#2ac3de", "#b4f9f8", "#cfc9c2",
+  "#1abc9c", "#e056fd", "#fd9644", "#45aaf2", "#a55eea",
 ];
 
 export function evaluateRule(rule: SmartRule, props: FlatElementProps): boolean {
@@ -46,8 +52,8 @@ export function evaluateRule(rule: SmartRule, props: FlatElementProps): boolean 
   }
 }
 
-export function evaluateSmartView(view: SmartView, props: FlatElementProps): boolean {
-  if (view.rules.length === 0) return false;
-  const results = view.rules.map((r) => evaluateRule(r, props));
-  return view.logic === "AND" ? results.every(Boolean) : results.some(Boolean);
+export function evaluateTier(tier: SmartTier, props: FlatElementProps): boolean {
+  if (tier.rules.length === 0) return true;
+  const results = tier.rules.map((r) => evaluateRule(r, props));
+  return tier.logic === "AND" ? results.every(Boolean) : results.some(Boolean);
 }
