@@ -120,8 +120,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     orthoCameraRef.current = ortho;
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
+    controls.enableDamping = false;
     controls.screenSpacePanning = true;
     controls.zoomSpeed = 1.4;
     controls.panSpeed = 1.2;
