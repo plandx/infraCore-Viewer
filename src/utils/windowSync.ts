@@ -1,4 +1,4 @@
-import type { SyncState, ColorGroup, ViewerSettings } from "../types/ifc";
+import type { SyncState, ColorGroup, ViewerSettings, BasketMode } from "../types/ifc";
 
 export const SYNC_CHANNEL = "infracore-sync";
 
@@ -39,6 +39,8 @@ export function serializeState(store: {
   smartViews: unknown;
   activeSmartViewId: string | null;
   loadedPropKeys: string[];
+  selectionBasket: Set<string>;
+  basketMode: unknown;
 }): SyncState {
   const models: SyncState["models"] = [];
   store.models.forEach((m) => {
@@ -61,6 +63,8 @@ export function serializeState(store: {
     smartViews: store.smartViews as SyncState["smartViews"],
     activeSmartViewId: store.activeSmartViewId,
     loadedPropKeys: store.loadedPropKeys,
+    selectionBasket: Array.from(store.selectionBasket),
+    basketMode: store.basketMode as BasketMode | null,
   };
 }
 

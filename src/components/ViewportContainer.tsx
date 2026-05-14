@@ -73,9 +73,16 @@ export function ViewportContainer({ onElementClick }: Props) {
   const stagedSmartViewId = useModelStore((s) => s.stagedSmartViewId);
   const activeSmartViewId = useModelStore((s) => s.activeSmartViewId);
   const applySmartView = useModelStore((s) => s.applySmartView);
+  const selectionBasket = useModelStore((s) => s.selectionBasket);
+  const basketMode = useModelStore((s) => s.basketMode);
 
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
+
+  // Basket overlay/ghost material refs
+  const basketOverlaysRef = useRef<THREE.Mesh[]>([]);
+  const basketOverlayMatRef = useRef<THREE.Material | null>(null);
+  const basketGhostMatsRef = useRef<Map<THREE.Mesh, THREE.Material | THREE.Material[]>>(new Map());
 
   // ── Init scene ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -463,13 +470,15 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!model || !model.visible) return;
 
       const key = `${modelId}:${obj.userData.expressId}`;
-      if (state.isolatedElements !== null) {
+      if (state.basketMode === "isolate" && state.selectionBasket.size > 0) {
+        obj.visible = state.selectionBasket.has(key);
+      } else if (state.isolatedElements !== null) {
         obj.visible = state.isolatedElements.has(key);
       } else {
         obj.visible = !state.hiddenElements.has(key);
       }
     });
-  }, [hiddenElements, isolatedElements, models]);
+  }, [hiddenElements, isolatedElements, models, selectionBasket, basketMode]);
 
   // ── Color group override ──────────────────────────────────────────────────
   useEffect(() => {
@@ -518,6 +527,61 @@ export function ViewportContainer({ onElementClick }: Props) {
       colorMaterialsRef.current.push(newMat);
     });
   }, [colorGroups]);
+
+  // ── Basket visual override (highlight / ghost) ──────────────────────────────
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    // Cleanup previous overlays and ghost materials
+    basketOverlaysRef.current.forEach((m) => scene.remove(m));
+    basketOverlaysRef.current = [];
+    basketOverlayMatRef.current?.dispose();
+    basketOverlayMatRef.current = null;
+    basketGhostMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
+    basketGhostMatsRef.current.clear();
+
+    if (!basketMode || basketMode === "isolate" || selectionBasket.size === 0) return;
+
+    const hlMat = basketMode === "highlight"
+      ? new THREE.MeshLambertMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.55, depthTest: false })
+      : null;
+    if (hlMat) basketOverlayMatRef.current = hlMat;
+
+    scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      if (obj.userData.isHighlight || obj.userData.isBasketOverlay || obj.userData.isSectionVisual) return;
+      if (obj.userData.expressId == null) return;
+
+      let modelId = "";
+      let node: THREE.Object3D | null = obj;
+      while (node) {
+        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
+        node = node.parent;
+      }
+      if (!modelId) return;
+
+      const key = `${modelId}:${obj.userData.expressId}`;
+      const inBasket = selectionBasket.has(key);
+
+      if (basketMode === "highlight" && inBasket && hlMat) {
+        const hl = obj.clone();
+        hl.material = hlMat;
+        hl.renderOrder = 997;
+        hl.userData = { isBasketOverlay: true };
+        scene.add(hl);
+        basketOverlaysRef.current.push(hl);
+      } else if (basketMode === "ghost" && !inBasket) {
+        const orig = obj.material;
+        const ghost = (obj.material as THREE.Material).clone() as THREE.MeshLambertMaterial;
+        ghost.transparent = true;
+        ghost.opacity = 0.12;
+        ghost.needsUpdate = true;
+        basketGhostMatsRef.current.set(obj, orig);
+        obj.material = ghost;
+      }
+    });
+  }, [selectionBasket, basketMode, models]);
 
   // ── Highlight selected element (from hierarchy or viewport click) ─────────
   useEffect(() => {

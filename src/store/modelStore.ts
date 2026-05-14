@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as THREE from "three";
 import type {
   IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement,
-  ColorGroup, SmartView, FlatElementProps, SyncState,
+  ColorGroup, SmartView, FlatElementProps, SyncState, BasketMode,
 } from "../types/ifc";
 import { evaluateSmartView } from "../utils/smartViewUtils";
 
@@ -34,6 +34,10 @@ interface ModelStore {
   // Shared loaded properties (for ListPanel and SmartViews)
   loadedProperties: Map<string, Map<number, FlatElementProps>> | null;
   loadedPropKeys: string[];
+
+  // Selection basket
+  selectionBasket: Set<string>;
+  basketMode: BasketMode | null;
 
   addModel: (model: IFCModelEntry) => void;
   removeModel: (id: string) => void;
@@ -69,6 +73,13 @@ interface ModelStore {
     keys: string[],
   ) => void;
 
+  // Selection basket actions
+  setBasket: (basket: Set<string>) => void;
+  addToBasket: (modelId: string, expressId: number) => void;
+  removeFromBasket: (modelId: string, expressId: number) => void;
+  clearBasket: () => void;
+  setBasketMode: (mode: BasketMode | null) => void;
+
   /** Apply a serialised state snapshot from the main window (secondary windows only). */
   applyRemoteState: (state: SyncState) => void;
 }
@@ -90,6 +101,8 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   preSmartViewState: null,
   loadedProperties: null,
   loadedPropKeys: [],
+  selectionBasket: new Set<string>(),
+  basketMode: null,
   settings: {
     background: "#1a1b26",
     grid: true,
@@ -288,6 +301,28 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   setLoadedProperties: (props, keys) =>
     set({ loadedProperties: props, loadedPropKeys: keys }),
 
+  // ── Selection basket ────────────────────────────────────────────────────────
+
+  setBasket: (basket) => set({ selectionBasket: basket }),
+
+  addToBasket: (modelId, expressId) =>
+    set((state) => {
+      const next = new Set(state.selectionBasket);
+      next.add(`${modelId}:${expressId}`);
+      return { selectionBasket: next };
+    }),
+
+  removeFromBasket: (modelId, expressId) =>
+    set((state) => {
+      const next = new Set(state.selectionBasket);
+      next.delete(`${modelId}:${expressId}`);
+      return { selectionBasket: next };
+    }),
+
+  clearBasket: () => set({ selectionBasket: new Set() }),
+
+  setBasketMode: (mode) => set({ basketMode: mode }),
+
   // ── Remote state sync (secondary windows) ──────────────────────────────────
 
   applyRemoteState: (state) =>
@@ -325,6 +360,8 @@ export const useModelStore = create<ModelStore>((set, get) => ({
         smartViews: state.smartViews,
         activeSmartViewId: state.activeSmartViewId,
         loadedPropKeys: state.loadedPropKeys,
+        selectionBasket: new Set(state.selectionBasket),
+        basketMode: state.basketMode,
       };
     }),
 }));

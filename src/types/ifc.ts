@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 export type ActiveTool = "select" | "measure" | "section";
+export type BasketMode = "highlight" | "ghost" | "isolate";
 
 // ── SmartViews ────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,8 @@ export interface SyncState {
   smartViews: SmartView[];
   activeSmartViewId: string | null;
   loadedPropKeys: string[];
+  selectionBasket: string[];    // "modelId:expressId"
+  basketMode: BasketMode | null;
 }
 
 export interface Measurement {
