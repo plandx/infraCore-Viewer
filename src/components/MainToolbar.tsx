@@ -231,7 +231,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
         {/* List / Coloring Panel */}
         <button
           className={cn("toolbar-button", listPanelOpen && "active text-primary")}
-          title="Listen & Einfärbung [L]"
+          title="Lens Rules [L]"
           onClick={() => setListPanelOpen(!listPanelOpen)}
         >
           <List size={16} />
@@ -388,7 +388,7 @@ function InfoModal({ onClose }: { onClose: () => void }) {
               ["M", "Mess-Tool"],
               ["C", "Schnittebene"],
               ["Q", "SQL-Panel"],
-              ["L", "Listen & Einfärbung"],
+              ["L", "Lens Rules"],
               ["Esc", "Abbrechen / Deselektieren"],
               ["Entf", "Auswahl ausblenden"],
             ].map(([key, desc]) => (

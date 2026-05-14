@@ -75,7 +75,7 @@ export type PanelType = "hierarchy" | "properties" | "lists" | "sql";
 export const PANEL_META: Record<PanelType, { label: string; w: number; h: number }> = {
   hierarchy:  { label: "Hierarchiebaum",      w: 380, h: 700 },
   properties: { label: "Eigenschaften",       w: 420, h: 600 },
-  lists:      { label: "Listen & SmartViews", w: 480, h: 640 },
+  lists:      { label: "Lens Rules",          w: 480, h: 640 },
   sql:        { label: "SQL-Abfrage",         w: 760, h: 480 },
 };
 

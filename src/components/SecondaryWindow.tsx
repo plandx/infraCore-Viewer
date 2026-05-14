@@ -87,7 +87,7 @@ export function SecondaryWindow({ panel }: { panel: string }) {
         <span className="font-semibold text-[11px] text-foreground">infraCore</span>
         <span className="text-muted-foreground text-[10px]">·</span>
         <span className="text-muted-foreground text-[10px]">
-          {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Listen & SmartViews", sql: "SQL-Abfrage" }[panelType] ?? panel}
+          {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", sql: "SQL-Abfrage" }[panelType] ?? panel}
         </span>
         <div className="flex-1" />
         <SyncIndicator />

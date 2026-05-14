@@ -714,7 +714,7 @@ export function ListPanel() {
                 : "text-muted-foreground hover:text-foreground",
             )}
             onClick={() => setTab(t)}
-          >{t === "listen" ? "Listen" : "SmartViews"}</button>
+          >{t === "listen" ? "Lens Rules" : "SmartViews"}</button>
         ))}
       </div>
 
