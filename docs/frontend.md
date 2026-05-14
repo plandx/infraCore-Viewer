@@ -61,6 +61,9 @@ Interne Features:
 - **Mehrfachauswahl**: Shift+Klick fügt Elemente zur Auswahl hinzu; Shift+Klick auf zweites Element = Bereichsauswahl (alle sichtbaren Einträge zwischen Anker und Ziel in DFS-Reihenfolge)
 - **Aktionsleiste** (erscheint bei ≥2 Auswahl): Alle ausblenden / Alle isolieren / In Auswahlkorb / Auswahl aufheben
 - Expand-State des Spatial-Baums ist nach oben gehoben (für Bereichsauswahl nötig), Default-offen: Tiefe 0 und 1
+- **Externe Selektion** (Viewport-Klick, SQL, etc.) wird automatisch hervorgehoben: `activeKey` = `selectedElement`-Key wenn keine Mehrfachauswahl aktiv; zugehörige Knoten werden aufgeklappt und per `scrollIntoView` ins Bild gebracht (60 ms Verzögerung nach React-Flush)
+- `lastPanelClickRef` verhindert, dass eigene Panel-Klicks als externe Änderung interpretiert werden
+- Alle Zeilen tragen `data-mid` / `data-eid` Attribute für querySelector-basiertes Scroll-Targeting
 
 ---
 
