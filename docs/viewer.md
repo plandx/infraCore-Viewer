@@ -32,7 +32,7 @@ THREE.Scene
 
 **Orthografisch**: `OrthographicCamera` — wird synchron zur Perspektiv-Kamera gehalten. Wechsel via `settings.orthographic`. Die Frustum-Größe wird aus der Perspektiv-Entfernung berechnet damit Zoom funktioniert.
 
-**OrbitControls**: `enableDamping=true`, `dampingFactor=0.06`, `screenSpacePanning=true`
+**OrbitControls**: `enableDamping=false`, `screenSpacePanning=true` — kein Nachdrehen nach Mausloslassen
 
 ---
 
@@ -63,11 +63,12 @@ THREE.Scene
 3. **Section Visuals** — `settings.clipPlanes/clipNormal` → baut/entfernt `__sectionGroup`
 4. **Section Position Sync** — `settings.clipPoint/clipNormal` → verschiebt Visuals ohne neu aufzubauen
 5. **Grid/Axes** — `settings.grid/axes` → Sichtbarkeit
-6. **Modelle in Szene** — `models` → fügt neue hinzu, entfernt gelöschte
-7. **Element-Sichtbarkeit** — `hiddenElements, isolatedElements, selectionBasket, basketMode, models` → traversiert Szene, setzt `obj.visible`
-8. **ColorGroup-Overrides** — `colorGroups` → ersetzt Materialien, speichert Originale in `userData.originalMaterial`
-9. **Korb-Overrides** — `selectionBasket, basketMode, models` → Overlay-Meshes (highlight) oder Ghost-Materialien
-10. **Selektion-Highlight** — `selectedElement` → klonet Mesh, fügt blauen Overlay ein
+6. **Kanten** — `settings.edges` → setzt `visible` auf allen `isEdge`-Objekten
+7. **Modelle in Szene** — `models` → fügt neue hinzu, entfernt gelöschte; baut beim Hinzufügen `EdgesGeometry`-Overlays (15° Schwelle) als Kinder jedes Mesh
+8. **Element-Sichtbarkeit** — `hiddenElements, isolatedElements, selectionBasket, basketMode, models` → traversiert Szene, setzt `obj.visible`
+9. **ColorGroup-Overrides** — `colorGroups` → ersetzt Materialien, speichert Originale in `userData.originalMaterial`
+10. **Korb-Overrides** — `selectionBasket, basketMode, models` → Overlay-Meshes (highlight) oder Ghost-Materialien
+11. **Selektion-Highlight** — `selectedElement` → findet alle Sub-Meshes, fügt amber Overlay-Meshes ein (`matrixWorld`-Kopie, `depthTest=false`)
 
 ---
 
@@ -112,10 +113,17 @@ Drei unabhängige Override-Ebenen (müssen in Reihenfolge aufgebaut/abgebaut wer
 - Cleanup: restores aus Map
 
 ### Selektion-Highlight
-- Klonet selektiertes Mesh als Overlay
-- `MeshLambertMaterial(0x7aa2f7, opacity=0.55, depthTest=false)`
+- Findet alle Sub-Meshes des selektierten Elements per `traverse`
+- `new THREE.Mesh(geometry, mat)` + `updateWorldMatrix(true,false)` + `matrix.copy(matrixWorld)` + `matrixAutoUpdate=false` → korrekter World-Space-Overlay
+- `MeshLambertMaterial(0xf59e0b, opacity=0.45, depthTest=false)` (amber)
 - `renderOrder = 999`
 - `userData.isHighlight = true`
+
+### Kanten (Edges)
+- Beim Laden jedes Modells: `EdgesGeometry(geometry, 15°)` + `LineSegments` als Kind jedes Mesh
+- `userData.isEdge = true` auf allen Kanten-Objekten
+- Sichtbarkeit gesteuert via `settings.edges` (Standard: ein)
+- Toggle-Button in der Toolbar (Box-Icon)
 
 **Raycasting überspringt** alle Meshes mit `isHighlight`, `isBasketOverlay`, `isSectionVisual`.
 

@@ -24,7 +24,7 @@ Oberste Toolbar-Leiste. Enthält:
 - Datei öffnen / hinzufügen (File-Input, akzeptiert `.ifc`)
 - Fit All (`F`)
 - Werkzeug-Buttons: Auswahl (`S`), Messen (`M`), Schnitt (`C`)
-- Ansichts-Toggles: Grid, Achsen, Kanten, Schatten, Räume, Orthografisch
+- Ansichts-Toggles: Grid (Raster), Räume, Kanten (EdgesGeometry-Toggle), Orthografisch
 - Theme-Toggle (Dark/Light)
 - Kamera-Preset-Dropdown (Oben, Vorne, Links, …)
 - Export: GLTF, Screenshot
