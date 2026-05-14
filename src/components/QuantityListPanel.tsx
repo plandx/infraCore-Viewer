@@ -113,7 +113,7 @@ function PropKeyInput({ value, onChange, onSelect, propKeys, placeholder = "Eige
           {filtered.map((k) => (
             <button key={k} type="button"
               className="w-full text-left px-2 py-1 text-[11px] hover:bg-muted/60 truncate font-mono"
-              onMouseDown={() => { setSearch(k); setOpen(false); onChange(k); onSelect?.(k); }}>
+              onMouseDown={() => { setSearch(k); setOpen(false); if (onSelect) { onSelect(k); } else { onChange(k); } }}>
               {k}
             </button>
           ))}
@@ -205,7 +205,7 @@ function ColumnSection({ columns, propKeys, onUpdate }: {
               <PropKeyInput
                 value={col.key}
                 onChange={(v) => patchC(col.id, { key: v })}
-                onSelect={(v) => patchC(col.id, { key: v, label: BUILTIN_LABELS[v] ?? v })}
+                onSelect={(v) => onUpdate(columns.map((c) => c.id === col.id ? { ...c, key: v, label: BUILTIN_LABELS[v] ?? v } : c))}
                 propKeys={propKeys} placeholder="Eigenschaft…" />
             </div>
             <input
