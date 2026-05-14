@@ -1,7 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import * as XLSX from "xlsx";
-import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, RefreshCw, Check } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
 import { evaluateRule, CONDITION_LABELS, CONDITIONS_WITHOUT_VALUE } from "../utils/smartViewUtils";
 import { loadAllElementProperties } from "../utils/ifcLoader";
@@ -84,13 +84,19 @@ function PropertyLoader() {
 
 // ── Prop key autocomplete input ───────────────────────────────────────────────
 
-function PropKeyInput({ value, onChange, propKeys, placeholder = "Eigenschaft..." }: {
-  value: string; onChange: (v: string) => void; propKeys: string[]; placeholder?: string;
+function PropKeyInput({ value, onChange, onSelect, propKeys, placeholder = "Eigenschaft..." }: {
+  value: string;
+  onChange: (v: string) => void;
+  onSelect?: (v: string) => void;
+  propKeys: string[];
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState(value);
   const allKeys = [...BUILTIN_KEYS, ...propKeys.filter((k) => !BUILTIN_KEYS.includes(k))];
   const filtered = (search ? allKeys.filter((k) => k.toLowerCase().includes(search.toLowerCase())) : allKeys).slice(0, 60);
+
+  useEffect(() => { setSearch(value); }, [value]);
 
   return (
     <div className="relative min-w-0">
@@ -107,7 +113,7 @@ function PropKeyInput({ value, onChange, propKeys, placeholder = "Eigenschaft...
           {filtered.map((k) => (
             <button key={k} type="button"
               className="w-full text-left px-2 py-1 text-[11px] hover:bg-muted/60 truncate font-mono"
-              onMouseDown={() => { onChange(k); setSearch(k); setOpen(false); }}>
+              onMouseDown={() => { setSearch(k); setOpen(false); onChange(k); onSelect?.(k); }}>
               {k}
             </button>
           ))}
@@ -198,7 +204,8 @@ function ColumnSection({ columns, propKeys, onUpdate }: {
             <div className="w-36 shrink-0">
               <PropKeyInput
                 value={col.key}
-                onChange={(v) => patchC(col.id, { key: v, label: col.label || (BUILTIN_LABELS[v] ?? v) })}
+                onChange={(v) => patchC(col.id, { key: v })}
+                onSelect={(v) => patchC(col.id, { key: v, label: BUILTIN_LABELS[v] ?? v })}
                 propKeys={propKeys} placeholder="Eigenschaft…" />
             </div>
             <input
@@ -270,6 +277,8 @@ export function QuantityListPanel() {
 
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
+  const [saved, setSaved] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeList = qtoLists.find((l) => l.id === activeListId) ?? null;
 
@@ -294,6 +303,9 @@ export function QuantityListPanel() {
     if (!activeList) return;
     updateQTOList(activeList.id, p);
     setResults(null);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSaved(true);
+    saveTimerRef.current = setTimeout(() => setSaved(false), 2000);
   };
 
   const handleRun = useCallback(() => {
@@ -389,6 +401,11 @@ export function QuantityListPanel() {
               className="flex-1 bg-transparent border-none outline-none font-semibold text-sm text-foreground"
               value={activeList.name}
               onChange={(e) => patch({ name: e.target.value })} />
+            {saved && (
+              <span className="flex items-center gap-1 text-[11px] text-emerald-500 shrink-0">
+                <Check size={11} /> Gespeichert
+              </span>
+            )}
             <button
               onClick={() => { removeQTOList(activeList.id); setActiveListId(null); setResults(null); }}
               className="toolbar-button p-1 text-muted-foreground hover:text-destructive"
