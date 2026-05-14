@@ -13,6 +13,7 @@ import { ClipPlaneControl } from "./components/ClipPlaneControl";
 import { SQLPanel } from "./components/SQLPanel";
 import { ListPanel } from "./components/ListPanel";
 import { SelectionBasket } from "./components/SelectionBasket";
+import { BasketEditor } from "./components/BasketEditor";
 
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
@@ -99,7 +100,8 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
 interface LoadState { phase: string; progress: number; fileName: string }
 
 function MainApp() {
-  const [loadStates, setLoadStates] = useState<Map<string, LoadState>>(new Map());
+  const [loadStates, setLoadStates]           = useState<Map<string, LoadState>>(new Map());
+  const [basketEditorOpen, setBasketEditorOpen] = useState(false);
   const {
     addModel, removeModel, updateModel, setWorldOrigin, setSelected,
     models, settings, activeTool, setActiveTool, sqlPanelOpen, setSqlPanelOpen,
@@ -320,7 +322,7 @@ function MainApp() {
 
                 {/* Selection basket — floating top-left */}
                 <div className="absolute top-3 left-3 z-30 pointer-events-auto">
-                  <SelectionBasket />
+                  <SelectionBasket onOpenEditor={() => setBasketEditorOpen(true)} />
                 </div>
 
                 {!hasModels && activeLoads === 0 && (
@@ -367,6 +369,10 @@ function MainApp() {
       </div>
 
       <StatusBar />
+
+      {basketEditorOpen && (
+        <BasketEditor onClose={() => setBasketEditorOpen(false)} />
+      )}
     </div>
   );
 }

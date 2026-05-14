@@ -80,6 +80,11 @@ interface ModelStore {
   clearBasket: () => void;
   setBasketMode: (mode: BasketMode | null) => void;
 
+  // In-session property overrides (not synced across windows)
+  propertyOverrides: Map<string, Map<number, Record<string, string>>>;
+  applyPropertyEdits: (edits: Array<{ modelId: string; expressId: number; key: string; value: string }>) => void;
+  clearPropertyOverrides: () => void;
+
   /** Apply a serialised state snapshot from the main window (secondary windows only). */
   applyRemoteState: (state: SyncState) => void;
 }
@@ -103,6 +108,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   loadedPropKeys: [],
   selectionBasket: new Set<string>(),
   basketMode: null,
+  propertyOverrides: new Map(),
   settings: {
     background: "#1a1b26",
     grid: true,
@@ -322,6 +328,21 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   clearBasket: () => set({ selectionBasket: new Set() }),
 
   setBasketMode: (mode) => set({ basketMode: mode }),
+
+  // ── Property overrides ──────────────────────────────────────────────────────
+
+  applyPropertyEdits: (edits) =>
+    set((state) => {
+      const next = new Map(state.propertyOverrides);
+      for (const { modelId, expressId, key, value } of edits) {
+        const modelMap = new Map(next.get(modelId) ?? []);
+        modelMap.set(expressId, { ...(modelMap.get(expressId) ?? {}), [key]: value });
+        next.set(modelId, modelMap);
+      }
+      return { propertyOverrides: next };
+    }),
+
+  clearPropertyOverrides: () => set({ propertyOverrides: new Map() }),
 
   // ── Remote state sync (secondary windows) ──────────────────────────────────
 

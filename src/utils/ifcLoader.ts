@@ -8,7 +8,7 @@ import {
 
 let ifcApiPromise: Promise<WebIFC.IfcAPI> | null = null;
 
-function getIfcApi(): Promise<WebIFC.IfcAPI> {
+export function getIfcApi(): Promise<WebIFC.IfcAPI> {
   // Cache the single promise so concurrent callers all wait for the same Init()
   if (ifcApiPromise) return ifcApiPromise;
 
@@ -250,6 +250,66 @@ export async function loadIFCProperties(
   }
 
   return { properties: props, psets };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Basket property loading (opens file once, reads multiple elements with psets)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function loadBasketProperties(
+  file: File,
+  expressIds: number[]
+): Promise<Map<number, { properties: Record<string, unknown>; psets: PropertySet[] }>> {
+  const buffer = await file.arrayBuffer();
+  const data = new Uint8Array(buffer);
+  const api = await getIfcApi();
+  const modelId = api.OpenModel(data, { COORDINATE_TO_ORIGIN: false });
+  const result = new Map<number, { properties: Record<string, unknown>; psets: PropertySet[] }>();
+
+  try {
+    for (const eid of expressIds) {
+      const props: Record<string, unknown> = {};
+      const psets: PropertySet[] = [];
+
+      try {
+        const itemProps = await api.properties.getItemProperties(modelId, eid, false);
+        if (itemProps) {
+          for (const [k, v] of Object.entries(itemProps as Record<string, unknown>)) {
+            if (k === "expressID") continue;
+            const scalar = (v as { value?: unknown } | null)?.value;
+            props[k] = scalar !== undefined ? scalar : v;
+          }
+        }
+      } catch { /* element may have no direct props */ }
+
+      try {
+        const rawPsets = await api.properties.getPropertySets(modelId, eid, true);
+        for (const pset of rawPsets) {
+          if (!pset) continue;
+          const psetName = String(pset?.Name?.value ?? "PropertySet");
+          const psetProps: PropertySet["properties"] = [];
+          const hasProp = pset?.HasProperties;
+          if (Array.isArray(hasProp)) {
+            for (const prop of hasProp) {
+              if (!prop) continue;
+              psetProps.push({
+                name: String(prop?.Name?.value ?? ""),
+                value: prop?.NominalValue?.value ?? prop?.Value?.value ?? null,
+                type: String(prop?.type ?? ""),
+              });
+            }
+          }
+          if (psetProps.length > 0) psets.push({ name: psetName, properties: psetProps });
+        }
+      } catch { /* psets optional */ }
+
+      result.set(eid, { properties: props, psets });
+    }
+  } finally {
+    api.CloseModel(modelId);
+  }
+
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

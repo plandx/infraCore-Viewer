@@ -1,9 +1,9 @@
-import { Archive, Plus, Minus, X, Sparkles, Ghost, ScanEye } from "lucide-react";
+import { Archive, Plus, Minus, X, Sparkles, Ghost, ScanEye, Table2 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import type { BasketMode } from "../types/ifc";
 
-export function SelectionBasket() {
+export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void }) {
   const selectionBasket = useModelStore((s) => s.selectionBasket);
   const basketMode = useModelStore((s) => s.basketMode);
   const selectedElement = useModelStore((s) => s.selectedElement);
@@ -72,6 +72,18 @@ export function SelectionBasket() {
 
       {count > 0 && (
         <>
+          <div className="w-px h-4 bg-border mx-0.5" />
+
+          {/* Open editor */}
+          <button
+            onClick={onOpenEditor}
+            title="Eigenschaften bearbeiten"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] hover:bg-muted/60 text-muted-foreground transition-colors"
+          >
+            <Table2 size={11} />
+            <span>Bearbeiten</span>
+          </button>
+
           <div className="w-px h-4 bg-border mx-0.5" />
           <button
             onClick={() => toggleMode("highlight")}
