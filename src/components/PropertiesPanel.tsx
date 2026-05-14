@@ -1,12 +1,39 @@
-import { useState, useCallback } from "react";
-import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine } from "lucide-react";
+import { useState, useCallback, useRef } from "react";
+import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine, Download, X, Loader2 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
+import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
+import type { PropOverride } from "../types/ifc";
 
 type Tab = "attributes" | "properties" | "quantities" | "raw";
 
+// IFC value type choices for editing
+const IFC_EDIT_TYPES: { code: number; label: string }[] = [
+  { code: 1,  label: "STRING" },
+  { code: 14, label: "REAL" },
+  { code: 16, label: "INTEGER" },
+  { code: 18, label: "BOOLEAN" },
+  { code: 3,  label: "TEXT" },
+  { code: 2,  label: "IDENTIFIER" },
+];
+
+// Map IFC type strings (from psets) to numeric codes
+const IFC_TYPE_STR_TO_CODE: Record<string, number> = {
+  IfcLabel: 1, IFCLABEL: 1,
+  IfcText: 3, IFCTEXT: 3,
+  IfcIdentifier: 2, IFCIDENTIFIER: 2,
+  IfcReal: 14, IFCREAL: 14,
+  IfcPositiveLengthMeasure: 14, IfcLengthMeasure: 14,
+  IfcAreaMeasure: 14, IfcVolumeMeasure: 14, IfcMassMeasure: 14,
+  IfcInteger: 16, IFCINTEGER: 16,
+  IfcCountMeasure: 16,
+  IfcBoolean: 18, IFCBOOLEAN: 18,
+  IfcLogical: 19, IFCLOGICAL: 19,
+};
+
 export function PropertiesPanel() {
   const [activeTab, setActiveTab] = useState<Tab>("attributes");
+  const [exporting, setExporting] = useState(false);
   const selected          = useModelStore((s) => s.selectedElement);
   const models            = useModelStore((s) => s.models);
   const hideElement       = useModelStore((s) => s.hideElement);
@@ -15,6 +42,7 @@ export function PropertiesPanel() {
   const isolatedElements  = useModelStore((s) => s.isolatedElements);
   const hiddenElements    = useModelStore((s) => s.hiddenElements);
   const propertyOverrides = useModelStore((s) => s.propertyOverrides);
+  const applyPropertyEdits = useModelStore((s) => s.applyPropertyEdits);
 
   if (!selected) {
     return (
@@ -38,10 +66,31 @@ export function PropertiesPanel() {
   const isIsolated = isolatedElements !== null &&
     isolatedElements.has(`${selected.modelId}:${selected.expressId}`);
 
-  // Flat overrides for this element: key → override value
-  const overrides: Record<string, string> =
+  const overrides: Record<string, PropOverride> =
     propertyOverrides.get(selected.modelId)?.get(selected.expressId) ?? {};
   const hasOverrides = Object.keys(overrides).length > 0;
+
+  // Count ALL overrides for the whole model (for export button label)
+  const modelOverrides = propertyOverrides.get(selected.modelId);
+  const modelOverrideCount = modelOverrides
+    ? Array.from(modelOverrides.values()).reduce((s, m) => s + Object.keys(m).length, 0)
+    : 0;
+
+  async function handleExportIFC() {
+    if (!model?.file) return;
+    setExporting(true);
+    try {
+      const overridesList = Array.from(modelOverrides?.entries() ?? []).map(
+        ([expressId, ov]) => ({ expressId, overrides: ov }),
+      );
+      const data = await writeIFCWithOverrides(model.file, overridesList);
+      downloadFile(data, model.name.replace(/\.ifc$/i, "") + "_bearbeitet.ifc");
+    } catch (e) {
+      console.error("[IFC Export]", e);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "attributes", label: "Attribute",     icon: <Tag size={12} /> },
@@ -49,6 +98,10 @@ export function PropertiesPanel() {
     { id: "quantities", label: "Mengen",         icon: <Hash size={12} /> },
     { id: "raw",        label: "</>",            icon: <Code size={12} /> },
   ];
+
+  const onEdit = (key: string, value: string, ifcType?: number) => {
+    applyPropertyEdits([{ modelId: selected.modelId, expressId: selected.expressId, key, value, ifcType }]);
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -86,11 +139,24 @@ export function PropertiesPanel() {
         </div>
       </PanelHeader>
 
-      {/* Override banner */}
+      {/* Override banner + IFC export */}
       {hasOverrides && (
         <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-400 shrink-0">
           <PencilLine size={11} />
-          <span>{Object.keys(overrides).length} Eigenschaft{Object.keys(overrides).length !== 1 ? "en" : ""} bearbeitet</span>
+          <span className="flex-1">
+            {Object.keys(overrides).length} Eigenschaft{Object.keys(overrides).length !== 1 ? "en" : ""} bearbeitet
+          </span>
+          {modelOverrideCount > 0 && (
+            <button
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-medium transition-colors shrink-0 disabled:opacity-50"
+              title={`Modell mit ${modelOverrideCount} Änderungen exportieren`}
+              onClick={handleExportIFC}
+              disabled={exporting}
+            >
+              {exporting ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+              <span>IFC Export</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -111,18 +177,20 @@ export function PropertiesPanel() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {activeTab === "attributes" && (
-          <AttributesTab properties={selected.properties} overrides={overrides} />
+          <AttributesTab properties={selected.properties} overrides={overrides} onEdit={onEdit} />
         )}
         {activeTab === "properties" && (
           <PropertySetsTab
             psets={selected.psets.filter(p => !p.name.startsWith("Qto_"))}
             overrides={overrides}
+            onEdit={onEdit}
           />
         )}
         {activeTab === "quantities" && (
           <PropertySetsTab
             psets={selected.psets.filter(p => p.name.startsWith("Qto_"))}
             overrides={overrides}
+            onEdit={onEdit}
             emptyMsg="Keine Mengen vorhanden"
           />
         )}
@@ -144,11 +212,11 @@ function PanelHeader({ children }: { children?: React.ReactNode }) {
 }
 
 function AttributesTab({
-  properties,
-  overrides,
+  properties, overrides, onEdit,
 }: {
   properties: Record<string, unknown>;
-  overrides: Record<string, string>;
+  overrides: Record<string, PropOverride>;
+  onEdit: (key: string, value: string, ifcType?: number) => void;
 }) {
   const ifcTypeCode = typeof properties.type === "number" ? properties.type : null;
   const ifcTypeName = ifcTypeCode ? lookupIfcTypeName(ifcTypeCode) : null;
@@ -173,33 +241,26 @@ function AttributesTab({
           )}
         </tbody>
       </table>
-      <PropTable rows={entries} overrides={overrides} />
+      <PropTable rows={entries} overrides={overrides} onEdit={onEdit} />
     </div>
   );
 }
 
 function PropertySetsTab({
-  psets,
-  overrides,
-  emptyMsg = "Keine Eigenschaften vorhanden",
+  psets, overrides, onEdit, emptyMsg = "Keine Eigenschaften vorhanden",
 }: {
   psets: { name: string; properties: { name: string; value: unknown; type: string }[] }[];
-  overrides: Record<string, string>;
+  overrides: Record<string, PropOverride>;
+  onEdit: (key: string, value: string, ifcType?: number) => void;
   emptyMsg?: string;
 }) {
   if (!psets.length) return <EmptyState msg={emptyMsg} />;
-
   return (
     <div>
       {psets.map((pset) => (
         <div key={pset.name}>
           <SectionHeader title={pset.name} count={pset.properties.length} />
-          {/* Build pset-scoped overrides: "PsetName.PropName" → propName lookup */}
-          <PropTable
-            rows={pset.properties}
-            overrides={overrides}
-            psetName={pset.name}
-          />
+          <PropTable rows={pset.properties} overrides={overrides} psetName={pset.name} onEdit={onEdit} />
         </div>
       ))}
     </div>
@@ -239,22 +300,53 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
 }
 
 function PropTable({
-  rows,
-  overrides,
-  psetName,
+  rows, overrides, psetName, onEdit,
 }: {
   rows: { name: string; value: unknown; type?: string }[];
-  overrides: Record<string, string>;
+  overrides: Record<string, PropOverride>;
   psetName?: string;
+  onEdit: (key: string, value: string, ifcType?: number) => void;
 }) {
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [editType, setEditType] = useState<number | undefined>(undefined);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function startEdit(overrideKey: string, currentVal: string, detectedType?: number) {
+    setEditingKey(overrideKey);
+    setEditValue(currentVal);
+    setEditType(detectedType);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function confirmEdit() {
+    if (!editingKey) return;
+    onEdit(editingKey, editValue, editType);
+    setEditingKey(null);
+  }
+
+  function cancelEdit() {
+    setEditingKey(null);
+  }
+
   return (
     <table className="w-full text-[11px] border-collapse">
       <tbody>
         {rows.map((r, i) => {
-          // Override key: "PsetName.PropName" for pset rows, just "PropName" for direct attrs
           const overrideKey = psetName ? `${psetName}.${r.name}` : r.name;
           const override    = overrides[overrideKey];
           const isOverridden = override !== undefined;
+          const isEditing    = editingKey === overrideKey;
+
+          // Detect type: from pset type string, or from wrapped IFC value object
+          const detectedType: number | undefined = (() => {
+            if (r.type) return IFC_TYPE_STR_TO_CODE[r.type];
+            const v = r.value as Record<string, unknown> | null | undefined;
+            if (v && typeof v === "object" && typeof v.type === "number") return v.type;
+            return undefined;
+          })();
+
+          const displayVal = isOverridden ? override.value : renderVal(r.value);
 
           return (
             <tr key={i} className="border-b border-border/30 hover:bg-muted/20 group">
@@ -263,25 +355,73 @@ function PropTable({
                 title={r.name}
               >
                 {r.name}
-                {isOverridden && (
+                {isOverridden && !isEditing && (
                   <PencilLine size={9} className="inline ml-1 text-amber-400 opacity-70" />
                 )}
               </td>
-              <td className="px-3 py-1.5 font-mono break-words max-w-0">
-                {isOverridden ? (
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-amber-400 font-semibold">{override}</span>
-                    <span className="text-muted-foreground/50 line-through text-[10px]">
-                      {renderVal(r.value)}
-                    </span>
+              <td className="px-2 py-1 font-mono break-words max-w-0">
+                {isEditing ? (
+                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      ref={inputRef}
+                      className="flex-1 min-w-0 bg-background border border-primary rounded px-1.5 py-0.5 text-[11px] font-mono text-foreground focus:outline-none"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") confirmEdit();
+                        if (e.key === "Escape") cancelEdit();
+                      }}
+                    />
+                    <select
+                      className="bg-background border border-border rounded px-1 py-0.5 text-[10px] text-foreground focus:outline-none shrink-0"
+                      value={editType ?? ""}
+                      onChange={(e) => setEditType(e.target.value !== "" ? Number(e.target.value) : undefined)}
+                    >
+                      <option value="">Auto</option>
+                      {IFC_EDIT_TYPES.map((t) => (
+                        <option key={t.code} value={t.code}>{t.label}</option>
+                      ))}
+                    </select>
+                    <button
+                      className="shrink-0 p-0.5 rounded hover:bg-green-500/20 text-green-400"
+                      title="Bestätigen (Enter)"
+                      onClick={confirmEdit}
+                    ><Check size={11} /></button>
+                    <button
+                      className="shrink-0 p-0.5 rounded hover:bg-muted/60 text-muted-foreground"
+                      title="Abbrechen (Esc)"
+                      onClick={cancelEdit}
+                    ><X size={11} /></button>
                   </div>
                 ) : (
-                  <div className="flex items-start gap-1 text-foreground">
-                    <span className="flex-1">{renderVal(r.value)}</span>
-                    <CopyButton
-                      value={String(r.value ?? "")}
-                      className="opacity-0 group-hover:opacity-100 shrink-0 mt-0.5"
-                    />
+                  <div className="flex items-start gap-1">
+                    <div className="flex-1 min-w-0">
+                      {isOverridden ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-amber-400 font-semibold">{override.value}</span>
+                          {override.ifcType !== undefined && (
+                            <span className="text-[9px] text-amber-400/60">
+                              {IFC_EDIT_TYPES.find((t) => t.code === override.ifcType)?.label ?? `type:${override.ifcType}`}
+                            </span>
+                          )}
+                          <span className="text-muted-foreground/50 line-through text-[10px]">
+                            {renderVal(r.value)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-foreground">{displayVal}</span>
+                      )}
+                    </div>
+                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0 mt-0.5">
+                      <button
+                        className="toolbar-button p-0.5 text-muted-foreground/60 hover:text-amber-400"
+                        title="Bearbeiten"
+                        onClick={() => startEdit(overrideKey, isOverridden ? override.value : renderVal(r.value), override?.ifcType ?? detectedType)}
+                      >
+                        <PencilLine size={11} />
+                      </button>
+                      <CopyButton value={displayVal} />
+                    </div>
                   </div>
                 )}
               </td>

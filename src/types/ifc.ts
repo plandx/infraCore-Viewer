@@ -3,6 +3,13 @@ import * as THREE from "three";
 export type ActiveTool = "select" | "measure" | "section";
 export type BasketMode = "highlight" | "ghost" | "isolate";
 
+/** A single property override: edited value + optional IFC type code override */
+export interface PropOverride {
+  value: string;
+  /** web-ifc numeric type code (1=LABEL, 14=REAL, 16=INTEGER, 18=BOOLEAN, …) */
+  ifcType?: number;
+}
+
 // ── SmartViews ────────────────────────────────────────────────────────────────
 
 /** Flat property bag for one element: direct IFC attrs + "PsetName.PropName" keys */

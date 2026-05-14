@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as THREE from "three";
 import type {
   IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement,
-  ColorGroup, SmartView, FlatElementProps, SyncState, BasketMode,
+  ColorGroup, SmartView, FlatElementProps, SyncState, BasketMode, PropOverride,
 } from "../types/ifc";
 import { evaluateSmartView } from "../utils/smartViewUtils";
 
@@ -82,8 +82,8 @@ interface ModelStore {
   setBasketMode: (mode: BasketMode | null) => void;
 
   // In-session property overrides (not synced across windows)
-  propertyOverrides: Map<string, Map<number, Record<string, string>>>;
-  applyPropertyEdits: (edits: Array<{ modelId: string; expressId: number; key: string; value: string }>) => void;
+  propertyOverrides: Map<string, Map<number, Record<string, PropOverride>>>;
+  applyPropertyEdits: (edits: Array<{ modelId: string; expressId: number; key: string; value: string; ifcType?: number }>) => void;
   clearPropertyOverrides: () => void;
 
   /** Apply a serialised state snapshot from the main window (secondary windows only). */
@@ -338,9 +338,9 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   applyPropertyEdits: (edits) =>
     set((state) => {
       const next = new Map(state.propertyOverrides);
-      for (const { modelId, expressId, key, value } of edits) {
+      for (const { modelId, expressId, key, value, ifcType } of edits) {
         const modelMap = new Map(next.get(modelId) ?? []);
-        modelMap.set(expressId, { ...(modelMap.get(expressId) ?? {}), [key]: value });
+        modelMap.set(expressId, { ...(modelMap.get(expressId) ?? {}), [key]: { value, ifcType } });
         next.set(modelId, modelMap);
       }
       return { propertyOverrides: next };

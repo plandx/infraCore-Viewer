@@ -288,11 +288,11 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
     if (!importResult || importResult.edits.length === 0) return;
     setIfcExporting(true);
     try {
-      const byModel = new Map<string, Map<number, Record<string, string>>>();
+      const byModel = new Map<string, Map<number, Record<string, { value: string }>>>();
       for (const { modelId, expressId, key, value } of importResult.edits) {
         if (!byModel.has(modelId)) byModel.set(modelId, new Map());
         const eidMap = byModel.get(modelId)!;
-        eidMap.set(expressId, { ...(eidMap.get(expressId) ?? {}), [key]: value });
+        eidMap.set(expressId, { ...(eidMap.get(expressId) ?? {}), [key]: { value } });
       }
       for (const [modelId, eidMap] of byModel) {
         const model = models.get(modelId);

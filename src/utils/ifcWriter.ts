@@ -1,10 +1,17 @@
 import { getIfcApi } from "./ifcLoader";
-import type { PropertySet } from "../types/ifc";
+import type { PropertySet, PropOverride } from "../types/ifc";
 
 export interface ElementEditOverride {
   expressId: number;
-  /** key: direct attribute name OR "PsetName.PropName" → new string value */
-  overrides: Record<string, string>;
+  /** key: direct attribute name OR "PsetName.PropName" */
+  overrides: Record<string, PropOverride>;
+}
+
+function toNativeValue(override: PropOverride): unknown {
+  if (override.ifcType === 14) return parseFloat(override.value);
+  if (override.ifcType === 16) return parseInt(override.value, 10);
+  if (override.ifcType === 18) return override.value.toLowerCase() === "true";
+  return override.value;
 }
 
 /**
@@ -29,18 +36,18 @@ export async function writeIFCWithOverrides(
       if (Object.keys(overrides).length === 0) continue;
 
       // ── Separate direct-attr keys from pset keys ───────────────────────────
-      const directAttrs: Record<string, string> = {};
-      const psetAttrs: Record<string, Record<string, string>> = {}; // psetName → propName → value
+      const directAttrs: Record<string, PropOverride> = {};
+      const psetAttrs: Record<string, Record<string, PropOverride>> = {};
 
-      for (const [key, value] of Object.entries(overrides)) {
+      for (const [key, override] of Object.entries(overrides)) {
         const dot = key.indexOf(".");
         if (dot === -1) {
-          directAttrs[key] = value;
+          directAttrs[key] = override;
         } else {
           const psetName = key.slice(0, dot);
           const propName = key.slice(dot + 1);
           if (!psetAttrs[psetName]) psetAttrs[psetName] = {};
-          psetAttrs[psetName][propName] = value;
+          psetAttrs[psetName][propName] = override;
         }
       }
 
@@ -49,16 +56,17 @@ export async function writeIFCWithOverrides(
         try {
           const line = api.GetLine(modelId, expressId) as Record<string, unknown>;
           let changed = false;
-          for (const [attrKey, newVal] of Object.entries(directAttrs)) {
+          for (const [attrKey, override] of Object.entries(directAttrs)) {
+            const native = toNativeValue(override);
             const existing = line[attrKey];
-            if (existing !== null && typeof existing === "object" && "value" in (existing as object)) {
-              (existing as Record<string, unknown>).value = newVal;
-              changed = true;
+            if (override.ifcType !== undefined) {
+              line[attrKey] = { type: override.ifcType, value: native };
+            } else if (existing !== null && typeof existing === "object" && "value" in (existing as object)) {
+              (existing as Record<string, unknown>).value = native;
             } else {
-              // Attribute missing or not an IFC-wrapped value — write as LABEL
-              line[attrKey] = { type: 1, value: newVal };
-              changed = true;
+              line[attrKey] = { type: 1, value: native };
             }
+            changed = true;
           }
           if (changed) api.WriteLine(modelId, line);
         } catch { /* element line inaccessible — skip */ }
@@ -87,18 +95,20 @@ export async function writeIFCWithOverrides(
               try {
                 const propLine = api.GetLine(modelId, propExpressId) as Record<string, unknown>;
                 const nom = propLine.NominalValue as Record<string, unknown> | null | undefined;
-                const newVal = wantedProps[propName];
+                const override = wantedProps[propName];
+                const native = toNativeValue(override);
 
-                if (nom && typeof nom === "object") {
+                if (override.ifcType !== undefined) {
+                  propLine.NominalValue = { type: override.ifcType, value: native };
+                } else if (nom && typeof nom === "object") {
                   const inner = nom.value;
                   if (inner !== null && typeof inner === "object" && "value" in (inner as object)) {
-                    // Double-nested: { type: X, value: { type: Y, value: actual } }
-                    (inner as Record<string, unknown>).value = newVal;
+                    (inner as Record<string, unknown>).value = native;
                   } else {
-                    nom.value = newVal;
+                    nom.value = native;
                   }
                 } else {
-                  propLine.NominalValue = { type: 1, value: newVal };
+                  propLine.NominalValue = { type: 1, value: native };
                 }
                 api.WriteLine(modelId, propLine);
               } catch { /* skip individual property write errors */ }
