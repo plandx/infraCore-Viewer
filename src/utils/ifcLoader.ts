@@ -218,10 +218,8 @@ export async function loadIFCProperties(
       );
     }
 
-    const [instancePsets, typePsets] = await Promise.all([
-      api.properties.getPropertySets(modelId, expressId, true, false),
-      api.properties.getPropertySets(modelId, expressId, false, true),
-    ]);
+    const instancePsets = await api.properties.getPropertySets(modelId, expressId, true, false);
+    const typePsets = await api.properties.getPropertySets(modelId, expressId, false, true).catch(() => []);
     const rawPsets = [...instancePsets, ...typePsets];
 
     for (const pset of rawPsets) {
@@ -283,10 +281,8 @@ export async function loadBasketProperties(
       } catch { /* element may have no direct props */ }
 
       try {
-        const [_iPsets, _tPsets] = await Promise.all([
-          api.properties.getPropertySets(modelId, eid, true, false),
-          api.properties.getPropertySets(modelId, eid, false, true),
-        ]);
+        const _iPsets = await api.properties.getPropertySets(modelId, eid, true, false);
+        const _tPsets = await api.properties.getPropertySets(modelId, eid, false, true).catch(() => []);
         const rawPsets = [..._iPsets, ..._tPsets];
         for (const pset of rawPsets) {
           if (!pset) continue;
@@ -359,10 +355,8 @@ export async function loadAllElementProperties(
       } catch { /* element may have no direct props */ }
 
       try {
-        const [_iPsets, _tPsets] = await Promise.all([
-          api.properties.getPropertySets(modelId, eid, true, false),
-          api.properties.getPropertySets(modelId, eid, false, true),
-        ]);
+        const _iPsets = await api.properties.getPropertySets(modelId, eid, true, false);
+        const _tPsets = await api.properties.getPropertySets(modelId, eid, false, true).catch(() => []);
         const rawPsets = [..._iPsets, ..._tPsets];
         for (const pset of rawPsets) {
           if (!pset) continue;
@@ -378,8 +372,8 @@ export async function loadAllElementProperties(
                 : prop?.NominalValue ?? prop?.Value ?? null
             );
             if (!name) continue;
-            flat[`${psetName}.${name}`] = value; // namespaced key (unambiguous)
-            if (!(name in flat)) flat[name] = value; // short alias (first pset wins)
+            flat[`${psetName}.${name}`] = value;
+            if (!(name in flat)) flat[name] = value;
           }
         }
       } catch { /* psets optional */ }
