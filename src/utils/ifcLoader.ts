@@ -218,12 +218,11 @@ export async function loadIFCProperties(
       );
     }
 
-    const rawPsets = await api.properties.getPropertySets(
-      modelId,
-      expressId,
-      true,
-      true  // includeTypeProperties: also load psets from IfcTypeObject (e.g. Pset_Klassifikation)
-    );
+    const [instancePsets, typePsets] = await Promise.all([
+      api.properties.getPropertySets(modelId, expressId, true, false),
+      api.properties.getPropertySets(modelId, expressId, false, true),
+    ]);
+    const rawPsets = [...instancePsets, ...typePsets];
 
     for (const pset of rawPsets) {
       const psetName = String(pset?.Name?.value ?? "PropertySet");
@@ -284,7 +283,11 @@ export async function loadBasketProperties(
       } catch { /* element may have no direct props */ }
 
       try {
-        const rawPsets = await api.properties.getPropertySets(modelId, eid, true, true);
+        const [_iPsets, _tPsets] = await Promise.all([
+          api.properties.getPropertySets(modelId, eid, true, false),
+          api.properties.getPropertySets(modelId, eid, false, true),
+        ]);
+        const rawPsets = [..._iPsets, ..._tPsets];
         for (const pset of rawPsets) {
           if (!pset) continue;
           const psetName = String(pset?.Name?.value ?? "PropertySet");
@@ -356,7 +359,11 @@ export async function loadAllElementProperties(
       } catch { /* element may have no direct props */ }
 
       try {
-        const rawPsets = await api.properties.getPropertySets(modelId, eid, true, true);
+        const [_iPsets, _tPsets] = await Promise.all([
+          api.properties.getPropertySets(modelId, eid, true, false),
+          api.properties.getPropertySets(modelId, eid, false, true),
+        ]);
+        const rawPsets = [..._iPsets, ..._tPsets];
         for (const pset of rawPsets) {
           if (!pset) continue;
           const psetName = String(pset?.Name?.value ?? "PropertySet");
