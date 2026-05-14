@@ -75,7 +75,7 @@ export async function writeIFCWithOverrides(
       // ── Write pset property values ─────────────────────────────────────────
       if (Object.keys(psetAttrs).length > 0) {
         try {
-          const rawPsets = await api.properties.getPropertySets(modelId, expressId, true);
+          const rawPsets = await api.properties.getPropertySets(modelId, expressId, true, true);
           for (const pset of rawPsets as Array<Record<string, unknown> & { HasProperties?: unknown[] }>) {
             if (!pset) continue;
             const psetName = String((pset.Name as { value?: string } | undefined)?.value ?? "");
