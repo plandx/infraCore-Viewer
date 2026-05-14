@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine, Download, X, Loader2 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
+import { IFC_CLASS_NAMES } from "../utils/ifcClassNames";
 import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
 import type { PropOverride } from "../types/ifc";
 
@@ -498,23 +499,6 @@ function renderVal(v: unknown): string {
   return String(val);
 }
 
-const IFC_TYPE_NAMES: Record<number, string> = {
-  238321258: "IfcWallStandardCase", 2391406946: "IfcWall",
-  753842376: "IfcBeam", 2500020860: "IfcColumn",
-  3448662350: "IfcSlab", 1562808683: "IfcRoof",
-  2176052936: "IfcOpeningElement", 395920057: "IfcDoor", 3256556792: "IfcWindow",
-  331165869: "IfcStair", 374418227: "IfcStairFlight", 2051836757: "IfcRailing",
-  3588315303: "IfcSpace", 3124254112: "IfcBuildingStorey",
-  4031249490: "IfcBuilding", 4097777520: "IfcSite",
-  4288193352: "IfcFlowSegment", 2044713172: "IfcPipeSegment",
-  4222183408: "IfcDuctSegment", 3304561284: "IfcDuctFitting",
-  1959218052: "IfcBuildingElementProxy", 1027743046: "IfcCivilElement",
-  1674181508: "IfcTransportElement",
-  1307041759: "IfcCovering", 4237592921: "IfcPlate", 1073191201: "IfcMember",
-  900683007: "IfcFooting", 1247058037: "IfcPile",
-  263784265: "IfcFurnishingElement",
-};
-
 function lookupIfcTypeName(code: number): string | null {
-  return IFC_TYPE_NAMES[code] ?? null;
+  return IFC_CLASS_NAMES[code] ?? null;
 }
