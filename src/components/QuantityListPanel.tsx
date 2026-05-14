@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
 import * as XLSX from "xlsx";
-import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, RefreshCw, Check } from "lucide-react";
+import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, RefreshCw, Check, ListFilter, Search } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
 import { evaluateRule, CONDITION_LABELS, CONDITIONS_WITHOUT_VALUE } from "../utils/smartViewUtils";
 import { loadAllElementProperties } from "../utils/ifcLoader";
@@ -225,31 +225,173 @@ function ColumnSection({ columns, propKeys, onUpdate }: {
   );
 }
 
+// ── Column filter dropdown ────────────────────────────────────────────────────
+
+function ColumnFilterDropdown({ colId, allValues, active, onClose, onToggle, onSelectAll, onClearAll }: {
+  colId: string;
+  allValues: string[];
+  active: Set<string>;
+  onClose: () => void;
+  onToggle: (v: string) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = search ? allValues.filter((v) => v.toLowerCase().includes(search.toLowerCase())) : allValues;
+  const allChecked = active.size === 0 || allValues.every((v) => active.has(v));
+  const someChecked = !allChecked && allValues.some((v) => active.has(v));
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement).closest("[data-col-filter]");
+      if (!el || el.getAttribute("data-col-filter") !== colId) onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [colId, onClose]);
+
+  return (
+    <div
+      data-col-filter={colId}
+      className="absolute z-50 top-full left-0 mt-1 w-56 bg-card border border-border rounded-lg shadow-2xl flex flex-col"
+      style={{ maxHeight: 300 }}
+    >
+      {/* Search */}
+      <div className="p-2 border-b border-border">
+        <div className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1">
+          <Search size={11} className="text-muted-foreground shrink-0" />
+          <input
+            autoFocus
+            className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
+            placeholder="Suchen…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && <button className="text-muted-foreground hover:text-foreground" onClick={() => setSearch("")}><X size={10} /></button>}
+        </div>
+      </div>
+      {/* Select all */}
+      <label className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/40 cursor-pointer border-b border-border/60 text-[11px] font-medium">
+        <input
+          type="checkbox"
+          checked={allChecked}
+          ref={(el) => { if (el) el.indeterminate = someChecked; }}
+          onChange={allChecked ? onClearAll : onSelectAll}
+          className="accent-primary"
+        />
+        (Alle)
+      </label>
+      {/* Values */}
+      <div className="overflow-y-auto flex-1">
+        {filtered.map((v) => (
+          <label key={v} className="flex items-center gap-2 px-3 py-1 hover:bg-muted/40 cursor-pointer text-[11px]">
+            <input
+              type="checkbox"
+              checked={active.size === 0 || active.has(v)}
+              onChange={() => onToggle(v)}
+              className="accent-primary shrink-0"
+            />
+            <span className="truncate text-foreground/90">{v === "" ? <em className="text-muted-foreground">(leer)</em> : v}</span>
+          </label>
+        ))}
+        {filtered.length === 0 && <p className="px-3 py-2 text-[11px] text-muted-foreground italic">Keine Treffer</p>}
+      </div>
+    </div>
+  );
+}
+
 // ── Results table ─────────────────────────────────────────────────────────────
 
-function ResultsTable({ columns, rows }: { columns: QTOColumn[]; rows: ResultRow[] }) {
-  if (rows.length === 0) return (
+function ResultsTable({ columns, allRows, columnFilters, onFilterToggle, onFilterSelectAll, onFilterClearAll, onFilterClose, openFilterCol, onOpenFilterCol }: {
+  columns: QTOColumn[];
+  allRows: ResultRow[];
+  columnFilters: Record<string, Set<string>>;
+  onFilterToggle: (colId: string, value: string) => void;
+  onFilterSelectAll: (colId: string) => void;
+  onFilterClearAll: (colId: string) => void;
+  onFilterClose: () => void;
+  openFilterCol: string | null;
+  onOpenFilterCol: (colId: string | null) => void;
+}) {
+  const filteredRows = useMemo(() => {
+    if (Object.keys(columnFilters).length === 0) return allRows;
+    return allRows.filter((row) =>
+      columns.every((col) => {
+        const f = columnFilters[col.id];
+        return !f || f.size === 0 || f.has(row.data[col.id] ?? "");
+      })
+    );
+  }, [allRows, columns, columnFilters]);
+
+  const uniqueValues = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const col of columns) {
+      const s = new Set<string>();
+      for (const row of allRows) s.add(row.data[col.id] ?? "");
+      map[col.id] = Array.from(s).sort((a, b) => a.localeCompare(b));
+    }
+    return map;
+  }, [allRows, columns]);
+
+  const activeFilterCount = Object.values(columnFilters).filter((s) => s.size > 0).length;
+
+  if (allRows.length === 0) return (
     <div className="flex items-center justify-center py-10 text-muted-foreground text-[11px]">Keine Elemente gefunden</div>
   );
+
   return (
     <div className="flex-1 overflow-auto">
-      {rows.length > MAX_VISIBLE && (
+      {(filteredRows.length < allRows.length || activeFilterCount > 0) && (
+        <p className="text-[11px] text-primary/80 px-3 py-1 bg-primary/5 border-b border-border flex items-center gap-2">
+          <ListFilter size={11} />
+          {filteredRows.length} von {allRows.length} — {activeFilterCount} Spaltenfilter aktiv
+          <button className="ml-auto text-primary hover:text-primary/70 font-medium" onClick={() => { onFilterClose(); onOpenFilterCol(null); }}>
+            Filter zurücksetzen
+          </button>
+        </p>
+      )}
+      {filteredRows.length > MAX_VISIBLE && (
         <p className="text-[11px] text-amber-500/80 px-3 py-1 bg-amber-500/5 border-b border-border">
-          Zeige {MAX_VISIBLE} von {rows.length} — XLSX-Export enthält alle Zeilen
+          Zeige {MAX_VISIBLE} von {filteredRows.length} — XLSX-Export enthält alle gefilterten Zeilen
         </p>
       )}
       <table className="w-full text-[11px] border-collapse">
-        <thead className="sticky top-0 bg-card z-10">
+        <thead className="sticky top-0 bg-card z-20">
           <tr>
-            {columns.map((col) => (
-              <th key={col.id} className="text-left px-3 py-1.5 font-semibold border-b border-border text-muted-foreground whitespace-nowrap">
-                {col.label || col.key}
-              </th>
-            ))}
+            {columns.map((col) => {
+              const isOpen = openFilterCol === col.id;
+              const hasFilter = (columnFilters[col.id]?.size ?? 0) > 0;
+              return (
+                <th key={col.id} className="text-left border-b border-border whitespace-nowrap">
+                  <div className="relative flex items-center gap-1 px-3 py-1.5" data-col-filter={isOpen ? col.id : undefined}>
+                    <span className="font-semibold text-muted-foreground flex-1">{col.label || col.key}</span>
+                    <button
+                      data-col-filter={col.id}
+                      onClick={() => onOpenFilterCol(isOpen ? null : col.id)}
+                      className={cn("p-0.5 rounded hover:bg-muted/60 shrink-0", hasFilter ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground")}
+                      title="Spalte filtern"
+                    >
+                      <ListFilter size={11} />
+                    </button>
+                    {isOpen && (
+                      <ColumnFilterDropdown
+                        colId={col.id}
+                        allValues={uniqueValues[col.id] ?? []}
+                        active={columnFilters[col.id] ?? new Set()}
+                        onClose={() => onOpenFilterCol(null)}
+                        onToggle={(v) => onFilterToggle(col.id, v)}
+                        onSelectAll={() => onFilterSelectAll(col.id)}
+                        onClearAll={() => onFilterClearAll(col.id)}
+                      />
+                    )}
+                  </div>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {rows.slice(0, MAX_VISIBLE).map((row, i) => (
+          {filteredRows.slice(0, MAX_VISIBLE).map((row, i) => (
             <tr key={i} className={cn("border-b border-border/40 hover:bg-muted/30", i % 2 === 0 && "bg-muted/10")}>
               {columns.map((col) => (
                 <td key={col.id} className="px-3 py-1 text-foreground/80 max-w-[220px] truncate whitespace-nowrap">
@@ -277,6 +419,8 @@ export function QuantityListPanel() {
 
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
+  const [columnFilters, setColumnFilters] = useState<Record<string, Set<string>>>({});
+  const [openFilterCol, setOpenFilterCol] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -341,12 +485,44 @@ export function QuantityListPanel() {
       }
     });
     setResults(rows);
+    setColumnFilters({});
+    setOpenFilterCol(null);
   }, [activeList, models, loadedProperties]);
+
+  const handleFilterToggle = useCallback((colId: string, value: string) => {
+    setColumnFilters((prev) => {
+      const all = results ? Array.from(new Set(results.map((r) => r.data[colId] ?? ""))) : [];
+      const cur = prev[colId] ?? new Set(all);
+      const next = new Set(cur);
+      next.has(value) ? next.delete(value) : next.add(value);
+      return { ...prev, [colId]: next };
+    });
+  }, [results]);
+
+  const handleFilterSelectAll = useCallback((colId: string) => {
+    setColumnFilters((prev) => { const n = { ...prev }; delete n[colId]; return n; });
+  }, []);
+
+  const handleFilterClearAll = useCallback((colId: string) => {
+    setColumnFilters((prev) => ({ ...prev, [colId]: new Set() }));
+  }, []);
+
+  const getFilteredRows = useCallback(() => {
+    if (!results || !activeList) return results ?? [];
+    if (Object.keys(columnFilters).length === 0) return results;
+    return results.filter((row) =>
+      activeList.columns.every((col) => {
+        const f = columnFilters[col.id];
+        return !f || f.size === 0 || f.has(row.data[col.id] ?? "");
+      })
+    );
+  }, [results, activeList, columnFilters]);
 
   const handleExport = () => {
     if (!activeList || !results) return;
+    const exportRows = getFilteredRows();
     const header = activeList.columns.map((c) => c.label || c.key);
-    const dataRows = results.map((r) => activeList.columns.map((c) => r.data[c.id] ?? ""));
+    const dataRows = exportRows.map((r) => activeList.columns.map((c) => r.data[c.id] ?? ""));
     const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
     ws["!cols"] = activeList.columns.map(() => ({ wch: 22 }));
     const wb = XLSX.utils.book_new();
@@ -452,7 +628,17 @@ export function QuantityListPanel() {
             </div>
 
             {results !== null && (
-              <ResultsTable columns={activeList.columns} rows={results} />
+              <ResultsTable
+                columns={activeList.columns}
+                allRows={results}
+                columnFilters={columnFilters}
+                onFilterToggle={handleFilterToggle}
+                onFilterSelectAll={handleFilterSelectAll}
+                onFilterClearAll={handleFilterClearAll}
+                onFilterClose={() => setColumnFilters({})}
+                openFilterCol={openFilterCol}
+                onOpenFilterCol={setOpenFilterCol}
+              />
             )}
           </div>
         </div>
