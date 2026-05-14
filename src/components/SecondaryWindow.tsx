@@ -63,11 +63,6 @@ export function SecondaryWindow({ panel }: { panel: string }) {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
-  useEffect(() => {
-    const name = { hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage" }[panelType] ?? panel;
-    document.title = `${name} — infraCore`;
-  }, [panelType, panel]);
-
   // Load properties locally so the secondary's own PropertiesPanel works.
   // The state sync broadcasts the selection (including properties) to main.
   const handleElementClick = useCallback(async (modelId: string, expressId: number) => {
@@ -86,6 +81,11 @@ export function SecondaryWindow({ panel }: { panel: string }) {
   const handleFitTo = useCallback(() => { /* no viewport */ }, []);
 
   const panelType = panel as PanelType;
+
+  useEffect(() => {
+    const name = { hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage" }[panelType] ?? panel;
+    document.title = `${name} — infraCore`;
+  }, [panelType, panel]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden text-xs">
