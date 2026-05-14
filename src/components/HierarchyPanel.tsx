@@ -171,8 +171,16 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   }, [arr, view, expandedModels, expandedSpatial, search]);
 
   // Click handler with Shift-support
-  const handleItemClick = useCallback((modelId: string, expressId: number, e: React.MouseEvent) => {
+  // childKeys: all leaf element keys beneath a parent node — triggers group selection
+  const handleItemClick = useCallback((modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => {
     const key = `${modelId}:${expressId}`;
+
+    // Clicking a parent node: select all children
+    if (childKeys && childKeys.length > 0 && !e.shiftKey) {
+      setMultiSelected(new Set(childKeys));
+      setAnchorKey(childKeys[0]);
+      return;
+    }
 
     if (e.shiftKey) {
       e.preventDefault();
@@ -369,7 +377,7 @@ function SpatialView({ model, search, multiSelected, activeKey, expandedSpatial,
   model: IFCModelEntry; search: string;
   multiSelected: Set<string>; activeKey: string | null;
   expandedSpatial: Set<string>; onToggleExpand: (key: string) => void;
-  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
 } & VisibilityProps) {
   if (!model.spatialTree) {
     return <p className="px-3 py-3 text-muted-foreground text-[11px]">Keine Raumstruktur verfügbar</p>;
@@ -400,7 +408,7 @@ function SpatialTreeNode({ node, depth, modelId, multiSelected, activeKey, expan
   node: SpatialNode; depth: number; modelId: string;
   multiSelected: Set<string>; activeKey: string | null;
   expandedSpatial: Set<string>; onToggleExpand: (key: string) => void;
-  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
   forceOpen?: boolean;
 } & VisibilityProps) {
   const hasChildren = node.children.length > 0;
@@ -427,7 +435,8 @@ function SpatialTreeNode({ node, depth, modelId, multiSelected, activeKey, expan
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
         onClick={(e) => {
           if (hasChildren && !forceOpen && !e.shiftKey) onToggleExpand(key);
-          onItemClick(modelId, node.expressId, e);
+          const childKeys = hasChildren ? collectSpatialElementKeys(node, modelId) : undefined;
+          onItemClick(modelId, node.expressId, e, childKeys);
         }}
       >
         <span className="shrink-0 text-muted-foreground w-3.5">
@@ -475,7 +484,7 @@ function TypeView({ model, search, multiSelected, activeKey, expandedTypeGroups,
   model: IFCModelEntry; search: string;
   multiSelected: Set<string>; activeKey: string | null;
   expandedTypeGroups: Set<string>; onToggleTypeGroup: (key: string) => void;
-  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
 } & VisibilityProps) {
   const groups = useMemo(() => {
     const raw = Object.entries(model.elementsByType);
@@ -513,7 +522,7 @@ function TypeGroup({ typeName, elements, modelId, multiSelected, activeKey, expa
   typeName: string; elements: ElementNode[]; modelId: string;
   multiSelected: Set<string>; activeKey: string | null;
   expandedTypeGroups: Set<string>; onToggleTypeGroup: (key: string) => void;
-  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
   forceOpen?: boolean;
 } & VisibilityProps) {
   const groupKey = `${modelId}:${typeName}`;
@@ -523,7 +532,11 @@ function TypeGroup({ typeName, elements, modelId, multiSelected, activeKey, expa
     <div>
       <div
         className="flex items-center gap-1.5 px-2 py-[3px] cursor-pointer hover:bg-muted/40 select-none"
-        onClick={() => !forceOpen && onToggleTypeGroup(groupKey)}
+        onClick={(e) => {
+          if (!forceOpen) onToggleTypeGroup(groupKey);
+          const childKeys = elements.map((el) => `${modelId}:${el.expressId}`);
+          onItemClick(modelId, 0, e, childKeys);
+        }}
       >
         <span className="text-muted-foreground shrink-0">
           {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
@@ -652,6 +665,12 @@ function collectSubtreeIds(root: SpatialNode, targetExpressId: number): number[]
   const ids: number[] = [];
   collectAll(target, ids);
   return ids;
+}
+
+function collectSpatialElementKeys(node: SpatialNode, modelId: string): string[] {
+  const keys: string[] = (node.elements ?? []).map((el) => `${modelId}:${el.expressId}`);
+  for (const child of node.children) keys.push(...collectSpatialElementKeys(child, modelId));
+  return keys;
 }
 
 function collectDefaultExpanded(node: SpatialNode, modelId: string, depth: number, out: Set<string>) {
