@@ -795,7 +795,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       window.removeEventListener("viewer:screenshot", onScreenshot);
       window.removeEventListener("viewer:clearMeasure", onClearMeasure);
     };
-  }, [fitAllLoaded, fitCameraToBox, ctxZoomTo, setPresetView]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fitAllLoaded, fitCameraToBox, setPresetView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Measure label update (on controls change) ─────────────────────────────
   const updateMeasureLabels = useCallback(() => {
