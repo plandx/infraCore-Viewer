@@ -128,6 +128,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     controls.screenSpacePanning = true;
     controls.zoomSpeed = 1.4;
     controls.panSpeed = 1.2;
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
     controlsRef.current = controls;
 
     // Lighting
