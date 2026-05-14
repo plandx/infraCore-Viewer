@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
-import { X, Download, Upload, Table2, Loader2, Check, TriangleAlert, Info } from "lucide-react";
+import { X, Download, Upload, Table2, Loader2, Check, TriangleAlert, Info, FileDown } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { loadBasketProperties } from "../utils/ifcLoader";
+import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
 import type { PropertySet } from "../types/ifc";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface EditorRow {
-  key: string;           // "modelId:expressId"
+  key: string;
   modelId: string;
   modelName: string;
   expressId: number;
@@ -30,10 +31,14 @@ interface ImportResult {
   applied: number;
   skipped: number;
   notFound: string[];
+  edits: Array<{ modelId: string; expressId: number; key: string; value: string }>;
 }
 
-// Fixed info columns that are always first in the sheet
-const INFO_COLS = ["GlobalId", "Name", "Typ", "Modell"];
+// These three columns are display-only context — GlobalId is the key and must
+// not be duplicated from propColKeys; Typ + Modell are not IFC property names.
+const INFO_COLS  = ["GlobalId", "Typ", "Modell"] as const;
+const SKIP_COLS  = new Set<string>(INFO_COLS);
+
 const PRIO_DIRECT = ["Name", "Description", "ObjectType", "Tag", "GlobalId"];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -43,14 +48,15 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
   const selectionBasket    = useModelStore((s) => s.selectionBasket);
   const applyPropertyEdits = useModelStore((s) => s.applyPropertyEdits);
 
-  const [rows, setRows]             = useState<EditorRow[]>([]);
-  const [columns, setColumns]       = useState<EditorCol[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [loadMsg, setLoadMsg]       = useState("");
-  const [exporting, setExporting]   = useState(false);
+  const [rows, setRows]               = useState<EditorRow[]>([]);
+  const [columns, setColumns]         = useState<EditorCol[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [loadMsg, setLoadMsg]         = useState("");
+  const [exporting, setExporting]     = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError]   = useState<string | null>(null);
   const [importing, setImporting]       = useState(false);
+  const [ifcExporting, setIfcExporting] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -106,13 +112,13 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
 
       if (cancelled) return;
 
-      // Build property columns
+      // Build property columns — exclude GlobalId (already an info col)
       const directSet = new Set<string>();
       const psetMap   = new Map<string, Set<string>>();
 
       for (const row of newRows) {
         for (const k of Object.keys(row.directProps)) {
-          if (k !== "type") directSet.add(k);
+          if (k !== "type" && k !== "GlobalId") directSet.add(k);
         }
         for (const pset of row.psets) {
           if (!psetMap.has(pset.name)) psetMap.set(pset.name, new Set());
@@ -122,7 +128,7 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
 
       const cols: EditorCol[] = [];
       const seen = new Set<string>();
-      for (const k of [...PRIO_DIRECT, ...Array.from(directSet).sort()]) {
+      for (const k of [...PRIO_DIRECT.filter(k => k !== "GlobalId"), ...Array.from(directSet).sort()]) {
         if (directSet.has(k) && !seen.has(k)) {
           seen.add(k);
           cols.push({ key: k, label: k, group: "Direkte Attribute" });
@@ -167,42 +173,38 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
   function handleExport() {
     setExporting(true);
     try {
-      // Header row: info cols first, then all property cols
+      // propColKeys excludes GlobalId (it's already in INFO_COLS as the key)
       const propColKeys = columns.map((c) => c.key);
       const header = [...INFO_COLS, ...propColKeys];
 
       const sheetData: unknown[][] = [header];
 
       for (const row of rows) {
-        const cells: unknown[] = [
+        sheetData.push([
           row.globalId,
-          row.name,
           row.type,
           row.modelName,
           ...propColKeys.map((k) => {
-            const raw = k.includes(".")
-              ? (() => {
-                  const dot = k.indexOf(".");
-                  const pset = row.psets.find((p) => p.name === k.slice(0, dot));
-                  return pset?.properties.find((p) => p.name === k.slice(dot + 1))?.value ?? null;
-                })()
-              : (row.directProps[k] ?? null);
-            // Return native number/boolean when possible
+            let raw: unknown;
+            if (k.includes(".")) {
+              const dot  = k.indexOf(".");
+              const pset = row.psets.find((p) => p.name === k.slice(0, dot));
+              raw = pset?.properties.find((p) => p.name === k.slice(dot + 1))?.value ?? null;
+            } else {
+              raw = row.directProps[k] ?? null;
+            }
             if (typeof raw === "number" || typeof raw === "boolean") return raw;
             return raw != null ? String(raw) : "";
           }),
-        ];
-        sheetData.push(cells);
+        ]);
       }
 
       const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
-      // Column widths
       ws["!cols"] = header.map((h) => ({
-        wch: h === "GlobalId" ? 24 : h === "Name" ? 28 : h === "Modell" ? 20 : 18,
+        wch: h === "GlobalId" ? 26 : h === "Name" ? 30 : h === "Modell" ? 22 : 18,
       }));
-
-      // Freeze first row + first column (GlobalId as key)
+      // Freeze first row (header) and first column (GlobalId key)
       ws["!freeze"] = { xSplit: 1, ySplit: 1 };
 
       const wb = XLSX.utils.book_new();
@@ -226,15 +228,14 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
       const ws   = wb.Sheets[wb.SheetNames[0]];
       if (!ws) throw new Error("Keine Tabelle in der Datei gefunden.");
 
-      // sheet_to_json maps header row → object keys
       const xlsxRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
         defval: "",
-        raw: false,   // all values as strings for predictable comparison
+        raw: false,  // all values as strings → predictable comparison
       });
 
       if (xlsxRows.length === 0) throw new Error("Die Tabelle ist leer.");
 
-      // Build GUID → row lookup from currently loaded basket data
+      // GUID → EditorRow lookup
       const guidIndex = new Map<string, EditorRow>();
       for (const row of rows) {
         if (row.globalId) guidIndex.set(row.globalId, row);
@@ -249,18 +250,22 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
         if (!guid) { skipped++; continue; }
 
         const match = guidIndex.get(guid);
-        if (!match) {
-          notFound.push(guid);
-          continue;
-        }
+        if (!match) { notFound.push(guid); continue; }
 
-        // Compare each property column value
         for (const [colKey, rawValue] of Object.entries(xlsxRow)) {
-          if (INFO_COLS.includes(colKey)) continue; // skip non-editable info cols
+          // Skip the fixed info columns — they are not editable properties
+          if (SKIP_COLS.has(colKey)) continue;
+
           const newVal   = String(rawValue ?? "").trim();
           const original = getCellValue(match, colKey).trim();
+
           if (newVal !== original) {
-            edits.push({ modelId: match.modelId, expressId: match.expressId, key: colKey, value: newVal });
+            edits.push({
+              modelId:   match.modelId,
+              expressId: match.expressId,
+              key:       colKey,
+              value:     newVal,
+            });
           }
         }
       }
@@ -268,7 +273,7 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
       if (edits.length > 0) applyPropertyEdits(edits);
 
       const appliedElements = new Set(edits.map((e) => `${e.modelId}:${e.expressId}`)).size;
-      setImportResult({ applied: appliedElements, skipped, notFound });
+      setImportResult({ applied: appliedElements, skipped, notFound, edits });
     } catch (err) {
       setImportError(String(err));
     } finally {
@@ -277,7 +282,33 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // ── IFC export after import ───────────────────────────────────────────────
+
+  async function handleExportIFC() {
+    if (!importResult || importResult.edits.length === 0) return;
+    setIfcExporting(true);
+    try {
+      const byModel = new Map<string, Map<number, Record<string, string>>>();
+      for (const { modelId, expressId, key, value } of importResult.edits) {
+        if (!byModel.has(modelId)) byModel.set(modelId, new Map());
+        const eidMap = byModel.get(modelId)!;
+        eidMap.set(expressId, { ...(eidMap.get(expressId) ?? {}), [key]: value });
+      }
+      for (const [modelId, eidMap] of byModel) {
+        const model = models.get(modelId);
+        if (!model?.file) continue;
+        const overrides = Array.from(eidMap.entries()).map(([expressId, ov]) => ({ expressId, overrides: ov }));
+        const result = await writeIFCWithOverrides(model.file, overrides);
+        downloadFile(result, model.name.replace(/\.ifc$/i, "") + "_bearbeitet.ifc");
+      }
+    } finally {
+      setIfcExporting(false);
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
+
+  const hasImportedChanges = (importResult?.edits.length ?? 0) > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm bg-black/60">
@@ -302,24 +333,20 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* ── Action bar ───────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border shrink-0 bg-muted/30">
-          {/* Export */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0 bg-muted/30 flex-wrap">
           <button
             onClick={handleExport}
             disabled={loading || rows.length === 0 || exporting}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Alle Eigenschaften als XLSX herunterladen"
           >
             {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
             Als XLSX exportieren
           </button>
 
-          {/* Import */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={loading || rows.length === 0 || importing}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-muted hover:bg-muted/80 text-foreground border border-border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Geänderte XLSX importieren (Matching per GlobalId)"
           >
             {importing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
             XLSX importieren
@@ -332,9 +359,23 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); }}
           />
 
+          {hasImportedChanges && (
+            <button
+              onClick={handleExportIFC}
+              disabled={ifcExporting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 disabled:opacity-40 transition-colors"
+              title="Modifizierte IFC-Datei(en) herunterladen"
+            >
+              {ifcExporting ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
+              Als IFC exportieren
+            </button>
+          )}
+
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground ml-auto">
             <Info size={11} />
-            <span>Spalte <code className="font-mono bg-muted px-1 rounded">GlobalId</code> nicht ändern — wird als Schlüssel verwendet</span>
+            <span>
+              Spalte <code className="font-mono bg-muted px-1 rounded">GlobalId</code> nicht ändern — Schlüssel für den Abgleich
+            </span>
           </div>
         </div>
 
@@ -351,8 +392,8 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
                 <Check size={13} className="mt-px shrink-0" />
                 <span>
                   {importResult.applied > 0
-                    ? `${importResult.applied} Element${importResult.applied !== 1 ? "e" : ""} aktualisiert`
-                    : "Keine Änderungen festgestellt"}
+                    ? `${importResult.applied} Element${importResult.applied !== 1 ? "e" : ""} mit Änderungen — in Eigenschaften-Panel sichtbar`
+                    : "Keine Änderungen erkannt"}
                   {importResult.skipped > 0 && ` · ${importResult.skipped} Zeile${importResult.skipped !== 1 ? "n" : ""} übersprungen`}
                   {importResult.notFound.length > 0 && ` · ${importResult.notFound.length} GlobalId nicht gefunden`}
                 </span>
@@ -376,8 +417,8 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
             <table className="text-xs border-collapse min-w-full">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  {/* Frozen info cols */}
-                  {INFO_COLS.map((col, i) => (
+                  {/* Info / key columns */}
+                  {(["GlobalId", "Typ", "Modell"] as const).map((col, i) => (
                     <th
                       key={col}
                       className={cn(
@@ -385,14 +426,15 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
                         col === "GlobalId" && "text-primary/80"
                       )}
                       style={{
-                        left: [0, 200, 330, 460][i],
-                        minWidth: [200, 130, 130, 160][i],
-                        width:    [200, 130, 130, 160][i],
+                        left:     [0, 220, 360][i],
+                        minWidth: [220, 140, 160][i],
+                        width:    [220, 140, 160][i],
                       }}
                     >
                       {col === "GlobalId" ? "🔑 GlobalId" : col}
                     </th>
                   ))}
+                  {/* Property columns */}
                   {columns.map((col) => (
                     <th
                       key={col.key}
@@ -411,8 +453,7 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
               <tbody>
                 {rows.map((row, ri) => (
                   <tr key={row.key} className={ri % 2 === 0 ? "bg-background" : "bg-muted/20"}>
-                    {/* Info cells (sticky) */}
-                    {[row.globalId, row.name, row.type, row.modelName].map((val, i) => (
+                    {[row.globalId, row.type, row.modelName].map((val, i) => (
                       <td
                         key={i}
                         className={cn(
@@ -421,16 +462,15 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
                           i === 0 && "font-mono text-[10px] text-primary/70"
                         )}
                         style={{
-                          left: [0, 200, 330, 460][i],
-                          minWidth: [200, 130, 130, 160][i],
-                          maxWidth: [200, 130, 130, 160][i],
+                          left:     [0, 220, 360][i],
+                          minWidth: [220, 140, 160][i],
+                          maxWidth: [220, 140, 160][i],
                         }}
                         title={val}
                       >
                         {val}
                       </td>
                     ))}
-                    {/* Property cells */}
                     {columns.map((col) => {
                       const val = getCellValue(row, col.key);
                       return (
@@ -454,14 +494,11 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
         {/* ── Footer ───────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-t border-border shrink-0 text-xs text-muted-foreground">
           <span className="flex-1">
-            {!loading && rows.length > 0 && (
+            {!loading && rows.length > 0 &&
               `${rows.length} Element${rows.length !== 1 ? "e" : ""} · ${columns.length} Eigenschaft${columns.length !== 1 ? "en" : ""}`
-            )}
+            }
           </span>
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 rounded hover:bg-muted/60 transition-colors"
-          >
+          <button onClick={onClose} className="px-3 py-1.5 rounded hover:bg-muted/60 transition-colors">
             Schließen
           </button>
         </div>

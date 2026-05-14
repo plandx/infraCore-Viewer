@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine } from "lucide-react";
+import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 
@@ -7,13 +7,14 @@ type Tab = "attributes" | "properties" | "quantities" | "raw";
 
 export function PropertiesPanel() {
   const [activeTab, setActiveTab] = useState<Tab>("attributes");
-  const selected = useModelStore((s) => s.selectedElement);
-  const models = useModelStore((s) => s.models);
-  const hideElement = useModelStore((s) => s.hideElement);
-  const isolateElement = useModelStore((s) => s.isolateElement);
-  const showAll = useModelStore((s) => s.showAll);
-  const isolatedElements = useModelStore((s) => s.isolatedElements);
-  const hiddenElements = useModelStore((s) => s.hiddenElements);
+  const selected          = useModelStore((s) => s.selectedElement);
+  const models            = useModelStore((s) => s.models);
+  const hideElement       = useModelStore((s) => s.hideElement);
+  const isolateElement    = useModelStore((s) => s.isolateElement);
+  const showAll           = useModelStore((s) => s.showAll);
+  const isolatedElements  = useModelStore((s) => s.isolatedElements);
+  const hiddenElements    = useModelStore((s) => s.hiddenElements);
+  const propertyOverrides = useModelStore((s) => s.propertyOverrides);
 
   if (!selected) {
     return (
@@ -32,9 +33,15 @@ export function PropertiesPanel() {
     );
   }
 
-  const model = models.get(selected.modelId);
+  const model    = models.get(selected.modelId);
   const isHidden = hiddenElements.has(`${selected.modelId}:${selected.expressId}`);
-  const isIsolated = isolatedElements !== null && isolatedElements.has(`${selected.modelId}:${selected.expressId}`);
+  const isIsolated = isolatedElements !== null &&
+    isolatedElements.has(`${selected.modelId}:${selected.expressId}`);
+
+  // Flat overrides for this element: key → override value
+  const overrides: Record<string, string> =
+    propertyOverrides.get(selected.modelId)?.get(selected.expressId) ?? {};
+  const hasOverrides = Object.keys(overrides).length > 0;
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "attributes", label: "Attribute",     icon: <Tag size={12} /> },
@@ -53,7 +60,6 @@ export function PropertiesPanel() {
               #{selected.expressId}
             </span>
           </div>
-          {/* Quick actions */}
           <div className="flex gap-0.5 shrink-0">
             <button
               className={cn("toolbar-button p-1", isIsolated && "text-primary")}
@@ -72,10 +78,21 @@ export function PropertiesPanel() {
             >
               <Eye size={13} className={isHidden ? "opacity-40" : ""} />
             </button>
-            <CopyButton value={JSON.stringify({ expressId: selected.expressId, ...selected.properties, psets: selected.psets }, null, 2)} title="Alle Eigenschaften kopieren" />
+            <CopyButton
+              value={JSON.stringify({ expressId: selected.expressId, ...selected.properties, psets: selected.psets }, null, 2)}
+              title="Alle Eigenschaften kopieren"
+            />
           </div>
         </div>
       </PanelHeader>
+
+      {/* Override banner */}
+      {hasOverrides && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-400 shrink-0">
+          <PencilLine size={11} />
+          <span>{Object.keys(overrides).length} Eigenschaft{Object.keys(overrides).length !== 1 ? "en" : ""} bearbeitet</span>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="properties-tabs-list panel-container shrink-0">
@@ -94,13 +111,20 @@ export function PropertiesPanel() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {activeTab === "attributes" && (
-          <AttributesTab properties={selected.properties} />
+          <AttributesTab properties={selected.properties} overrides={overrides} />
         )}
         {activeTab === "properties" && (
-          <PropertySetsTab psets={selected.psets.filter(p => !p.name.startsWith("Qto_"))} />
+          <PropertySetsTab
+            psets={selected.psets.filter(p => !p.name.startsWith("Qto_"))}
+            overrides={overrides}
+          />
         )}
         {activeTab === "quantities" && (
-          <PropertySetsTab psets={selected.psets.filter(p => p.name.startsWith("Qto_"))} emptyMsg="Keine Mengen vorhanden" />
+          <PropertySetsTab
+            psets={selected.psets.filter(p => p.name.startsWith("Qto_"))}
+            overrides={overrides}
+            emptyMsg="Keine Mengen vorhanden"
+          />
         )}
         {activeTab === "raw" && (
           <RawTab properties={selected.properties} psets={selected.psets} expressId={selected.expressId} />
@@ -119,19 +143,20 @@ function PanelHeader({ children }: { children?: React.ReactNode }) {
   );
 }
 
-function AttributesTab({ properties }: { properties: Record<string, unknown> }) {
-  // Extract the IFC schema type name from the numeric type code
+function AttributesTab({
+  properties,
+  overrides,
+}: {
+  properties: Record<string, unknown>;
+  overrides: Record<string, string>;
+}) {
   const ifcTypeCode = typeof properties.type === "number" ? properties.type : null;
   const ifcTypeName = ifcTypeCode ? lookupIfcTypeName(ifcTypeCode) : null;
 
   const entries = Object.entries(properties)
     .filter(([k]) => k !== "expressID" && k !== "type")
     .map(([k, v]) => ({ name: k, value: v }))
-    .filter(({ value }) => {
-      // Skip pure entity-references (they show nothing meaningful)
-      if (isIfcRef(value)) return false;
-      return true;
-    });
+    .filter(({ value }) => !isIfcRef(value));
 
   if (!entries.length && !ifcTypeName) return <EmptyState msg="Keine Attribute vorhanden" />;
 
@@ -148,16 +173,18 @@ function AttributesTab({ properties }: { properties: Record<string, unknown> }) 
           )}
         </tbody>
       </table>
-      <PropTable rows={entries} />
+      <PropTable rows={entries} overrides={overrides} />
     </div>
   );
 }
 
 function PropertySetsTab({
   psets,
+  overrides,
   emptyMsg = "Keine Eigenschaften vorhanden",
 }: {
   psets: { name: string; properties: { name: string; value: unknown; type: string }[] }[];
+  overrides: Record<string, string>;
   emptyMsg?: string;
 }) {
   if (!psets.length) return <EmptyState msg={emptyMsg} />;
@@ -167,7 +194,12 @@ function PropertySetsTab({
       {psets.map((pset) => (
         <div key={pset.name}>
           <SectionHeader title={pset.name} count={pset.properties.length} />
-          <PropTable rows={pset.properties} />
+          {/* Build pset-scoped overrides: "PsetName.PropName" → propName lookup */}
+          <PropTable
+            rows={pset.properties}
+            overrides={overrides}
+            psetName={pset.name}
+          />
         </div>
       ))}
     </div>
@@ -181,7 +213,7 @@ function RawTab({
   psets: { name: string; properties: { name: string; value: unknown; type: string }[] }[];
   expressId: number;
 }) {
-  const raw = { expressID: expressId, ...properties, propertySets: psets };
+  const raw  = { expressID: expressId, ...properties, propertySets: psets };
   const json = JSON.stringify(raw, null, 2);
   return (
     <div className="relative">
@@ -206,23 +238,56 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
   );
 }
 
-function PropTable({ rows }: { rows: { name: string; value: unknown; type?: string }[] }) {
+function PropTable({
+  rows,
+  overrides,
+  psetName,
+}: {
+  rows: { name: string; value: unknown; type?: string }[];
+  overrides: Record<string, string>;
+  psetName?: string;
+}) {
   return (
     <table className="w-full text-[11px] border-collapse">
       <tbody>
-        {rows.map((r, i) => (
-          <tr key={i} className="border-b border-border/30 hover:bg-muted/20 group">
-            <td className="px-3 py-1.5 text-muted-foreground w-2/5 align-top font-medium truncate max-w-0" title={r.name}>
-              {r.name}
-            </td>
-            <td className="px-3 py-1.5 text-foreground font-mono break-words max-w-0">
-              <div className="flex items-start gap-1">
-                <span className="flex-1">{renderVal(r.value)}</span>
-                <CopyButton value={String(r.value ?? "")} className="opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" />
-              </div>
-            </td>
-          </tr>
-        ))}
+        {rows.map((r, i) => {
+          // Override key: "PsetName.PropName" for pset rows, just "PropName" for direct attrs
+          const overrideKey = psetName ? `${psetName}.${r.name}` : r.name;
+          const override    = overrides[overrideKey];
+          const isOverridden = override !== undefined;
+
+          return (
+            <tr key={i} className="border-b border-border/30 hover:bg-muted/20 group">
+              <td
+                className="px-3 py-1.5 text-muted-foreground w-2/5 align-top font-medium truncate max-w-0"
+                title={r.name}
+              >
+                {r.name}
+                {isOverridden && (
+                  <PencilLine size={9} className="inline ml-1 text-amber-400 opacity-70" />
+                )}
+              </td>
+              <td className="px-3 py-1.5 font-mono break-words max-w-0">
+                {isOverridden ? (
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-amber-400 font-semibold">{override}</span>
+                    <span className="text-muted-foreground/50 line-through text-[10px]">
+                      {renderVal(r.value)}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-1 text-foreground">
+                    <span className="flex-1">{renderVal(r.value)}</span>
+                    <CopyButton
+                      value={String(r.value ?? "")}
+                      className="opacity-0 group-hover:opacity-100 shrink-0 mt-0.5"
+                    />
+                  </div>
+                )}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -259,7 +324,6 @@ function EmptyState({ msg }: { msg: string }) {
   );
 }
 
-// IFC values are wrapped: { value: X, type: N } where type=5 is a reference
 function isIfcRef(v: unknown): boolean {
   return typeof v === "object" && v !== null && "type" in v &&
     (v as { type?: number }).type === 5;
@@ -269,7 +333,7 @@ function unwrapIfcValue(v: unknown): unknown {
   if (v == null) return null;
   if (typeof v === "object" && v !== null && "value" in v) {
     const w = v as { value: unknown; type?: number };
-    if (w.type === 5) return `→ #${w.value}`;   // entity reference
+    if (w.type === 5) return `→ #${w.value}`;
     return w.value ?? null;
   }
   return v;
@@ -283,32 +347,20 @@ function renderVal(v: unknown): string {
   return String(val);
 }
 
-// Quick lookup for the most common IFC type codes
 const IFC_TYPE_NAMES: Record<number, string> = {
-  // Walls
   238321258: "IfcWallStandardCase", 2391406946: "IfcWall",
-  // Beams / columns
   753842376: "IfcBeam", 2500020860: "IfcColumn",
-  // Slabs / roofs
   3448662350: "IfcSlab", 1562808683: "IfcRoof",
-  // Openings / doors / windows
   2176052936: "IfcOpeningElement", 395920057: "IfcDoor", 3256556792: "IfcWindow",
-  // Stairs / railings
   331165869: "IfcStair", 374418227: "IfcStairFlight", 2051836757: "IfcRailing",
-  // Spaces / storeys / buildings
   3588315303: "IfcSpace", 3124254112: "IfcBuildingStorey",
   4031249490: "IfcBuilding", 4097777520: "IfcSite",
-  // MEP
   4288193352: "IfcFlowSegment", 2044713172: "IfcPipeSegment",
   4222183408: "IfcDuctSegment", 3304561284: "IfcDuctFitting",
-  // Generic / civil
   1959218052: "IfcBuildingElementProxy", 1027743046: "IfcCivilElement",
   1674181508: "IfcTransportElement",
-  // Coverings / plates / members
   1307041759: "IfcCovering", 4237592921: "IfcPlate", 1073191201: "IfcMember",
-  // Foundations
   900683007: "IfcFooting", 1247058037: "IfcPile",
-  // Furniture
   263784265: "IfcFurnishingElement",
 };
 
