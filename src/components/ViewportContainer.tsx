@@ -768,8 +768,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (box) fitCameraToBox(box);
     };
     const onZoomToElement = (e: Event) => {
-      const { modelId, expressId } = (e as CustomEvent<{ modelId: string; expressId: number }>).detail;
-      ctxZoomTo(modelId, expressId);
+      const { modelId, expressIds } = (e as CustomEvent<{ modelId: string; expressIds: number[] }>).detail;
+      ctxZoomTo(modelId, expressIds);
     };
     const onPreset = (e: Event) => {
       const preset = (e as CustomEvent<string>).detail;
@@ -1101,25 +1101,28 @@ export function ViewportContainer({ onElementClick }: Props) {
     e.stopPropagation();
   }, []);
 
-  // ── Double-click: apply staged SmartView ─────────────────────────────────
-  const handleDoubleClick = useCallback(() => {
-    if (stagedSmartViewId) applySmartView(stagedSmartViewId);
-  }, [stagedSmartViewId, applySmartView]);
-
   // ── Context menu action helpers ───────────────────────────────────────────
 
-  const ctxZoomTo = useCallback((modelId: string, expressId: number) => {
+  const ctxZoomTo = useCallback((modelId: string, expressIds: number[]) => {
     const scene = sceneRef.current;
     if (!scene) return;
+    const idSet = new Set(expressIds);
     const box = new THREE.Box3();
     scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId !== expressId) return;
+      if (!(obj instanceof THREE.Mesh) || !idSet.has(obj.userData.expressId)) return;
       if (obj.userData.isHighlight || obj.userData.isEdge) return;
       let node: THREE.Object3D | null = obj;
       while (node) { if (node.userData.modelId === modelId) { box.expandByObject(obj); break; } node = node.parent; }
     });
     if (!box.isEmpty()) fitCameraToBox(box);
   }, [fitCameraToBox]);
+
+  // ── Double-click: zoom to element or apply staged SmartView ─────────────
+  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (stagedSmartViewId) { applySmartView(stagedSmartViewId); return; }
+    const hit = raycastPoint(e);
+    if (hit) ctxZoomTo(hit.modelId, [hit.expressId]);
+  }, [stagedSmartViewId, applySmartView, raycastPoint, ctxZoomTo]);
 
   const ctxSelectClass = useCallback((modelId: string, expressId: number) => {
     const state = useModelStore.getState();
@@ -1300,7 +1303,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           onHide={() => { hideElement(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
           onIsolate={() => { isolateElement(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
           onShowAll={() => { showAll(); setContextMenu(null); }}
-          onFit={() => { ctxZoomTo(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
+          onFit={() => { ctxZoomTo(contextMenu.modelId, [contextMenu.expressId]); setContextMenu(null); }}
           onBasketToggle={() => {
             const key = `${contextMenu.modelId}:${contextMenu.expressId}`;
             if (selectionBasket.has(key)) removeFromBasket(contextMenu.modelId, contextMenu.expressId);
