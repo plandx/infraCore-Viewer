@@ -241,6 +241,10 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     setBasket(next);
   };
 
+  const handleSetBasket = () => {
+    setBasket(new Set(multiSelected));
+  };
+
   const toggleModelExpand = (id: string) =>
     setExpandedModels((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -286,7 +290,8 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
           <span className="text-amber-400 font-medium flex-1">{multiSelected.size} ausgewählt</span>
           <button className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground" title="Alle ausblenden" onClick={handleMultiHide}><EyeOff size={11} /></button>
           <button className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground" title="Alle isolieren" onClick={handleMultiIsolate}><ScanLine size={11} /></button>
-          <button className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground text-[10px] font-mono" title="Alle in Auswahlkorb" onClick={handleAddToBasket}>+Korb</button>
+          <button className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground text-[10px] font-mono" title="Zur Auswahl hinzufügen" onClick={handleAddToBasket}>+Korb</button>
+          <button className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground text-[10px] font-mono" title="Auswahlkorb ersetzen" onClick={handleSetBasket}>=Korb</button>
           <button className="p-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground" title="Auswahl aufheben" onClick={() => { setMultiSelected(new Set()); setAnchorKey(null); }}><X size={11} /></button>
         </div>
       )}
