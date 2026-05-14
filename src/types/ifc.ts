@@ -32,6 +32,33 @@ export interface SmartView {
   color: string;       // hex, used when action === "color"
 }
 
+// ── Multi-window sync ──────────────────────────────────────────────────────────
+
+/** Serialisable model snapshot (no Three.js objects) */
+export interface SyncModel {
+  id: string;
+  name: string;
+  file: File;          // File is structured-clone-able → safe over BroadcastChannel
+  visible: boolean;
+  color: string;
+  opacity: number;
+  size: number;
+  elementsByType: Record<string, ElementNode[]>;
+  spatialTree: SpatialNode | null;
+}
+
+export interface SyncState {
+  models: SyncModel[];
+  selectedElement: SelectedElement | null;
+  settings: ViewerSettings;
+  hiddenElements: string[];
+  isolatedElements: string[] | null;
+  colorGroups: ColorGroup[] | null;
+  smartViews: SmartView[];
+  activeSmartViewId: string | null;
+  loadedPropKeys: string[];
+}
+
 export interface Measurement {
   id: string;
   a: { x: number; y: number; z: number };

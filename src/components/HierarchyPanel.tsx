@@ -15,21 +15,39 @@ interface Props {
   onFitTo: (id: string) => void;
   onRemove: (id: string) => void;
   onSelectElement: (modelId: string, expressId: number) => void;
+  /** When set (secondary windows), replaces the default store hide action */
+  onHideOverride?: (modelId: string, expressId: number) => void;
+  onShowAllOverride?: () => void;
+  onIsolateOverride?: (modelId: string, expressId: number) => void;
 }
 
-export function HierarchyPanel({ onFitTo, onRemove, onSelectElement }: Props) {
+export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverride, onShowAllOverride, onIsolateOverride }: Props) {
   const models = useModelStore((s) => s.models);
   const updateModel = useModelStore((s) => s.updateModel);
   const selectedElement = useModelStore((s) => s.selectedElement);
   const hiddenElements = useModelStore((s) => s.hiddenElements);
   const isolatedElements = useModelStore((s) => s.isolatedElements);
-  const hideElement = useModelStore((s) => s.hideElement);
-  const hideElements = useModelStore((s) => s.hideElements);
+  const hideElement_ = useModelStore((s) => s.hideElement);
+  const hideElements_ = useModelStore((s) => s.hideElements);
   const showElement = useModelStore((s) => s.showElement);
   const showElements = useModelStore((s) => s.showElements);
-  const isolateElement = useModelStore((s) => s.isolateElement);
-  const isolateElements = useModelStore((s) => s.isolateElements);
-  const showAll = useModelStore((s) => s.showAll);
+  const isolateElement_ = useModelStore((s) => s.isolateElement);
+  const isolateElements_ = useModelStore((s) => s.isolateElements);
+  const showAll_ = useModelStore((s) => s.showAll);
+
+  const hideElement = onHideOverride
+    ? (modelId: string, eid: number) => onHideOverride(modelId, eid)
+    : hideElement_;
+  const isolateElement = onIsolateOverride
+    ? (modelId: string, eid: number) => onIsolateOverride(modelId, eid)
+    : isolateElement_;
+  const showAll = onShowAllOverride ?? showAll_;
+  const hideElements = onHideOverride
+    ? (modelId: string, eids: number[]) => eids.forEach((eid) => onHideOverride(modelId, eid))
+    : hideElements_;
+  const isolateElements = onIsolateOverride
+    ? (modelId: string, eids: number[]) => eids.forEach((eid) => onIsolateOverride(modelId, eid))
+    : isolateElements_;
 
   const [view, setView] = useState<View>("spatial");
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());

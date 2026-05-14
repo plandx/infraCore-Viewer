@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import * as THREE from "three";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
@@ -13,13 +13,84 @@ import { ClipPlaneControl } from "./components/ClipPlaneControl";
 import { SQLPanel } from "./components/SQLPanel";
 import { ListPanel } from "./components/ListPanel";
 
+import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties } from "./utils/ifcLoader";
+import { SYNC_CHANNEL, serializeState, openSecondaryWindow } from "./utils/windowSync";
+import type { SyncMsg } from "./utils/windowSync";
 import type { IFCModelEntry } from "./types/ifc";
+
+// ── detect secondary window ───────────────────────────────────────────────────
+
+const _params = new URLSearchParams(window.location.search);
+const IS_SECONDARY = _params.has("secondary");
+const SECONDARY_PANEL = _params.get("panel") ?? "hierarchy";
+
+// ── root export (secondary windows skip the full app) ─────────────────────────
+
+export default function App() {
+  useEffect(() => { document.documentElement.classList.add("dark"); }, []);
+  if (IS_SECONDARY) return <SecondaryWindow panel={SECONDARY_PANEL} />;
+  return <MainApp />;
+}
+
+// ── main-window sync hook ─────────────────────────────────────────────────────
+
+function useMainWindowSync(handleElementClick: (modelId: string, expressId: number) => Promise<void>) {
+  const channelRef = useRef<BroadcastChannel | null>(null);
+
+  useEffect(() => {
+    const ch = new BroadcastChannel(SYNC_CHANNEL);
+    channelRef.current = ch;
+
+    ch.onmessage = async (e: MessageEvent<SyncMsg>) => {
+      const msg = e.data;
+      if (msg.t === "req") {
+        ch.postMessage({ t: "state", s: serializeState(useModelStore.getState()) } satisfies SyncMsg);
+      } else if (msg.t === "act") {
+        const store = useModelStore.getState();
+        const a = msg.a;
+        switch (a.k) {
+          case "select":     await handleElementClick(a.modelId, a.expressId); break;
+          case "hide":       store.hideElement(a.modelId, a.expressId); break;
+          case "showAll":    store.showAll(); break;
+          case "isolate":    store.isolateElement(a.modelId, a.expressId); break;
+          case "colorGroups":       store.setColorGroups(a.groups); break;
+          case "applySmartView":    store.applySmartView(a.id); break;
+          case "deactivateSmartView": store.deactivateSmartView(); break;
+          case "settings":   store.updateSettings(a.patch); break;
+          case "fitAll":     window.dispatchEvent(new Event("viewer:fitAll")); break;
+        }
+      }
+    };
+
+    // Broadcast state on every store change (debounced)
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = useModelStore.subscribe(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (channelRef.current) {
+          channelRef.current.postMessage({
+            t: "state",
+            s: serializeState(useModelStore.getState()),
+          } satisfies SyncMsg);
+        }
+      }, 80);
+    });
+
+    return () => {
+      ch.close();
+      channelRef.current = null;
+      unsub();
+      if (timer) clearTimeout(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
 
 interface LoadState { phase: string; progress: number; fileName: string }
 
-export default function App() {
+function MainApp() {
   const [loadStates, setLoadStates] = useState<Map<string, LoadState>>(new Map());
   const {
     addModel, removeModel, updateModel, setWorldOrigin, setSelected,
@@ -170,6 +241,8 @@ export default function App() {
       // keep empty properties
     }
   }, [setSelected]);
+
+  useMainWindowSync(handleElementClick);
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground">

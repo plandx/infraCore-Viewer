@@ -4,8 +4,10 @@ import {
   MousePointer2, Ruler, Scissors, Eye, EyeOff,
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
-  X, List,
+  X, List, AppWindow,
 } from "lucide-react";
+import { openSecondaryWindow, PANEL_META } from "../utils/windowSync";
+import type { PanelType } from "../utils/windowSync";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import type { ActiveTool } from "../types/ifc";
@@ -37,6 +39,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
   const [exportOpen, setExportOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [windowOpen, setWindowOpen] = useState(false);
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(f => f.name.toLowerCase().endsWith(".ifc"));
@@ -236,12 +239,37 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           </div>
         )}
 
+        {/* Window opener dropdown */}
+        <div className="relative">
+          <button
+            className={cn("toolbar-button", windowOpen && "active text-primary")}
+            title="Neues Fenster öffnen"
+            onClick={() => { setWindowOpen((v) => !v); setExportOpen(false); setViewOpen(false); }}
+          >
+            <AppWindow size={16} />
+          </button>
+          {windowOpen && (
+            <DropdownMenu onClose={() => setWindowOpen(false)} align="right">
+              <div className="p-1 text-[10px] text-muted-foreground px-2 py-1 uppercase tracking-wide">Fenster öffnen</div>
+              {(Object.keys(PANEL_META) as PanelType[]).map((p) => (
+                <DropdownItem
+                  key={p}
+                  icon={<AppWindow size={13} />}
+                  onClick={() => { openSecondaryWindow(p); setWindowOpen(false); }}
+                >
+                  {PANEL_META[p].label}
+                </DropdownItem>
+              ))}
+            </DropdownMenu>
+          )}
+        </div>
+
         {/* Export dropdown */}
         <div className="relative">
           <button
             className="toolbar-button"
             title="Exportieren"
-            onClick={() => { setExportOpen((v) => !v); setViewOpen(false); }}
+            onClick={() => { setExportOpen((v) => !v); setViewOpen(false); setWindowOpen(false); }}
           >
             <Download size={16} />
           </button>

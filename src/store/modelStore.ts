@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as THREE from "three";
 import type {
   IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement,
-  ColorGroup, SmartView, FlatElementProps,
+  ColorGroup, SmartView, FlatElementProps, SyncState,
 } from "../types/ifc";
 import { evaluateSmartView } from "../utils/smartViewUtils";
 
@@ -68,6 +68,9 @@ interface ModelStore {
     props: Map<string, Map<number, FlatElementProps>> | null,
     keys: string[],
   ) => void;
+
+  /** Apply a serialised state snapshot from the main window (secondary windows only). */
+  applyRemoteState: (state: SyncState) => void;
 }
 
 export const useModelStore = create<ModelStore>((set, get) => ({
@@ -284,4 +287,44 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   setLoadedProperties: (props, keys) =>
     set({ loadedProperties: props, loadedPropKeys: keys }),
+
+  // ── Remote state sync (secondary windows) ──────────────────────────────────
+
+  applyRemoteState: (state) =>
+    set((s) => {
+      // Rebuild models map: keep existing meshes/boundingBox if the model is
+      // already loaded in this window; otherwise create an empty placeholder.
+      const models = new Map<string, IFCModelEntry>();
+      state.models.forEach((sm) => {
+        const existing = s.models.get(sm.id);
+        models.set(sm.id, {
+          id: sm.id,
+          name: sm.name,
+          file: sm.file,
+          mesh: existing?.mesh ?? new THREE.Group(),
+          visible: sm.visible,
+          color: sm.color,
+          opacity: sm.opacity,
+          boundingBox: existing?.boundingBox ?? new THREE.Box3(),
+          originOffset: existing?.originOffset ?? new THREE.Vector3(),
+          properties: existing?.properties ?? {},
+          loadedAt: new Date(),
+          size: sm.size,
+          status: existing?.status ?? "loaded",
+          spatialTree: sm.spatialTree,
+          elementsByType: sm.elementsByType,
+        });
+      });
+      return {
+        models,
+        selectedElement: state.selectedElement,
+        settings: state.settings,
+        hiddenElements: new Set(state.hiddenElements),
+        isolatedElements: state.isolatedElements ? new Set(state.isolatedElements) : null,
+        colorGroups: state.colorGroups,
+        smartViews: state.smartViews,
+        activeSmartViewId: state.activeSmartViewId,
+        loadedPropKeys: state.loadedPropKeys,
+      };
+    }),
 }));
