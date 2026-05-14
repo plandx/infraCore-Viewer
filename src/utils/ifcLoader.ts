@@ -219,7 +219,7 @@ export async function loadIFCProperties(
     }
 
     const instancePsets = await api.properties.getPropertySets(modelId, expressId, true, false);
-    const typePsets = await api.properties.getPropertySets(modelId, expressId, false, true).catch(() => []);
+    const typePsets = await api.properties.getPropertySets(modelId, expressId, true, true).catch(() => []);
     const rawPsets = [...instancePsets, ...typePsets];
 
     for (const pset of rawPsets) {
@@ -282,7 +282,7 @@ export async function loadBasketProperties(
 
       try {
         const _iPsets = await api.properties.getPropertySets(modelId, eid, true, false);
-        const _tPsets = await api.properties.getPropertySets(modelId, eid, false, true).catch(() => []);
+        const _tPsets = await api.properties.getPropertySets(modelId, eid, true, true).catch(() => []);
         const rawPsets = [..._iPsets, ..._tPsets];
         for (const pset of rawPsets) {
           if (!pset) continue;
@@ -356,7 +356,7 @@ export async function loadAllElementProperties(
 
       try {
         const _iPsets = await api.properties.getPropertySets(modelId, eid, true, false);
-        const _tPsets = await api.properties.getPropertySets(modelId, eid, false, true).catch(() => []);
+        const _tPsets = await api.properties.getPropertySets(modelId, eid, true, true).catch(() => []);
         const rawPsets = [..._iPsets, ..._tPsets];
         for (const pset of rawPsets) {
           if (!pset) continue;

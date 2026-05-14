@@ -76,7 +76,7 @@ export async function writeIFCWithOverrides(
       if (Object.keys(psetAttrs).length > 0) {
         try {
           const _ip = await api.properties.getPropertySets(modelId, expressId, true, false);
-          const _tp = await api.properties.getPropertySets(modelId, expressId, false, true).catch(() => []);
+          const _tp = await api.properties.getPropertySets(modelId, expressId, true, true).catch(() => []);
           const rawPsets = [..._ip, ..._tp];
           for (const pset of rawPsets as Array<Record<string, unknown> & { HasProperties?: unknown[] }>) {
             if (!pset) continue;
