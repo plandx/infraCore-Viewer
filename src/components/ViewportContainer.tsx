@@ -24,7 +24,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const orthoCameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const rafRef = useRef<number>(0);
-  const highlightRef = useRef<THREE.Mesh | null>(null);
+  const highlightRef = useRef<THREE.Mesh[]>([]);
   const sceneModelIds = useRef<Set<string>>(new Set());
 
   // Section plane 3D visuals
@@ -594,44 +594,54 @@ export function ViewportContainer({ onElementClick }: Props) {
     };
   }, [selectionBasket, basketMode, models]);
 
-  // ── Highlight selected element (from hierarchy or viewport click) ─────────
+  // ── Highlight selected element ────────────────────────────────────────────
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    if (highlightRef.current) { scene.remove(highlightRef.current); highlightRef.current = null; }
+    // Remove previous highlight meshes
+    for (const h of highlightRef.current) {
+      scene.remove(h);
+      if (Array.isArray(h.material)) h.material.forEach((m) => m.dispose());
+      else h.material.dispose();
+    }
+    highlightRef.current = [];
+
     if (!selectedElement) return;
 
-    let targetMesh: THREE.Mesh | null = null;
+    const hlMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(0xf59e0b),
+      emissive: new THREE.Color(0xf59e0b),
+      emissiveIntensity: 0.45,
+      transparent: true,
+      opacity: 0.55,
+      depthTest: false,
+      side: THREE.DoubleSide,
+    });
+
     scene.traverse((obj) => {
-      if (targetMesh) return;
-      if (
-        obj instanceof THREE.Mesh &&
-        obj.userData.expressId === selectedElement.expressId &&
-        !obj.userData.isHighlight
-      ) {
-        // Verify it belongs to the right model
-        let node: THREE.Object3D | null = obj;
-        while (node) {
-          if (node.userData.modelId === selectedElement.modelId) {
-            targetMesh = obj as THREE.Mesh;
-            break;
-          }
-          node = node.parent;
-        }
+      if (!(obj instanceof THREE.Mesh) || obj.userData.isHighlight) return;
+      if (obj.userData.expressId !== selectedElement.expressId) return;
+
+      // Verify it belongs to the correct model
+      let node: THREE.Object3D | null = obj;
+      let belongs = false;
+      while (node) {
+        if (node.userData.modelId === selectedElement.modelId) { belongs = true; break; }
+        node = node.parent;
       }
-    });
+      if (!belongs) return;
 
-    if (!targetMesh) return;
-
-    const hl = (targetMesh as THREE.Mesh).clone();
-    (hl as THREE.Mesh).material = new THREE.MeshLambertMaterial({
-      color: 0x7aa2f7, transparent: true, opacity: 0.55, depthTest: false,
+      // Build highlight mesh with correct world-space transform
+      const hl = new THREE.Mesh(obj.geometry, hlMat);
+      obj.updateWorldMatrix(true, false);
+      hl.matrixAutoUpdate = false;
+      hl.matrix.copy(obj.matrixWorld);
+      hl.renderOrder = 999;
+      hl.userData = { isHighlight: true };
+      scene.add(hl);
+      highlightRef.current.push(hl);
     });
-    hl.renderOrder = 999;
-    hl.userData = { isHighlight: true };
-    scene.add(hl);
-    highlightRef.current = hl as THREE.Mesh;
   }, [selectedElement]);
 
   // ── Camera fit helpers ────────────────────────────────────────────────────
@@ -948,19 +958,8 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     if (!hit) return;
 
-    // Select tool: highlight + load properties
-    const scene = sceneRef.current!;
+    // Select tool: store update triggers the highlight useEffect
     onElementClick(hit.modelId, hit.expressId);
-
-    if (highlightRef.current) scene.remove(highlightRef.current);
-    const hl = hit.mesh.clone();
-    (hl as THREE.Mesh).material = new THREE.MeshLambertMaterial({
-      color: 0x7aa2f7, transparent: true, opacity: 0.55, depthTest: false,
-    });
-    hl.renderOrder = 999;
-    hl.userData = { isHighlight: true };
-    scene.add(hl);
-    highlightRef.current = hl as THREE.Mesh;
   }, [activeTool, raycastPoint, addSphere, addMeasurement, updateMeasureLabels, onElementClick]);
 
   // ── Section handle drag ───────────────────────────────────────────────────
