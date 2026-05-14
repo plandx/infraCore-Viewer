@@ -167,22 +167,24 @@ Darstellungsmodi (nur sichtbar wenn Korb > 0):
 
 **Datei:** `src/components/BasketEditor.tsx`
 
-Modales Bearbeitungsfenster (fixed Overlay) für alle Elemente im Auswahlkorb.
+Modales Fenster für XLSX-Export und -Import der Korb-Eigenschaften.
 
 Props:
 ```typescript
 { onClose: () => void }
 ```
 
-Features:
-- Lädt alle Eigenschaften via `loadBasketProperties` (öffnet IFC-Datei einmal pro Modell)
-- Excel-Style-Tabelle: Spalten Name / Typ / Modell sticky-eingefroren, weitere scrollbar
-- Spaltengruppenzeile im Header (Direkte Attribute | Pset-Gruppen)
-- Doppelklick auf Zelle → Inline-Edit (Enter = übernehmen, Escape = abbrechen)
-- Geänderte Zellen amber hervorgehoben; Zähler in der Kopfzeile
-- **Übernehmen** → speichert Änderungen in `propertyOverrides` im Store
-- **Als IFC exportieren** → schreibt modifizierte IFC via `writeIFCWithOverrides`, löst Download aus
-- **CSV** → exportiert alle Zeilen inkl. Änderungen als UTF-8-CSV (BOM für Excel)
+Workflow:
+1. **Als XLSX exportieren** → erzeugt Datei `auswahlkorb_eigenschaften.xlsx`
+   - Erste Spalte `🔑 GlobalId` (Schlüssel, nicht ändern)
+   - Danach: Name, Typ, Modell, alle direkten IFC-Attribute, alle Pset-Eigenschaften
+   - Erste Zeile + erste Spalte eingefroren (Freeze-Panes)
+2. **User bearbeitet** die Datei in Excel / LibreOffice
+3. **XLSX importieren** → parst die Datei, matched Zeilen per `GlobalId`
+   - Nur geänderte Werte werden als `propertyOverrides` im Store gespeichert
+   - Ergebnis-Banner zeigt: Elemente aktualisiert / übersprungen / nicht gefunden
+
+Vorschau-Tabelle (read-only): zeigt aktuelle Werte mit sticky Info-Spalten.
 
 ---
 
