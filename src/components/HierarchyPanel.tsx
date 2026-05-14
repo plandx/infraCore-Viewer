@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   ChevronRight, ChevronDown, Eye, EyeOff,
   Trash2, Focus, Layers, LayoutList, Search, X,
@@ -15,7 +15,6 @@ interface Props {
   onFitTo: (id: string) => void;
   onRemove: (id: string) => void;
   onSelectElement: (modelId: string, expressId: number) => void;
-  /** When set (secondary windows), replaces the default store hide action */
   onHideOverride?: (modelId: string, expressId: number) => void;
   onShowAllOverride?: () => void;
   onIsolateOverride?: (modelId: string, expressId: number) => void;
@@ -34,13 +33,11 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   const isolateElement_ = useModelStore((s) => s.isolateElement);
   const isolateElements_ = useModelStore((s) => s.isolateElements);
   const showAll_ = useModelStore((s) => s.showAll);
+  const setBasket = useModelStore((s) => s.setBasket);
+  const selectionBasket = useModelStore((s) => s.selectionBasket);
 
-  const hideElement = onHideOverride
-    ? (modelId: string, eid: number) => onHideOverride(modelId, eid)
-    : hideElement_;
-  const isolateElement = onIsolateOverride
-    ? (modelId: string, eid: number) => onIsolateOverride(modelId, eid)
-    : isolateElement_;
+  const hideElement = onHideOverride ?? hideElement_;
+  const isolateElement = onIsolateOverride ?? isolateElement_;
   const showAll = onShowAllOverride ?? showAll_;
   const hideElements = onHideOverride
     ? (modelId: string, eids: number[]) => eids.forEach((eid) => onHideOverride(modelId, eid))
@@ -53,10 +50,142 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
 
-  const arr = Array.from(models.values());
+  // ── Multi-selection state ─────────────────────────────────────────────────
+  // multiSelected: all currently highlighted keys ("modelId:expressId")
+  // anchorKey: the click-without-shift reference for range selection
+  const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set());
+  const [anchorKey, setAnchorKey] = useState<string | null>(null);
+
+  // ── Spatial expand state (lifted from SpatialTreeNode for range selection) ─
+  const [expandedSpatial, setExpandedSpatial] = useState<Set<string>>(new Set());
+
+  const arr = useMemo(() => Array.from(models.values()), [models]);
+
+  // Auto-expand depth 0 and 1 for newly loaded models
+  useEffect(() => {
+    setExpandedSpatial((prev) => {
+      const next = new Set(prev);
+      arr.forEach((model) => {
+        if (model.spatialTree) collectDefaultExpanded(model.spatialTree, model.id, 0, next);
+      });
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arr.map((m) => m.id).join(",")]);
 
   const hasIsolation = isolatedElements !== null;
   const hasHidden = hiddenElements.size > 0;
+
+  // ── Flat ordered list of visible items (for range selection) ─────────────
+  const flatVisibleKeys = useMemo(() => {
+    const list: string[] = [];
+    arr.forEach((model) => {
+      if (!expandedModels.has(model.id)) return;
+      if (view === "spatial" && model.spatialTree) {
+        const filtered = search
+          ? filterSpatialNode(model.spatialTree, search.toLowerCase())
+          : model.spatialTree;
+        if (filtered) flattenSpatialVisible(filtered, model.id, expandedSpatial, !!search, list);
+      } else if (view === "type") {
+        const raw = Object.entries(model.elementsByType);
+        const q = search.toLowerCase();
+        const groups = search
+          ? raw.map(([t, els]): [string, ElementNode[]] => [
+              t, els.filter((el) => el.name.toLowerCase().includes(q) || t.toLowerCase().includes(q)),
+            ]).filter(([, els]) => els.length > 0)
+          : raw;
+        groups.sort(([a], [b]) => a.localeCompare(b)).forEach(([, elements]) => {
+          elements.forEach((el) => list.push(`${model.id}:${el.expressId}`));
+        });
+      }
+    });
+    return list;
+  }, [arr, view, expandedModels, expandedSpatial, search]);
+
+  // ── Click handler with Shift-support ─────────────────────────────────────
+  const handleItemClick = useCallback((modelId: string, expressId: number, e: React.MouseEvent) => {
+    const key = `${modelId}:${expressId}`;
+
+    if (e.shiftKey) {
+      e.preventDefault();
+      if (anchorKey && anchorKey !== key && flatVisibleKeys.length > 0) {
+        // Range: select everything between anchor and target (inclusive)
+        const aIdx = flatVisibleKeys.indexOf(anchorKey);
+        const bIdx = flatVisibleKeys.indexOf(key);
+        if (aIdx !== -1 && bIdx !== -1) {
+          const [lo, hi] = aIdx < bIdx ? [aIdx, bIdx] : [bIdx, aIdx];
+          setMultiSelected(new Set(flatVisibleKeys.slice(lo, hi + 1)));
+          return;
+        }
+      }
+      // Shift+click without anchor or both not in list: toggle this item
+      setMultiSelected((prev) => {
+        const next = new Set(prev);
+        next.has(key) ? next.delete(key) : next.add(key);
+        return next;
+      });
+      if (!anchorKey) setAnchorKey(key);
+    } else {
+      // Normal click: single select
+      setMultiSelected(new Set([key]));
+      setAnchorKey(key);
+      onSelectElement(modelId, expressId);
+    }
+  }, [anchorKey, flatVisibleKeys, onSelectElement]);
+
+  // ── Multi-selection actions ───────────────────────────────────────────────
+  const parseKeys = (keys: Set<string>) =>
+    Array.from(keys).map((k) => {
+      const sep = k.indexOf(":");
+      return { modelId: k.slice(0, sep), expressId: parseInt(k.slice(sep + 1)) };
+    });
+
+  const handleMultiHide = () => {
+    const items = parseKeys(multiSelected);
+    const byModel = new Map<string, number[]>();
+    items.forEach(({ modelId, expressId }) => {
+      if (!byModel.has(modelId)) byModel.set(modelId, []);
+      byModel.get(modelId)!.push(expressId);
+    });
+    byModel.forEach((ids, modelId) => hideElements(modelId, ids));
+    setMultiSelected(new Set());
+  };
+
+  const handleMultiIsolate = () => {
+    const items = parseKeys(multiSelected);
+    const byModel = new Map<string, number[]>();
+    items.forEach(({ modelId, expressId }) => {
+      if (!byModel.has(modelId)) byModel.set(modelId, []);
+      byModel.get(modelId)!.push(expressId);
+    });
+    byModel.forEach((ids, modelId) => isolateElements(modelId, ids));
+    setMultiSelected(new Set());
+  };
+
+  const handleAddToBasket = () => {
+    const next = new Set(selectionBasket);
+    multiSelected.forEach((k) => next.add(k));
+    setBasket(next);
+  };
+
+  const clearMultiSelection = () => {
+    setMultiSelected(new Set());
+    setAnchorKey(null);
+  };
+
+  const toggleModelExpand = (id: string) =>
+    setExpandedModels((p) => {
+      const n = new Set(p);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  const toggleSpatialNode = (key: string) =>
+    setExpandedSpatial((p) => {
+      const n = new Set(p);
+      n.has(key) ? n.delete(key) : n.add(key);
+      return n;
+    });
 
   if (arr.length === 0) {
     return (
@@ -75,13 +204,6 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     );
   }
 
-  const toggleModelExpand = (id: string) =>
-    setExpandedModels((p) => {
-      const n = new Set(p);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-
   return (
     <div className="flex flex-col h-full">
       <Header view={view} onView={setView} search={search} onSearch={setSearch} />
@@ -93,11 +215,43 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
           <span className="flex-1 text-primary/80 truncate">
             {hasIsolation ? "Isolierung aktiv" : `${hiddenElements.size} ausgeblendet`}
           </span>
-          <button
-            className="text-primary/80 hover:text-primary font-medium"
-            onClick={showAll}
-          >
+          <button className="text-primary/80 hover:text-primary font-medium" onClick={showAll}>
             Alles zeigen
+          </button>
+        </div>
+      )}
+
+      {/* Multi-selection action bar */}
+      {multiSelected.size > 1 && (
+        <div className="shrink-0 flex items-center gap-1 px-2 py-1 bg-amber-500/10 border-b border-amber-500/20 text-[11px]">
+          <span className="text-amber-400 font-medium flex-1">{multiSelected.size} ausgewählt</span>
+          <button
+            className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+            title="Alle ausblenden"
+            onClick={handleMultiHide}
+          >
+            <EyeOff size={11} />
+          </button>
+          <button
+            className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+            title="Alle isolieren"
+            onClick={handleMultiIsolate}
+          >
+            <ScanLine size={11} />
+          </button>
+          <button
+            className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground text-[10px] font-mono"
+            title="Alle in Auswahlkorb"
+            onClick={handleAddToBasket}
+          >
+            +Korb
+          </button>
+          <button
+            className="p-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+            title="Auswahl aufheben"
+            onClick={clearMultiSelection}
+          >
+            <X size={11} />
           </button>
         </div>
       )}
@@ -109,40 +263,21 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
             <div key={model.id} className="border-b border-border/40">
               {/* Model row */}
               <div
-                className={cn(
-                  "flex items-center gap-1.5 px-2 py-1.5 cursor-pointer select-none",
-                  "hover:bg-muted/40 group"
-                )}
+                className={cn("flex items-center gap-1.5 px-2 py-1.5 cursor-pointer select-none", "hover:bg-muted/40 group")}
                 onClick={() => toggleModelExpand(model.id)}
               >
                 <span className="text-muted-foreground shrink-0">
                   {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 </span>
-                <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20"
-                  style={{ backgroundColor: model.color }}
-                />
-                <span className="flex-1 truncate font-semibold text-foreground" title={model.name}>
-                  {model.name}
-                </span>
-                <span className="text-muted-foreground/60 text-[10px] shrink-0">
-                  {formatBytes(model.size)}
-                </span>
-
-                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                  onClick={(e) => e.stopPropagation()}>
-                  <button className="toolbar-button p-0.5" title="Zu Modell zoomen"
-                    onClick={() => onFitTo(model.id)}>
-                    <Focus size={11} />
-                  </button>
-                  <button className="toolbar-button p-0.5" title={model.visible ? "Ausblenden" : "Einblenden"}
-                    onClick={() => updateModel(model.id, { visible: !model.visible })}>
+                <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20" style={{ backgroundColor: model.color }} />
+                <span className="flex-1 truncate font-semibold text-foreground" title={model.name}>{model.name}</span>
+                <span className="text-muted-foreground/60 text-[10px] shrink-0">{formatBytes(model.size)}</span>
+                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button className="toolbar-button p-0.5" title="Zu Modell zoomen" onClick={() => onFitTo(model.id)}><Focus size={11} /></button>
+                  <button className="toolbar-button p-0.5" title={model.visible ? "Ausblenden" : "Einblenden"} onClick={() => updateModel(model.id, { visible: !model.visible })}>
                     {model.visible ? <Eye size={11} /> : <EyeOff size={11} />}
                   </button>
-                  <button className="toolbar-button p-0.5 hover:text-destructive" title="Entfernen"
-                    onClick={() => onRemove(model.id)}>
-                    <Trash2 size={11} />
-                  </button>
+                  <button className="toolbar-button p-0.5 hover:text-destructive" title="Entfernen" onClick={() => onRemove(model.id)}><Trash2 size={11} /></button>
                 </div>
               </div>
 
@@ -151,36 +286,32 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
                   {view === "spatial"
                     ? <SpatialView
                         model={model} search={search}
-                        selectedId={selectedElement?.modelId === model.id ? selectedElement?.expressId : undefined}
+                        multiSelected={multiSelected}
+                        expandedSpatial={expandedSpatial}
+                        onToggleExpand={toggleSpatialNode}
                         hiddenElements={hiddenElements}
                         isolatedElements={isolatedElements}
-                        onSelect={(eid) => onSelectElement(model.id, eid)}
+                        onItemClick={handleItemClick}
                         onHide={(eid) => {
-                          const ids = model.spatialTree
-                            ? collectSubtreeIds(model.spatialTree, eid)
-                            : [eid];
+                          const ids = model.spatialTree ? collectSubtreeIds(model.spatialTree, eid) : [eid];
                           hideElements(model.id, ids);
                         }}
                         onShow={(eid) => {
-                          const ids = model.spatialTree
-                            ? collectSubtreeIds(model.spatialTree, eid)
-                            : [eid];
+                          const ids = model.spatialTree ? collectSubtreeIds(model.spatialTree, eid) : [eid];
                           showElements(model.id, ids);
                         }}
                         onIsolate={(eid) => {
-                          const ids = model.spatialTree
-                            ? collectSubtreeIds(model.spatialTree, eid)
-                            : [eid];
+                          const ids = model.spatialTree ? collectSubtreeIds(model.spatialTree, eid) : [eid];
                           isolateElements(model.id, ids);
                         }}
                         onShowAll={showAll}
                       />
                     : <TypeView
                         model={model} search={search}
-                        selectedId={selectedElement?.modelId === model.id ? selectedElement?.expressId : undefined}
+                        multiSelected={multiSelected}
                         hiddenElements={hiddenElements}
                         isolatedElements={isolatedElements}
-                        onSelect={(eid) => onSelectElement(model.id, eid)}
+                        onItemClick={handleItemClick}
                         onHide={(eid) => hideElement(model.id, eid)}
                         onShow={(eid) => showElement(model.id, eid)}
                         onIsolate={(eid) => isolateElement(model.id, eid)}
@@ -208,18 +339,18 @@ interface VisibilityProps {
   onShowAll: () => void;
 }
 
-function SpatialView({ model, search, selectedId, onSelect, ...vp }: {
-  model: IFCModelEntry; search: string; selectedId?: number;
-  onSelect: (eid: number) => void;
+function SpatialView({ model, search, multiSelected, expandedSpatial, onToggleExpand, onItemClick, ...vp }: {
+  model: IFCModelEntry; search: string;
+  multiSelected: Set<string>;
+  expandedSpatial: Set<string>;
+  onToggleExpand: (key: string) => void;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
 } & VisibilityProps) {
   if (!model.spatialTree) {
     return <p className="px-3 py-3 text-muted-foreground text-[11px]">Keine Raumstruktur verfügbar</p>;
   }
 
-  const filtered = search
-    ? filterSpatialNode(model.spatialTree, search.toLowerCase())
-    : model.spatialTree;
-
+  const filtered = search ? filterSpatialNode(model.spatialTree, search.toLowerCase()) : model.spatialTree;
   if (!filtered) {
     return <p className="px-3 py-3 text-muted-foreground text-[11px]">Keine Treffer für „{search}"</p>;
   }
@@ -227,7 +358,11 @@ function SpatialView({ model, search, selectedId, onSelect, ...vp }: {
   return (
     <SpatialTreeNode
       node={filtered} depth={0} modelId={model.id}
-      selectedId={selectedId} onSelect={onSelect} forceOpen={!!search}
+      multiSelected={multiSelected}
+      expandedSpatial={expandedSpatial}
+      onToggleExpand={onToggleExpand}
+      onItemClick={onItemClick}
+      forceOpen={!!search}
       {...vp}
     />
   );
@@ -235,28 +370,27 @@ function SpatialView({ model, search, selectedId, onSelect, ...vp }: {
 
 function filterSpatialNode(node: SpatialNode, q: string): SpatialNode | null {
   const matches = node.name.toLowerCase().includes(q) || node.type.toLowerCase().includes(q);
-  const filteredChildren = node.children
-    .map((c) => filterSpatialNode(c, q))
-    .filter((c): c is SpatialNode => c !== null);
-
+  const filteredChildren = node.children.map((c) => filterSpatialNode(c, q)).filter((c): c is SpatialNode => c !== null);
   if (!matches && filteredChildren.length === 0) return null;
   return { ...node, children: filteredChildren };
 }
 
-function SpatialTreeNode({ node, depth, modelId, selectedId, onSelect, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: {
-  node: SpatialNode; depth: number; modelId: string; selectedId?: number;
-  onSelect: (eid: number) => void; forceOpen?: boolean;
+function SpatialTreeNode({ node, depth, modelId, multiSelected, expandedSpatial, onToggleExpand, onItemClick, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: {
+  node: SpatialNode; depth: number; modelId: string;
+  multiSelected: Set<string>;
+  expandedSpatial: Set<string>;
+  onToggleExpand: (key: string) => void;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
+  forceOpen?: boolean;
 } & VisibilityProps) {
-  const [open, setOpen] = useState(depth < 2);
   const hasChildren = node.children.length > 0;
-  const isSelected = selectedId === node.expressId;
   const key = `${modelId}:${node.expressId}`;
+  const isOpen = forceOpen || expandedSpatial.has(key);
+  const isSelected = multiSelected.has(key);
   const isHidden = hiddenElements.has(key);
   const isActivelyIsolated = isolatedElements !== null && isolatedElements.has(key);
   const isDimmedByIsolation = isolatedElements !== null && !isolatedElements.has(key);
   const isDimmed = isHidden || isDimmedByIsolation;
-
-  const isOpen = forceOpen || open;
 
   const isSpatialContainer = [
     "IFCSITE", "IFCBUILDING", "IFCBUILDINGSTOREY",
@@ -267,37 +401,29 @@ function SpatialTreeNode({ node, depth, modelId, selectedId, onSelect, forceOpen
     <div>
       <div
         className={cn(
-          "flex items-center gap-1 py-[3px] pr-2 cursor-pointer rounded-sm group",
+          "flex items-center gap-1 py-[3px] pr-2 cursor-pointer rounded-sm group select-none",
           "hover:bg-muted/40 hierarchy-item",
-          isSelected && "selected bg-primary/10 border-l-2 border-l-primary",
+          isSelected && "bg-primary/15 border-l-2 border-l-primary",
           isDimmed && "opacity-40"
         )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
-        onClick={() => {
-          if (hasChildren && !forceOpen) setOpen((o) => !o);
-          onSelect(node.expressId);
+        onClick={(e) => {
+          if (hasChildren && !forceOpen && !e.shiftKey) onToggleExpand(key);
+          onItemClick(modelId, node.expressId, e);
         }}
       >
         <span className="shrink-0 text-muted-foreground w-3.5">
-          {hasChildren
-            ? (isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />)
-            : null}
+          {hasChildren ? (isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />) : null}
         </span>
         <span className="shrink-0 text-[10px] font-mono text-muted-foreground/60 w-5 text-center">
           {typeIcon(node.type)}
         </span>
-        <span className={cn(
-          "flex-1 truncate",
-          isSpatialContainer ? "text-foreground font-medium" : "text-foreground/80"
-        )}>
+        <span className={cn("flex-1 truncate", isSpatialContainer ? "text-foreground font-medium" : "text-foreground/80")}>
           {node.name}
         </span>
         {hasChildren && (
-          <span className="text-[9px] text-muted-foreground/50 shrink-0 mr-1">
-            {countLeaves(node)}
-          </span>
+          <span className="text-[9px] text-muted-foreground/50 shrink-0 mr-1">{countLeaves(node)}</span>
         )}
-        {/* Visibility actions - always visible */}
         <div className="flex gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
             className={cn("toolbar-button p-0.5", isActivelyIsolated ? "text-primary" : "text-muted-foreground/40 hover:text-foreground")}
@@ -322,7 +448,10 @@ function SpatialTreeNode({ node, depth, modelId, selectedId, onSelect, forceOpen
             <SpatialTreeNode
               key={child.expressId}
               node={child} depth={depth + 1} modelId={modelId}
-              selectedId={selectedId} onSelect={onSelect}
+              multiSelected={multiSelected}
+              expandedSpatial={expandedSpatial}
+              onToggleExpand={onToggleExpand}
+              onItemClick={onItemClick}
               forceOpen={forceOpen}
               hiddenElements={hiddenElements} isolatedElements={isolatedElements}
               onHide={onHide} onShow={onShow} onIsolate={onIsolate} onShowAll={onShowAll}
@@ -336,9 +465,10 @@ function SpatialTreeNode({ node, depth, modelId, selectedId, onSelect, forceOpen
 
 // ── By-Type View ──────────────────────────────────────────────────────────────
 
-function TypeView({ model, search, selectedId, onSelect, ...vp }: {
-  model: IFCModelEntry; search: string; selectedId?: number;
-  onSelect: (eid: number) => void;
+function TypeView({ model, search, multiSelected, onItemClick, ...vp }: {
+  model: IFCModelEntry; search: string;
+  multiSelected: Set<string>;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
 } & VisibilityProps) {
   const groups = useMemo(() => {
     const raw = Object.entries(model.elementsByType);
@@ -363,17 +493,21 @@ function TypeView({ model, search, selectedId, onSelect, ...vp }: {
       {groups.sort(([a], [b]) => a.localeCompare(b)).map(([typeName, elements]) => (
         <TypeGroup
           key={typeName} typeName={typeName} elements={elements}
-          modelId={model.id} selectedId={selectedId}
-          onSelect={onSelect} forceOpen={!!search} {...vp}
+          modelId={model.id}
+          multiSelected={multiSelected}
+          onItemClick={onItemClick}
+          forceOpen={!!search} {...vp}
         />
       ))}
     </div>
   );
 }
 
-function TypeGroup({ typeName, elements, modelId, selectedId, onSelect, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: {
-  typeName: string; elements: ElementNode[]; modelId: string; selectedId?: number;
-  onSelect: (eid: number) => void; forceOpen?: boolean;
+function TypeGroup({ typeName, elements, modelId, multiSelected, onItemClick, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: {
+  typeName: string; elements: ElementNode[]; modelId: string;
+  multiSelected: Set<string>;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
+  forceOpen?: boolean;
 } & VisibilityProps) {
   const [open, setOpen] = useState(false);
   const isOpen = forceOpen || open;
@@ -388,16 +522,14 @@ function TypeGroup({ typeName, elements, modelId, selectedId, onSelect, forceOpe
           {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         </span>
         <span className="flex-1 text-foreground font-medium">{typeName}</span>
-        <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 rounded shrink-0">
-          {elements.length}
-        </span>
+        <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 rounded shrink-0">{elements.length}</span>
       </div>
 
       {isOpen && (
         <div>
           {elements.map((el) => {
-            const isSelected = selectedId === el.expressId;
             const key = `${modelId}:${el.expressId}`;
+            const isSelected = multiSelected.has(key);
             const isHidden = hiddenElements.has(key);
             const isActivelyIsolated = isolatedElements !== null && isolatedElements.has(key);
             const isDimmedByIsolation = isolatedElements !== null && !isolatedElements.has(key);
@@ -405,19 +537,15 @@ function TypeGroup({ typeName, elements, modelId, selectedId, onSelect, forceOpe
               <div
                 key={el.expressId}
                 className={cn(
-                  "flex items-center gap-1.5 pl-7 pr-2 py-[3px] cursor-pointer group",
+                  "flex items-center gap-1.5 pl-7 pr-2 py-[3px] cursor-pointer group select-none",
                   "hover:bg-muted/40 hierarchy-item",
-                  isSelected && "selected bg-primary/10 border-l-2 border-l-primary",
+                  isSelected && "bg-primary/15 border-l-2 border-l-primary",
                   (isHidden || isDimmedByIsolation) && "opacity-40"
                 )}
-                onClick={() => onSelect(el.expressId)}
+                onClick={(e) => onItemClick(modelId, el.expressId, e)}
               >
-                <span className="flex-1 truncate text-foreground/80" title={el.name}>
-                  {el.name}
-                </span>
-                <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0">
-                  #{el.expressId}
-                </span>
+                <span className="flex-1 truncate text-foreground/80" title={el.name}>{el.name}</span>
+                <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0">#{el.expressId}</span>
                 <div className="flex gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <button
                     className={cn("toolbar-button p-0.5", isActivelyIsolated ? "text-primary" : "text-muted-foreground/40 hover:text-foreground")}
@@ -455,8 +583,6 @@ function Header({ view, onView, search, onSearch }: {
         <Layers size={13} className="text-muted-foreground" />
         <span className="text-xs font-semibold text-foreground flex-1">Projektstruktur</span>
       </div>
-
-      {/* Search */}
       <div className="px-2 py-1.5 border-b border-border/60">
         <div className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1">
           <Search size={11} className="text-muted-foreground shrink-0" />
@@ -474,19 +600,16 @@ function Header({ view, onView, search, onSearch }: {
           )}
         </div>
       </div>
-
-      {/* View tabs */}
       <div className="flex border-b border-border bg-[var(--tabs-bg)]">
         {([
-          { id: "spatial" as View, label: "Räumlich",  icon: <Layers size={11} /> },
-          { id: "type"    as View, label: "Nach Typ",  icon: <LayoutList size={11} /> },
+          { id: "spatial" as View, label: "Räumlich", icon: <Layers size={11} /> },
+          { id: "type"    as View, label: "Nach Typ", icon: <LayoutList size={11} /> },
         ]).map((t) => (
           <button
             key={t.id}
             onClick={() => onView(t.id)}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium transition-colors",
-              "border-t-2",
+              "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium transition-colors border-t-2",
               view === t.id
                 ? "border-t-primary bg-[var(--tab-active-bg)] text-[var(--tab-active-text)]"
                 : "border-t-transparent text-[var(--tab-text)] hover:text-foreground"
@@ -525,15 +648,29 @@ function collectSubtreeIds(root: SpatialNode, targetExpressId: number): number[]
     }
     return null;
   }
-
   function collectAll(node: SpatialNode, out: number[]) {
     out.push(node.expressId);
     for (const child of node.children) collectAll(child, out);
   }
-
   const target = findNode(root);
   if (!target) return [targetExpressId];
   const ids: number[] = [];
   collectAll(target, ids);
   return ids;
+}
+
+function collectDefaultExpanded(node: SpatialNode, modelId: string, depth: number, out: Set<string>) {
+  if (depth < 2) {
+    out.add(`${modelId}:${node.expressId}`);
+    node.children.forEach((c) => collectDefaultExpanded(c, modelId, depth + 1, out));
+  }
+}
+
+function flattenSpatialVisible(node: SpatialNode, modelId: string, expandedSpatial: Set<string>, forceOpen: boolean, out: string[]) {
+  const key = `${modelId}:${node.expressId}`;
+  out.push(key);
+  const isOpen = forceOpen || expandedSpatial.has(key);
+  if (isOpen && node.children.length > 0) {
+    node.children.forEach((c) => flattenSpatialVisible(c, modelId, expandedSpatial, forceOpen, out));
+  }
 }
