@@ -676,7 +676,8 @@ function collectSubtreeIds(root: SpatialNode, targetExpressId: number): number[]
 }
 
 function collectSpatialElementKeys(node: SpatialNode, modelId: string): string[] {
-  const keys: string[] = (node.elements ?? []).map((el) => `${modelId}:${el.expressId}`);
+  if (node.children.length === 0) return [`${modelId}:${node.expressId}`];
+  const keys: string[] = [];
   for (const child of node.children) keys.push(...collectSpatialElementKeys(child, modelId));
   return keys;
 }
