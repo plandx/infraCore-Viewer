@@ -118,7 +118,7 @@ export async function writeIFCWithOverrides(
       }
     }
 
-    return api.WriteFile(modelId);
+    return api.SaveModel(modelId);
   } finally {
     api.CloseModel(modelId);
   }
