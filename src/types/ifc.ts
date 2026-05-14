@@ -197,3 +197,26 @@ export interface ViewerSettings {
   showSpaces: boolean;
   orthographic: boolean;
 }
+
+// ── Quantity Take-Off Lists ───────────────────────────────────────────────────
+
+export interface QTOFilter {
+  id: string;
+  key: string;           // property key: "_type", "Name", "Pset_WallCommon.IsExternal"
+  condition: SmartCondition;
+  value: string;
+}
+
+export interface QTOColumn {
+  id: string;
+  key: string;
+  label: string;         // user-defined display name
+}
+
+export interface QTOList {
+  id: string;
+  name: string;
+  filters: QTOFilter[];
+  filterLogic: "AND" | "OR";
+  columns: QTOColumn[];
+}

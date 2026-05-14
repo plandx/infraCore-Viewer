@@ -70,7 +70,7 @@ export function serializeState(store: {
 
 // ── Window-open helpers ───────────────────────────────────────────────────────
 
-export type PanelType = "hierarchy" | "properties" | "lists" | "smartviews" | "sql";
+export type PanelType = "hierarchy" | "properties" | "lists" | "smartviews" | "sql" | "qto";
 
 export const PANEL_META: Record<PanelType, { label: string; w: number; h: number }> = {
   hierarchy:  { label: "Hierarchiebaum",      w: 380, h: 700 },
@@ -78,6 +78,7 @@ export const PANEL_META: Record<PanelType, { label: string; w: number; h: number
   lists:      { label: "Lens Rules",          w: 480, h: 640 },
   smartviews: { label: "SmartViews",          w: 480, h: 680 },
   sql:        { label: "SQL-Abfrage",         w: 760, h: 480 },
+  qto:        { label: "Listen / Mengen",     w: 900, h: 640 },
 };
 
 export function openSecondaryWindow(panel: PanelType) {

@@ -4,7 +4,7 @@ import {
   MousePointer2, Ruler, Scissors, Eye, EyeOff,
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
-  X, List, Layers, AppWindow,
+  X, List, Layers, AppWindow, Table2,
 } from "lucide-react";
 import { openSecondaryWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -36,6 +36,8 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
   const listPanelOpen = useModelStore((s) => s.listPanelOpen);
   const setSmartViewsPanelOpen = useModelStore((s) => s.setSmartViewsPanelOpen);
   const smartViewsPanelOpen = useModelStore((s) => s.smartViewsPanelOpen);
+  const setQTOPanelOpen = useModelStore((s) => s.setQTOPanelOpen);
+  const qtoPanelOpen = useModelStore((s) => s.qtoPanelOpen);
   const clearMeasurements = useModelStore((s) => s.clearMeasurements);
   const measurements = useModelStore((s) => s.measurements);
 
@@ -248,6 +250,15 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           <Layers size={16} />
         </button>
 
+        {/* QTO / Lists Panel */}
+        <button
+          className={cn("toolbar-button", qtoPanelOpen && "active text-primary")}
+          title="Listen / Mengen (T)"
+          onClick={() => setQTOPanelOpen(!qtoPanelOpen)}
+        >
+          <Table2 size={16} />
+        </button>
+
         <div className="flex-1" />
 
         {/* Loading indicator */}
@@ -403,6 +414,7 @@ function InfoModal({ onClose }: { onClose: () => void }) {
               ["Q", "SQL-Panel"],
               ["L", "Lens Rules"],
               ["V", "SmartViews"],
+              ["T", "Listen / Mengen"],
               ["Esc", "Abbrechen / Deselektieren"],
               ["Entf", "Auswahl ausblenden"],
             ].map(([key, desc]) => (

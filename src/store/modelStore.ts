@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as THREE from "three";
 import type {
   IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement,
-  ColorGroup, ColorGroupEntry, SmartView, SmartTier, FlatElementProps, SyncState, BasketMode, PropOverride,
+  ColorGroup, ColorGroupEntry, SmartView, SmartTier, FlatElementProps, SyncState, BasketMode, PropOverride, QTOList,
 } from "../types/ifc";
 import { evaluateTier, PALETTE } from "../utils/smartViewUtils";
 
@@ -61,6 +61,12 @@ interface ModelStore {
   setColorGroups: (groups: ColorGroup[] | null) => void;
   setListPanelOpen: (open: boolean) => void;
   setSmartViewsPanelOpen: (open: boolean) => void;
+  qtoPanelOpen: boolean;
+  setQTOPanelOpen: (open: boolean) => void;
+  qtoLists: QTOList[];
+  addQTOList: (list: QTOList) => void;
+  updateQTOList: (id: string, patch: Partial<QTOList>) => void;
+  removeQTOList: (id: string) => void;
 
   // SmartView CRUD
   addSmartView: (view: SmartView) => void;
@@ -104,6 +110,13 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   colorGroups: null,
   listPanelOpen: false,
   smartViewsPanelOpen: false,
+  qtoPanelOpen: false,
+  qtoLists: (() => {
+    try {
+      const raw = localStorage.getItem("infracore-qto-lists");
+      return raw ? (JSON.parse(raw) as QTOList[]) : [];
+    } catch { return []; }
+  })(),
   smartViews: (() => {
     try {
       const raw = localStorage.getItem("infracore-smartviews");
@@ -211,6 +224,29 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   setColorGroups: (groups) => set({ colorGroups: groups }),
   setListPanelOpen: (open) => set({ listPanelOpen: open }),
   setSmartViewsPanelOpen: (open) => set({ smartViewsPanelOpen: open }),
+
+  setQTOPanelOpen: (open) => set({ qtoPanelOpen: open }),
+
+  addQTOList: (list) =>
+    set((state) => {
+      const qtoLists = [...state.qtoLists, list];
+      localStorage.setItem("infracore-qto-lists", JSON.stringify(qtoLists));
+      return { qtoLists };
+    }),
+
+  updateQTOList: (id, patch) =>
+    set((state) => {
+      const qtoLists = state.qtoLists.map((l) => l.id === id ? { ...l, ...patch } : l);
+      localStorage.setItem("infracore-qto-lists", JSON.stringify(qtoLists));
+      return { qtoLists };
+    }),
+
+  removeQTOList: (id) =>
+    set((state) => {
+      const qtoLists = state.qtoLists.filter((l) => l.id !== id);
+      localStorage.setItem("infracore-qto-lists", JSON.stringify(qtoLists));
+      return { qtoLists };
+    }),
 
   // ── SmartView CRUD ──────────────────────────────────────────────────────────
 

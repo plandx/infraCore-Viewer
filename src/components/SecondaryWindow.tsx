@@ -9,6 +9,7 @@ import { PropertiesPanel } from "./PropertiesPanel";
 import { LensRulesPanel } from "./LensRulesPanel";
 import { SmartViewsPanel } from "./SmartViewsPanel";
 import { SQLPanel } from "./SQLPanel";
+import { QuantityListPanel } from "./QuantityListPanel";
 
 // ── sync hook for secondary windows ──────────────────────────────────────────
 // Bidirectional: receives state from main, broadcasts own state changes back.
@@ -83,7 +84,7 @@ export function SecondaryWindow({ panel }: { panel: string }) {
   const panelType = panel as PanelType;
 
   useEffect(() => {
-    const name = { hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage" }[panelType] ?? panel;
+    const name = { hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage", qto: "Listen / Mengen" }[panelType] ?? panel;
     document.title = `${name} — infraCore`;
   }, [panelType, panel]);
 
@@ -96,7 +97,7 @@ export function SecondaryWindow({ panel }: { panel: string }) {
           <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
         </svg>
         <span className="font-bold text-sm text-foreground">
-          {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage" }[panelType] ?? panel}
+          {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage", qto: "Listen / Mengen" }[panelType] ?? panel}
         </span>
         <div className="flex-1" />
         <SyncIndicator />
@@ -115,7 +116,8 @@ export function SecondaryWindow({ panel }: { panel: string }) {
         {panelType === "lists" && <LensRulesPanel />}
         {panelType === "smartviews" && <SmartViewsPanel />}
         {panelType === "sql" && <SQLPanel />}
-        {!["hierarchy", "properties", "lists", "smartviews", "sql"].includes(panelType) && (
+        {panelType === "qto" && <QuantityListPanel />}
+        {!["hierarchy", "properties", "lists", "smartviews", "sql", "qto"].includes(panelType) && (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             Unbekanntes Panel: {panel}
           </div>
