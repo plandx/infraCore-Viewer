@@ -4,7 +4,7 @@ import {
   MousePointer2, Ruler, Scissors, Eye, EyeOff,
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
-  X, List, AppWindow,
+  X, List, Layers, AppWindow,
 } from "lucide-react";
 import { openSecondaryWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -34,6 +34,8 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
   const sqlPanelOpen = useModelStore((s) => s.sqlPanelOpen);
   const setListPanelOpen = useModelStore((s) => s.setListPanelOpen);
   const listPanelOpen = useModelStore((s) => s.listPanelOpen);
+  const setSmartViewsPanelOpen = useModelStore((s) => s.setSmartViewsPanelOpen);
+  const smartViewsPanelOpen = useModelStore((s) => s.smartViewsPanelOpen);
   const clearMeasurements = useModelStore((s) => s.clearMeasurements);
   const measurements = useModelStore((s) => s.measurements);
 
@@ -228,13 +230,22 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           <Database size={16} />
         </button>
 
-        {/* List / Coloring Panel */}
+        {/* Lens Rules Panel */}
         <button
           className={cn("toolbar-button", listPanelOpen && "active text-primary")}
           title="Lens Rules [L]"
           onClick={() => setListPanelOpen(!listPanelOpen)}
         >
           <List size={16} />
+        </button>
+
+        {/* SmartViews Panel */}
+        <button
+          className={cn("toolbar-button", smartViewsPanelOpen && "active text-primary")}
+          title="SmartViews [V]"
+          onClick={() => setSmartViewsPanelOpen(!smartViewsPanelOpen)}
+        >
+          <Layers size={16} />
         </button>
 
         <div className="flex-1" />

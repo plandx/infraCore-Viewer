@@ -28,7 +28,7 @@ Oberste Toolbar-Leiste. Enthält:
 - Theme-Toggle (Dark/Light)
 - Kamera-Preset-Dropdown (Oben, Vorne, Links, …)
 - Export: GLTF, Screenshot
-- **Lens Rules**-Panel (`L`), SQL-Panel (`Q`)
+- **Lens Rules**-Panel (`L`), **SmartViews**-Panel (`V`), SQL-Panel (`Q`)
 - Sekundär-Fenster öffnen (Dropdown mit 4 Panel-Typen)
 
 ---
@@ -119,23 +119,29 @@ Erscheint wenn das aktuell selektierte Element Overrides hat:
 
 ---
 
-## ListPanel
+## LensRulesPanel
 
-**Datei:** `src/components/ListPanel.tsx`
+**Datei:** `src/components/LensRulesPanel.tsx`
+**Shortcut:** `L` · **Sekundärfenster:** `"lists"`
 
-Zwei Tabs:
-
-### Tab „Listen"
+Gruppenbasierte Farb- und Isolier-Ansicht:
 - GroupBy-Selektor: IFC-Typ / Geschoss / Modell / Eigenschaft (beliebig)
 - Farb-Swatches pro Gruppe (native Color-Picker)
 - Sichtbarkeits-Toggle pro Gruppe
-- Buttons: **Farben anwenden** (→ `setColorGroups`), **Reset**, **CSV-Export**
+- Klick auf Gruppe → Isolieren; erneuter Klick oder `Esc` → Reset
+- Buttons: **Einfärben** (→ `setColorGroups`), **Reset**, **CSV-Export**
 
-### Tab „SmartViews"
+---
 
+## SmartViewsPanel
+
+**Datei:** `src/components/SmartViewsPanel.tsx`
+**Shortcut:** `V` · **Sekundärfenster:** `"smartviews"`
+
+Regelbasierte mehrstufige Ansichten:
 - Liste gespeicherter SmartViews mit Aktivieren / Bearbeiten / Löschen
 - Jede SmartView zeigt kompakte Ebenen-Badges (Name, Aktion, Farbe oder Auto-Farbe-Schlüssel)
-- Aktive SmartView zeigt **Farblegende** (collapsible, max-h-32) mit Farb-Swatch + Label + Anzahl
+- Aktive SmartView zeigt **Farblegende** (max-h-32) mit Farb-Swatch + Label + Anzahl
 - Inline-Editor (`SmartViewEditor`):
   - Name-Eingabe
   - Scrollbare Liste von `TierEditor`-Karten (max-h-[60vh])
@@ -153,15 +159,6 @@ Zwei Tabs:
   - Bei Transparenz-Aktionen: zusätzlich Opacity-Slider (0–100%)
   - Bei Auto-Farbe-Aktionen: „Nach:"-Label + PropKeyPicker für `colorByKey`
 - Doppelklick-Hinweis wenn SmartView staged
-
-### PropertyLoader (intern)
-Shared-Komponente: Lädt alle IFC-Eigenschaften batch-weise in den Store (`loadedProperties`).
-Zeigt Fortschrittsbalken.
-
-### PropKeyPicker (intern)
-Durchsuchbares Dropdown für Eigenschafts-Schlüssel:
-- Built-ins: `_type`, `_name`, `_model`
-- Alle geladenen Pset-Schlüssel im Format `"PsetName.PropName"`
 
 ---
 
@@ -269,7 +266,8 @@ Wrapper für Sekundär-Fenster. Nutzt `useSecondarySync()` für bidirektionalen 
 Rendert je nach `panel`-Parameter:
 - `hierarchy` → `<HierarchyPanel>` (onFitTo = no-op, keine Overrides)
 - `properties` → `<PropertiesPanel>`
-- `lists` → `<ListPanel>` (Titel: „Lens Rules")
+- `lists` → `<LensRulesPanel>`
+- `smartviews` → `<SmartViewsPanel>`
 - `sql` → `<SQLPanel>`
 
 Enthält `SyncIndicator` (Verbindungs-Status-Punkt in der Titelleiste).

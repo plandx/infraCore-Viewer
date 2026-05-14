@@ -6,7 +6,8 @@ import type { SyncMsg, PanelType } from "../utils/windowSync";
 
 import { HierarchyPanel } from "./HierarchyPanel";
 import { PropertiesPanel } from "./PropertiesPanel";
-import { ListPanel } from "./ListPanel";
+import { LensRulesPanel } from "./LensRulesPanel";
+import { SmartViewsPanel } from "./SmartViewsPanel";
 import { SQLPanel } from "./SQLPanel";
 
 // ── sync hook for secondary windows ──────────────────────────────────────────
@@ -87,7 +88,7 @@ export function SecondaryWindow({ panel }: { panel: string }) {
         <span className="font-semibold text-[11px] text-foreground">infraCore</span>
         <span className="text-muted-foreground text-[10px]">·</span>
         <span className="text-muted-foreground text-[10px]">
-          {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", sql: "SQL-Abfrage" }[panelType] ?? panel}
+          {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage" }[panelType] ?? panel}
         </span>
         <div className="flex-1" />
         <SyncIndicator />
@@ -103,9 +104,10 @@ export function SecondaryWindow({ panel }: { panel: string }) {
           />
         )}
         {panelType === "properties" && <PropertiesPanel />}
-        {panelType === "lists" && <ListPanel />}
+        {panelType === "lists" && <LensRulesPanel />}
+        {panelType === "smartviews" && <SmartViewsPanel />}
         {panelType === "sql" && <SQLPanel />}
-        {!["hierarchy", "properties", "lists", "sql"].includes(panelType) && (
+        {!["hierarchy", "properties", "lists", "smartviews", "sql"].includes(panelType) && (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             Unbekanntes Panel: {panel}
           </div>

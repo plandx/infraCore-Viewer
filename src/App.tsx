@@ -11,7 +11,8 @@ import { StatusBar } from "./components/StatusBar";
 import { LandingOverlay } from "./components/LandingOverlay";
 import { ClipPlaneControl } from "./components/ClipPlaneControl";
 import { SQLPanel } from "./components/SQLPanel";
-import { ListPanel } from "./components/ListPanel";
+import { LensRulesPanel } from "./components/LensRulesPanel";
+import { SmartViewsPanel } from "./components/SmartViewsPanel";
 import { SelectionBasket } from "./components/SelectionBasket";
 import { BasketEditor } from "./components/BasketEditor";
 
@@ -107,6 +108,7 @@ function MainApp() {
     models, settings, activeTool, setActiveTool, sqlPanelOpen, setSqlPanelOpen,
     hideElement, showAll, selectedElement, clearMeasurements,
     listPanelOpen, setListPanelOpen,
+    smartViewsPanelOpen, setSmartViewsPanelOpen,
   } = useModelStore();
 
   const activeLoads = loadStates.size;
@@ -170,6 +172,9 @@ function MainApp() {
         case "l":
           setListPanelOpen(!listPanelOpen);
           break;
+        case "v":
+          setSmartViewsPanelOpen(!smartViewsPanelOpen);
+          break;
         case "delete":
         case "backspace":
           if (selectedElement) {
@@ -186,8 +191,9 @@ function MainApp() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeTool, selectedElement, sqlPanelOpen, listPanelOpen, setActiveTool, setSelected,
-      clearMeasurements, setSqlPanelOpen, setListPanelOpen, hideElement, showAll]);
+  }, [activeTool, selectedElement, sqlPanelOpen, listPanelOpen, smartViewsPanelOpen,
+      setActiveTool, setSelected, clearMeasurements, setSqlPanelOpen, setListPanelOpen,
+      setSmartViewsPanelOpen, hideElement, showAll]);
 
   // ── File loading ──────────────────────────────────────────────────────────
   const handleFiles = useCallback(async (files: File[]) => {
@@ -279,9 +285,9 @@ function MainApp() {
 
           <Panel defaultSize={20} minSize={12} collapsible>
             <div className="h-full overflow-hidden border-r border-border">
-              {listPanelOpen ? (
+              {(listPanelOpen || smartViewsPanelOpen) ? (
                 <PanelGroup orientation="vertical" className="h-full">
-                  <Panel defaultSize={60} minSize={20}>
+                  <Panel defaultSize={50} minSize={15}>
                     <div className="h-full overflow-hidden">
                       <HierarchyPanel
                         onFitTo={handleFitTo}
@@ -291,11 +297,35 @@ function MainApp() {
                     </div>
                   </Panel>
                   <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
-                  <Panel defaultSize={40} minSize={15}>
-                    <div className="h-full overflow-hidden">
-                      <ListPanel />
-                    </div>
-                  </Panel>
+                  {listPanelOpen && smartViewsPanelOpen ? (
+                    <Panel defaultSize={50} minSize={20}>
+                      <PanelGroup orientation="vertical" className="h-full">
+                        <Panel defaultSize={50} minSize={15}>
+                          <div className="h-full overflow-hidden">
+                            <LensRulesPanel />
+                          </div>
+                        </Panel>
+                        <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
+                        <Panel defaultSize={50} minSize={15}>
+                          <div className="h-full overflow-hidden">
+                            <SmartViewsPanel />
+                          </div>
+                        </Panel>
+                      </PanelGroup>
+                    </Panel>
+                  ) : listPanelOpen ? (
+                    <Panel defaultSize={50} minSize={15}>
+                      <div className="h-full overflow-hidden">
+                        <LensRulesPanel />
+                      </div>
+                    </Panel>
+                  ) : (
+                    <Panel defaultSize={50} minSize={15}>
+                      <div className="h-full overflow-hidden">
+                        <SmartViewsPanel />
+                      </div>
+                    </Panel>
+                  )}
                 </PanelGroup>
               ) : (
                 <HierarchyPanel

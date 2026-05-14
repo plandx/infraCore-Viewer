@@ -24,6 +24,7 @@ interface ModelStore {
   sqlPanelOpen: boolean;
   colorGroups: ColorGroup[] | null;
   listPanelOpen: boolean;
+  smartViewsPanelOpen: boolean;
 
   // SmartViews
   smartViews: SmartView[];
@@ -59,6 +60,7 @@ interface ModelStore {
   setSqlPanelOpen: (open: boolean) => void;
   setColorGroups: (groups: ColorGroup[] | null) => void;
   setListPanelOpen: (open: boolean) => void;
+  setSmartViewsPanelOpen: (open: boolean) => void;
 
   // SmartView CRUD
   addSmartView: (view: SmartView) => void;
@@ -101,6 +103,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   sqlPanelOpen: false,
   colorGroups: null,
   listPanelOpen: false,
+  smartViewsPanelOpen: false,
   smartViews: [],
   activeSmartViewId: null,
   stagedSmartViewId: null,
@@ -202,6 +205,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   setSqlPanelOpen: (open) => set({ sqlPanelOpen: open }),
   setColorGroups: (groups) => set({ colorGroups: groups }),
   setListPanelOpen: (open) => set({ listPanelOpen: open }),
+  setSmartViewsPanelOpen: (open) => set({ smartViewsPanelOpen: open }),
 
   // ── SmartView CRUD ──────────────────────────────────────────────────────────
 
