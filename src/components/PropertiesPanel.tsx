@@ -109,9 +109,20 @@ export function PropertiesPanel() {
         <div className="flex items-center gap-1.5 min-w-0">
           <div className="flex-1 min-w-0">
             <span className="text-xs text-muted-foreground truncate block">{model?.name ?? selected.modelId}</span>
-            <span className="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-              #{selected.expressId}
-            </span>
+            <div className="flex items-center gap-1 flex-wrap mt-0.5">
+              <span className="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                #{selected.expressId}
+              </span>
+              {(() => {
+                const ifcTypeCode = typeof selected.properties.type === "number" ? selected.properties.type : null;
+                const ifcTypeName = ifcTypeCode ? lookupIfcTypeName(ifcTypeCode) : null;
+                return ifcTypeName ? (
+                  <span className="text-[10px] font-mono text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded">
+                    {ifcTypeName}
+                  </span>
+                ) : null;
+              })()}
+            </div>
           </div>
           <div className="flex gap-0.5 shrink-0">
             <button
