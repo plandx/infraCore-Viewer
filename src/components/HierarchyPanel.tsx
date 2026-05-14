@@ -2,14 +2,19 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   ChevronRight, ChevronDown, Eye, EyeOff,
   Trash2, Focus, Layers, LayoutList, Search, X,
-  ScanEye, ScanLine,
+  ScanEye, ScanLine, RefreshCw,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { formatBytes } from "../utils/coordinateUtils";
 import type { IFCModelEntry, SpatialNode, ElementNode } from "../types/ifc";
 
-type View = "spatial" | "type";
+type View = "spatial" | "type" | "visible";
+
+interface VisibleEntry {
+  modelId: string; modelName: string; modelColor: string;
+  expressId: number; name: string; typeName: string;
+}
 
 interface Props {
   onFitTo: (id: string) => void;
@@ -47,6 +52,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     : isolateElements_;
 
   const [view, setView] = useState<View>("spatial");
+  const [visibleSnapshot, setVisibleSnapshot] = useState<VisibleEntry[] | null>(null);
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
 
@@ -245,6 +251,31 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     setBasket(new Set(multiSelected));
   };
 
+  const captureVisibleSnapshot = useCallback(() => {
+    const { hiddenElements: he, isolatedElements: ie, models: ms } = useModelStore.getState();
+    const entries: VisibleEntry[] = [];
+    ms.forEach((model) => {
+      if (!model.visible || model.status !== "loaded") return;
+      for (const [typeName, elements] of Object.entries(model.elementsByType)) {
+        for (const el of elements) {
+          const key = `${model.id}:${el.expressId}`;
+          const hidden = he.has(key);
+          const isolated = ie !== null && !ie.has(key);
+          if (!hidden && !isolated) {
+            entries.push({ modelId: model.id, modelName: model.name, modelColor: model.color, expressId: el.expressId, name: el.name, typeName });
+          }
+        }
+      }
+    });
+    entries.sort((a, b) => a.modelName.localeCompare(b.modelName) || a.typeName.localeCompare(b.typeName) || a.name.localeCompare(b.name));
+    setVisibleSnapshot(entries);
+  }, []);
+
+  const handleSetView = useCallback((v: View) => {
+    setView(v);
+    if (v === "visible") captureVisibleSnapshot();
+  }, [captureVisibleSnapshot]);
+
   const toggleModelExpand = (id: string) =>
     setExpandedModels((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -257,7 +288,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   if (arr.length === 0) {
     return (
       <div className="flex flex-col h-full">
-        <Header view={view} onView={setView} search={search} onSearch={setSearch} />
+        <Header view={view} onView={handleSetView} search={search} onSearch={setSearch} />
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground p-6 text-center">
           <div className="w-14 h-14 rounded-xl border-2 border-dashed border-border flex items-center justify-center">
             <Layers size={22} className="opacity-30" />
@@ -297,7 +328,16 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
       )}
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scrollbar-thin text-[12px]">
-        {arr.map((model) => {
+        {view === "visible" && (
+          <VisibleView
+            snapshot={visibleSnapshot}
+            onRefresh={captureVisibleSnapshot}
+            activeKey={activeKey}
+            multiSelected={multiSelected}
+            onItemClick={handleItemClick}
+          />
+        )}
+        {view !== "visible" && arr.map((model) => {
           const isExpanded = expandedModels.has(model.id);
           return (
             <div key={model.id} className="border-b border-border/40">
@@ -363,6 +403,62 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── Visible Elements View ─────────────────────────────────────────────────────
+
+function VisibleView({ snapshot, onRefresh, activeKey, multiSelected, onItemClick }: {
+  snapshot: VisibleEntry[] | null;
+  onRefresh: () => void;
+  activeKey: string | null;
+  multiSelected: Set<string>;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
+}) {
+  if (!snapshot) return (
+    <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-[11px] gap-2">
+      <p>Wird geladen…</p>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="flex items-center justify-between px-2 py-1.5 border-b border-border/60 bg-muted/20 sticky top-0 z-10">
+        <span className="text-[11px] text-muted-foreground">{snapshot.length} sichtbare Elemente</span>
+        <button
+          onClick={onRefresh}
+          className="flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 font-medium"
+          title="Aktualisieren"
+        >
+          <RefreshCw size={11} /> Aktualisieren
+        </button>
+      </div>
+      {snapshot.length === 0 && (
+        <div className="flex items-center justify-center py-10 text-muted-foreground text-[11px]">
+          Keine sichtbaren Elemente
+        </div>
+      )}
+      {snapshot.map((entry) => {
+        const key = `${entry.modelId}:${entry.expressId}`;
+        const isActive = activeKey === key || multiSelected.has(key);
+        return (
+          <div
+            key={key}
+            data-mid={entry.modelId}
+            data-eid={entry.expressId}
+            onClick={(e) => onItemClick(entry.modelId, entry.expressId, e)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 cursor-pointer border-b border-border/30 hover:bg-muted/40 select-none",
+              isActive && "bg-primary/10 text-primary"
+            )}
+          >
+            <span className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/20" style={{ backgroundColor: entry.modelColor }} />
+            <span className="flex-1 truncate text-[11px]">{entry.name || entry.typeName}</span>
+            <span className="text-[10px] text-muted-foreground/60 shrink-0 truncate max-w-[80px]">{entry.typeName}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -628,8 +724,9 @@ function Header({ view, onView, search, onSearch }: {
       </div>
       <div className="flex border-b border-border bg-[var(--tabs-bg)]">
         {([
-          { id: "spatial" as View, label: "Räumlich", icon: <Layers size={11} /> },
-          { id: "type"    as View, label: "Nach Typ", icon: <LayoutList size={11} /> },
+          { id: "spatial" as View, label: "Räumlich",   icon: <Layers size={11} /> },
+          { id: "type"    as View, label: "Nach Typ",   icon: <LayoutList size={11} /> },
+          { id: "visible" as View, label: "Sichtbar",   icon: <Eye size={11} /> },
         ]).map((t) => (
           <button
             key={t.id} onClick={() => onView(t.id)}
