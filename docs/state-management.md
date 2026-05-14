@@ -90,6 +90,13 @@ interface SmartTier {
 | `measurements` | `Measurement[]` | Gespeicherte Messungen |
 | `sqlPanelOpen` | `boolean` | SQL-Panel sichtbar |
 | `listPanelOpen` | `boolean` | Lens Rules-Panel sichtbar |
+| `smartViewsPanelOpen` | `boolean` | SmartViews-Panel sichtbar |
+| `qtoPanelOpen` | `boolean` | Quantity Take-Off Panel sichtbar |
+
+### Quantity Take-Off Listen
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| `qtoLists` | `QTOList[]` | Alle gespeicherten QTO-Listen, persistiert in `localStorage` unter `"infracore-qto-lists"` |
 
 ### Farben
 | Feld | Typ | Beschreibung |
@@ -207,6 +214,19 @@ deactivateSmartView(): void
 // Stellt preSmartViewState wieder her
 ```
 
+### Quantity Take-Off
+```typescript
+setQTOPanelOpen(open: boolean): void
+addQTOList(list: QTOList): void                    // persistiert in localStorage
+updateQTOList(id: string, patch: Partial<QTOList>): void
+removeQTOList(id: string): void
+```
+
+`QTOList` enthält: `id`, `name`, `filters: QTOFilter[]`, `filterLogic: "AND" | "OR"`, `columns: QTOColumn[]`
+
+`QTOFilter`: `{ id, key, condition: SmartCondition, value }`
+`QTOColumn`: `{ id, key, label }`
+
 ### Sonstiges
 ```typescript
 updateSettings(patch: Partial<ViewerSettings>): void
@@ -216,6 +236,7 @@ clearMeasurements(): void
 setSqlPanelOpen(open: boolean): void
 setColorGroups(groups: ColorGroup[] | null): void
 setListPanelOpen(open: boolean): void
+setSmartViewsPanelOpen(open: boolean): void
 setLoadedProperties(props, keys): void
 applyRemoteState(state: SyncState): void   // nur in Sekundär-Fenstern
 ```

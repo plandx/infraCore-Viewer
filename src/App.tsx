@@ -13,6 +13,7 @@ import { ClipPlaneControl } from "./components/ClipPlaneControl";
 import { SQLPanel } from "./components/SQLPanel";
 import { LensRulesPanel } from "./components/LensRulesPanel";
 import { SmartViewsPanel } from "./components/SmartViewsPanel";
+import { QuantityListPanel } from "./components/QuantityListPanel";
 import { SelectionBasket } from "./components/SelectionBasket";
 import { BasketEditor } from "./components/BasketEditor";
 
@@ -109,6 +110,7 @@ function MainApp() {
     hideElement, showAll, selectedElement, clearMeasurements,
     listPanelOpen, setListPanelOpen,
     smartViewsPanelOpen, setSmartViewsPanelOpen,
+    qtoPanelOpen, setQTOPanelOpen,
   } = useModelStore();
 
   const activeLoads = loadStates.size;
@@ -175,6 +177,9 @@ function MainApp() {
         case "v":
           setSmartViewsPanelOpen(!smartViewsPanelOpen);
           break;
+        case "t":
+          setQTOPanelOpen(!qtoPanelOpen);
+          break;
         case "delete":
         case "backspace":
           if (selectedElement) {
@@ -191,9 +196,9 @@ function MainApp() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeTool, selectedElement, sqlPanelOpen, listPanelOpen, smartViewsPanelOpen,
+  }, [activeTool, selectedElement, sqlPanelOpen, listPanelOpen, smartViewsPanelOpen, qtoPanelOpen,
       setActiveTool, setSelected, clearMeasurements, setSqlPanelOpen, setListPanelOpen,
-      setSmartViewsPanelOpen, hideElement, showAll]);
+      setSmartViewsPanelOpen, setQTOPanelOpen, hideElement, showAll]);
 
   // ── File loading ──────────────────────────────────────────────────────────
   const handleFiles = useCallback(async (files: File[]) => {
@@ -378,6 +383,13 @@ function MainApp() {
               {sqlPanelOpen && (
                 <div className="h-64 shrink-0 border-t border-border">
                   <SQLPanel />
+                </div>
+              )}
+
+              {/* QTO / Quantity Take-Off Panel (bottom of viewport column) */}
+              {qtoPanelOpen && (
+                <div className="h-96 shrink-0 border-t border-border">
+                  <QuantityListPanel />
                 </div>
               )}
             </div>

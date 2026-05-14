@@ -28,8 +28,8 @@ Oberste Toolbar-Leiste. Enthält:
 - Theme-Toggle (Dark/Light)
 - Kamera-Preset-Dropdown (Oben, Vorne, Links, …)
 - Export: GLTF, Screenshot
-- **Lens Rules**-Panel (`L`), **SmartViews**-Panel (`V`), SQL-Panel (`Q`)
-- Sekundär-Fenster öffnen (Dropdown mit 4 Panel-Typen)
+- **Lens Rules**-Panel (`L`), **SmartViews**-Panel (`V`), SQL-Panel (`Q`), **Listen / Mengen**-Panel (`T`)
+- Sekundär-Fenster öffnen (Dropdown mit 5 Panel-Typen)
 
 ---
 
@@ -159,6 +159,57 @@ Regelbasierte mehrstufige Ansichten:
   - Bei Transparenz-Aktionen: zusätzlich Opacity-Slider (0–100%)
   - Bei Auto-Farbe-Aktionen: „Nach:"-Label + PropKeyPicker für `colorByKey`
 - Doppelklick-Hinweis wenn SmartView staged
+
+---
+
+## QuantityListPanel
+
+**Datei:** `src/components/QuantityListPanel.tsx`
+**Shortcut:** `T` · **Sekundärfenster:** `"qto"`
+
+Quantity Take-Off: Benutzer definieren benannte Listen mit Filterregeln und konfigurierbaren Spalten. Ausführen einer Liste filtert alle geladenen IFC-Elemente; Ergebnisse können als XLSX exportiert werden. Listen werden in `localStorage` persistiert.
+
+### Layout
+
+Zweispaltig:
+- **Linke Spalte** (w-44): Liste gespeicherter Listen mit Neu-Button
+- **Rechte Spalte**: Editor + Ergebnisstabelle
+
+### Sub-Komponenten
+
+**`PropKeyInput`** — Autocomplete-Eingabefeld für Eigenschafts-Schlüssel:
+- Vorschläge: `_type`, `_name`, `_model` + alle `loadedPropKeys`
+- Max 60 Treffer, Monospace-Font
+
+**`FilterSection`** — Filterdefinition:
+- Jede Filterzeile: `[Eigenschaft][Bedingung][Wert][×]`
+- AND / OR Logik-Toggle (nur sichtbar wenn ≥2 Filter)
+- Werteingabe entfällt bei Bedingungen ohne Wert (exists, is_true, …)
+
+**`ColumnSection`** — Spaltenkonfiguration:
+- Jede Spalte: `[Eigenschaft][Spaltenname][↑↓][×]`
+- Automatische Beschriftung aus BUILTIN_LABELS wenn Schlüssel gewählt
+
+**`ResultsTable`** — Ergebnisanzeige:
+- Sticky Header
+- Zeigt max. `MAX_VISIBLE = 500` Zeilen (gelber Hinweis wenn mehr)
+- XLSX-Export enthält alle Zeilen
+
+### Datenfluss
+
+```
+handleRun()
+  → iteriert models (status === "loaded")
+  → baut FlatElementProps pro Element
+  → evaluateRule() für jeden Filter
+  → AND/OR-Logik über Filter-Treffer
+  → Ergebnis-Rows mit col.id → Wert-Map
+  → setResults(rows)
+```
+
+### XLSX-Export
+
+Nutzt `xlsx`-Paket (`XLSX.utils.aoa_to_sheet`, `XLSX.writeFile`). Spaltenbreite 22 Zeichen je Spalte. Sheet-Name = Listenname (max 31 Zeichen, Excel-Limit).
 
 ---
 
