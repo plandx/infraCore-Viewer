@@ -104,7 +104,12 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   colorGroups: null,
   listPanelOpen: false,
   smartViewsPanelOpen: false,
-  smartViews: [],
+  smartViews: (() => {
+    try {
+      const raw = localStorage.getItem("infracore-smartviews");
+      return raw ? (JSON.parse(raw) as SmartView[]) : [];
+    } catch { return []; }
+  })(),
   activeSmartViewId: null,
   stagedSmartViewId: null,
   preSmartViewState: null,
@@ -210,16 +215,23 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   // ── SmartView CRUD ──────────────────────────────────────────────────────────
 
   addSmartView: (view) =>
-    set((state) => ({ smartViews: [...state.smartViews, view] })),
+    set((state) => {
+      const smartViews = [...state.smartViews, view];
+      localStorage.setItem("infracore-smartviews", JSON.stringify(smartViews));
+      return { smartViews };
+    }),
 
   updateSmartView: (id, patch) =>
-    set((state) => ({
-      smartViews: state.smartViews.map((v) => v.id === id ? { ...v, ...patch } : v),
-    })),
+    set((state) => {
+      const smartViews = state.smartViews.map((v) => v.id === id ? { ...v, ...patch } : v);
+      localStorage.setItem("infracore-smartviews", JSON.stringify(smartViews));
+      return { smartViews };
+    }),
 
   removeSmartView: (id) =>
     set((state) => {
       const next = state.smartViews.filter((v) => v.id !== id);
+      localStorage.setItem("infracore-smartviews", JSON.stringify(next));
       const wasActive = state.activeSmartViewId === id;
       const wasStaged = state.stagedSmartViewId === id;
       return {
