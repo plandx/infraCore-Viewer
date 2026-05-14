@@ -199,18 +199,31 @@ export default function App() {
         <PanelGroup orientation="horizontal" className="h-full">
 
           <Panel defaultSize={20} minSize={12} collapsible>
-            <div className="h-full overflow-hidden border-r border-border flex flex-col">
-              <div className={listPanelOpen ? "flex-1 min-h-0 overflow-hidden" : "h-full overflow-hidden"}>
+            <div className="h-full overflow-hidden border-r border-border">
+              {listPanelOpen ? (
+                <PanelGroup orientation="vertical" className="h-full">
+                  <Panel defaultSize={60} minSize={20}>
+                    <div className="h-full overflow-hidden">
+                      <HierarchyPanel
+                        onFitTo={handleFitTo}
+                        onRemove={handleRemove}
+                        onSelectElement={handleElementClick}
+                      />
+                    </div>
+                  </Panel>
+                  <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
+                  <Panel defaultSize={40} minSize={15}>
+                    <div className="h-full overflow-hidden">
+                      <ListPanel />
+                    </div>
+                  </Panel>
+                </PanelGroup>
+              ) : (
                 <HierarchyPanel
                   onFitTo={handleFitTo}
                   onRemove={handleRemove}
                   onSelectElement={handleElementClick}
                 />
-              </div>
-              {listPanelOpen && (
-                <div className="h-72 shrink-0 border-t border-border overflow-hidden">
-                  <ListPanel />
-                </div>
               )}
             </div>
           </Panel>
