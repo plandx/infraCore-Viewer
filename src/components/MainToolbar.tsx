@@ -26,6 +26,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
   const orthographic = useModelStore((s) => s.settings.orthographic);
   const showSpaces = useModelStore((s) => s.settings.showSpaces);
   const grid = useModelStore((s) => s.settings.grid);
+  const edges = useModelStore((s) => s.settings.edges);
   const activeTool = useModelStore((s) => s.activeTool);
   const updateSettings = useModelStore((s) => s.updateSettings);
   const setActiveTool = useModelStore((s) => s.setActiveTool);
@@ -207,6 +208,13 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           onClick={() => updateSettings({ grid: !grid })}
         >
           <span style={{ fontFamily: "monospace", fontSize: 12 }}>#</span>
+        </button>
+        <button
+          className={cn("toolbar-button", !edges && "opacity-40")}
+          title="Kanten ein/ausblenden"
+          onClick={() => updateSettings({ edges: !edges })}
+        >
+          <Box size={16} />
         </button>
 
         <div className="w-px h-5 bg-border mx-1" />

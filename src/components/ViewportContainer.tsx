@@ -444,6 +444,20 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
 
       if (model.status === "loaded" && existing !== model.mesh) {
+        // Add edge overlays to every mesh in this model
+        const edgeMat = new THREE.LineBasicMaterial({
+          color: 0x000000, transparent: true, opacity: 0.18,
+        });
+        const edgesVisible = useModelStore.getState().settings.edges;
+        model.mesh.traverse((child) => {
+          if (child instanceof THREE.Mesh && !child.userData.isHighlight && !child.userData.isEdge) {
+            const edgesGeo = new THREE.EdgesGeometry(child.geometry, 15);
+            const lines = new THREE.LineSegments(edgesGeo, edgeMat.clone());
+            lines.userData.isEdge = true;
+            lines.visible = edgesVisible;
+            child.add(lines);
+          }
+        });
         requestAnimationFrame(() => fitAllLoaded());
       }
 
@@ -453,6 +467,15 @@ export function ViewportContainer({ onElementClick }: Props) {
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models]);
+
+  // ── Edge visibility toggle ────────────────────────────────────────────────
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.traverse((obj) => {
+      if (obj.userData.isEdge) obj.visible = settings.edges;
+    });
+  }, [settings.edges]);
 
   // ── Element-level visibility (hide/isolate) ───────────────────────────────
   useEffect(() => {
