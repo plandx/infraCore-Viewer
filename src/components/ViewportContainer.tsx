@@ -4,6 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { FlipHorizontal2, X } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
+import type { SpatialNode } from "../types/ifc";
 import { v4 as uuidv4 } from "uuid";
 
 interface Props {
@@ -75,6 +76,9 @@ export function ViewportContainer({ onElementClick }: Props) {
   const applySmartView = useModelStore((s) => s.applySmartView);
   const selectionBasket = useModelStore((s) => s.selectionBasket);
   const basketMode = useModelStore((s) => s.basketMode);
+  const addToBasket = useModelStore((s) => s.addToBasket);
+  const removeFromBasket = useModelStore((s) => s.removeFromBasket);
+  const setBasket = useModelStore((s) => s.setBasket);
 
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
@@ -1095,6 +1099,66 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (stagedSmartViewId) applySmartView(stagedSmartViewId);
   }, [stagedSmartViewId, applySmartView]);
 
+  // ── Context menu action helpers ───────────────────────────────────────────
+
+  const ctxZoomTo = useCallback((modelId: string, expressId: number) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const box = new THREE.Box3();
+    scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId !== expressId) return;
+      if (obj.userData.isHighlight || obj.userData.isEdge) return;
+      let node: THREE.Object3D | null = obj;
+      while (node) { if (node.userData.modelId === modelId) { box.expandByObject(obj); break; } node = node.parent; }
+    });
+    if (!box.isEmpty()) fitCameraToBox(box);
+  }, [fitCameraToBox]);
+
+  const ctxSelectClass = useCallback((modelId: string, expressId: number) => {
+    const state = useModelStore.getState();
+    const model = state.models.get(modelId);
+    if (!model) return;
+    let typeName: string | null = null;
+    for (const [t, els] of Object.entries(model.elementsByType)) {
+      if (els.some((el) => el.expressId === expressId)) { typeName = t; break; }
+    }
+    if (!typeName) return;
+    const entries = new Set<string>();
+    state.models.forEach((m) => {
+      const els = m.elementsByType[typeName!] ?? [];
+      els.forEach((el) => entries.add(`${m.id}:${el.expressId}`));
+    });
+    setBasket(entries);
+  }, [setBasket]);
+
+  const ctxSelectStorey = useCallback((modelId: string, expressId: number) => {
+    const state = useModelStore.getState();
+    const model = state.models.get(modelId);
+    if (!model?.spatialTree) return;
+
+    function collectNodeElements(node: SpatialNode): number[] {
+      const ids = (node.elements ?? []).map((el) => el.expressId);
+      for (const child of node.children) ids.push(...collectNodeElements(child));
+      return ids;
+    }
+
+    function findStorey(node: SpatialNode): number[] | null {
+      const allIds = collectNodeElements(node);
+      if (!allIds.includes(expressId)) return null;
+      if (node.type === "IfcBuildingStorey") return allIds;
+      for (const child of node.children) {
+        const result = findStorey(child);
+        if (result !== null) return result;
+      }
+      return null;
+    }
+
+    const ids = findStorey(model.spatialTree);
+    if (!ids) return;
+    const entries = new Set(ids.map((id) => `${modelId}:${id}`));
+    setBasket(entries);
+  }, [setBasket]);
+
   // ── Right-click context menu ──────────────────────────────────────────────
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -1224,15 +1288,20 @@ export function ViewportContainer({ onElementClick }: Props) {
           y={contextMenu.y}
           modelId={contextMenu.modelId}
           expressId={contextMenu.expressId}
+          inBasket={selectionBasket.has(`${contextMenu.modelId}:${contextMenu.expressId}`)}
           onClose={() => setContextMenu(null)}
           onHide={() => { hideElement(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
           onIsolate={() => { isolateElement(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
           onShowAll={() => { showAll(); setContextMenu(null); }}
-          onFit={() => {
-            const model = useModelStore.getState().models.get(contextMenu.modelId);
-            if (model) window.dispatchEvent(new CustomEvent("viewer:fitTo", { detail: model.boundingBox }));
+          onFit={() => { ctxZoomTo(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
+          onBasketToggle={() => {
+            const key = `${contextMenu.modelId}:${contextMenu.expressId}`;
+            if (selectionBasket.has(key)) removeFromBasket(contextMenu.modelId, contextMenu.expressId);
+            else addToBasket(contextMenu.modelId, contextMenu.expressId);
             setContextMenu(null);
           }}
+          onSelectClass={() => { ctxSelectClass(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
+          onSelectStorey={() => { ctxSelectStorey(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
         />
       )}
     </div>
@@ -1285,11 +1354,13 @@ function SectionOverlay({ onFlip, onClose }: { onFlip: () => void; onClose: () =
 // ── Context menu component ────────────────────────────────────────────────────
 
 function ContextMenu({
-  x, y, modelId, expressId, onClose, onHide, onIsolate, onShowAll, onFit,
+  x, y, modelId, expressId, inBasket, onClose, onHide, onIsolate, onShowAll,
+  onFit, onBasketToggle, onSelectClass, onSelectStorey,
 }: {
-  x: number; y: number; modelId: string; expressId: number;
+  x: number; y: number; modelId: string; expressId: number; inBasket: boolean;
   onClose: () => void; onHide: () => void; onIsolate: () => void;
   onShowAll: () => void; onFit: () => void;
+  onBasketToggle: () => void; onSelectClass: () => void; onSelectStorey: () => void;
 }) {
   useEffect(() => {
     const handler = () => onClose();
@@ -1299,29 +1370,35 @@ function ContextMenu({
 
   return (
     <div
-      className="absolute z-50 bg-popover border border-border rounded-md shadow-xl text-xs min-w-[160px]"
+      className="absolute z-50 bg-popover border border-border rounded-md shadow-xl text-xs min-w-[190px] py-1"
       style={{ left: x, top: y }}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="px-3 py-1.5 text-muted-foreground/60 text-[10px] border-b border-border font-mono">
+      <div className="px-3 py-1 text-muted-foreground/60 text-[10px] border-b border-border font-mono mb-1">
         #{expressId}
       </div>
-      <button className="w-full text-left px-3 py-2 hover:bg-muted/60 text-foreground" onClick={onIsolate}>
+      <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onFit}>
+        Zoom to
+      </button>
+      <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onIsolate}>
         Isolieren
       </button>
-      <button className="w-full text-left px-3 py-2 hover:bg-muted/60 text-foreground" onClick={onHide}>
+      <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onHide}>
         Ausblenden
       </button>
-      <button className="w-full text-left px-3 py-2 hover:bg-muted/60 text-foreground" onClick={onShowAll}>
+      <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onShowAll}>
         Alles einblenden
       </button>
-      <div className="border-t border-border" />
-      <button className="w-full text-left px-3 py-2 hover:bg-muted/60 text-foreground" onClick={onFit}>
-        Modell einpassen
+      <div className="border-t border-border my-1" />
+      <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onBasketToggle}>
+        {inBasket ? "Aus Auswahlkorb entfernen" : "Zum Auswahlkorb hinzufügen"}
       </button>
-      <div className="px-3 py-1.5 text-muted-foreground/40 text-[10px]">
-        Modell: {modelId.slice(0, 8)}…
-      </div>
+      <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onSelectClass}>
+        Alle Elemente dieser Klasse wählen
+      </button>
+      <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onSelectStorey}>
+        Gleiches Geschoss wählen
+      </button>
     </div>
   );
 }
