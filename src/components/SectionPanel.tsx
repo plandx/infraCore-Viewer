@@ -136,7 +136,7 @@ export function SectionPanel() {
 
   return (
     <div
-      className="absolute top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto select-none"
+      className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-auto select-none"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl overflow-hidden min-w-[460px] max-w-[640px]">
