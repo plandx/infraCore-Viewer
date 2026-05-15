@@ -195,6 +195,71 @@ function FilterSection({ filters, filterLogic, propKeys, onUpdate }: {
 
 // ── Column section ────────────────────────────────────────────────────────────
 
+function PsetAdder({ propKeys, onAdd }: { propKeys: string[]; onAdd: (keys: string[]) => void }) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const psetMap = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const k of propKeys) {
+      const dot = k.indexOf(".");
+      if (dot < 1) continue;
+      const pset = k.slice(0, dot);
+      if (!m.has(pset)) m.set(pset, []);
+      m.get(pset)!.push(k);
+    }
+    return m;
+  }, [propKeys]);
+
+  const psetNames = useMemo(() =>
+    Array.from(psetMap.keys())
+      .filter((n) => !search || n.toLowerCase().includes(search.toLowerCase()))
+      .sort(),
+    [psetMap, search]
+  );
+
+  if (psetMap.size === 0) return null;
+
+  return (
+    <div className="relative mt-2">
+      <div className="flex items-center gap-1.5 bg-muted/20 border border-border/60 rounded px-2 py-1">
+        <Search size={10} className="text-muted-foreground shrink-0" />
+        <input
+          className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
+          placeholder="PropertySet als Spalten hinzufügen…"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+        />
+        {search && <button className="text-muted-foreground hover:text-foreground" onMouseDown={() => setSearch("")}><X size={9} /></button>}
+      </div>
+      {open && psetNames.length > 0 && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-0.5 bg-card border border-border rounded shadow-xl max-h-48 overflow-y-auto">
+          {psetNames.map((name) => {
+            const keys = psetMap.get(name)!;
+            return (
+              <button
+                key={name}
+                type="button"
+                className="w-full flex items-center justify-between px-2.5 py-1.5 text-[11px] hover:bg-muted/60 text-left gap-2"
+                onMouseDown={() => {
+                  onAdd(keys);
+                  setSearch("");
+                  setOpen(false);
+                }}
+              >
+                <span className="font-mono truncate">{name}</span>
+                <span className="text-muted-foreground shrink-0">{keys.length} Felder</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ColumnSection({ columns, propKeys, onUpdate }: {
   columns: QTOColumn[]; propKeys: string[]; onUpdate: (cols: QTOColumn[]) => void;
 }) {
@@ -207,6 +272,17 @@ function ColumnSection({ columns, propKeys, onUpdate }: {
     if (t < 0 || t >= next.length) return;
     [next[idx], next[t]] = [next[t], next[idx]];
     onUpdate(next);
+  };
+
+  const handleAddPset = (keys: string[]) => {
+    const existing = new Set(columns.map((c) => c.key));
+    const newCols = keys
+      .filter((k) => !existing.has(k))
+      .map((k) => {
+        const label = k.includes(".") ? k.slice(k.indexOf(".") + 1) : k;
+        return { id: uuidv4(), key: k, label };
+      });
+    onUpdate([...columns, ...newCols]);
   };
 
   return (
@@ -238,6 +314,7 @@ function ColumnSection({ columns, propKeys, onUpdate }: {
         ))}
         {columns.length === 0 && <p className="text-[11px] text-muted-foreground italic">Keine Spalten definiert</p>}
       </div>
+      <PsetAdder propKeys={propKeys} onAdd={handleAddPset} />
     </div>
   );
 }
@@ -385,10 +462,16 @@ function ResultsTable({ columns, allRows, columnFilters, onFilterToggle, onFilte
                     <button
                       data-col-filter={col.id}
                       onClick={() => onOpenFilterCol(isOpen ? null : col.id)}
-                      className={cn("p-0.5 rounded hover:bg-muted/60 shrink-0", hasFilter ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground")}
+                      className={cn(
+                        "flex items-center gap-0.5 px-1 py-0.5 rounded border text-[10px] shrink-0 transition-colors",
+                        hasFilter
+                          ? "text-primary border-primary/50 bg-primary/10 font-semibold"
+                          : "text-muted-foreground border-border hover:text-foreground hover:bg-muted/50"
+                      )}
                       title="Spalte filtern"
                     >
-                      <ListFilter size={11} />
+                      <ListFilter size={10} />
+                      {hasFilter && <span>{columnFilters[col.id]?.size ?? 0}</span>}
                     </button>
                     {isOpen && (
                       <ColumnFilterDropdown
