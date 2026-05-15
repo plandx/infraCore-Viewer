@@ -8,6 +8,7 @@ import type { SpatialNode, SectionPlane } from "../types/ifc";
 import { SectionPanel } from "./SectionPanel";
 import { v4 as uuidv4 } from "uuid";
 import { SectionModule } from "../section";
+import { cn } from "../lib/utils";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -488,8 +489,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       const key = `${modelId}:${obj.userData.expressId}`;
       const inBasket = selectionBasket.has(key);
 
-      // Yellow outline for every basket member (all modes)
-      if (inBasket) {
+      // Yellow outline only when highlight mode is active
+      if (inBasket && basketMode === "highlight") {
         if (!obj.userData._basketEdgesGeo) {
           obj.userData._basketEdgesGeo = new THREE.EdgesGeometry(obj.geometry, 15);
         }
@@ -1078,7 +1079,7 @@ export function ViewportContainer({ onElementClick }: Props) {
                : "default";
 
   return (
-    <div className="w-full h-full relative">
+    <div className={cn("w-full h-full relative", basketMode && "ring-2 ring-amber-400/70 ring-inset")}>
       <div
         ref={mountRef}
         className="w-full h-full"
