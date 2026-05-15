@@ -58,4 +58,5 @@ export type BillingMsg =
   | { t: "isolateTracked" }
   | { t: "selectEntry"; key: string }
   | { t: "requestQuantities"; key: string }
-  | { t: "quantities"; key: string; data: ElementQuantities | null };
+  | { t: "quantities"; key: string; data: ElementQuantities | null }
+  | { t: "startInspection"; key: string; elementName: string };

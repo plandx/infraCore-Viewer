@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink, ScanEye, Calculator, Save } from "lucide-react";
+import { Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink, ScanEye, Calculator, Save, Ruler } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore, BILLING_CHANNEL } from "./billingStore";
 import type { ElementInfo, BillingExport, BillingMsg, ElementQuantities } from "./types";
@@ -346,16 +346,31 @@ export function BillingPanel({ elements }: Props) {
 
               {/* Quantities section */}
               <div className="px-5 py-4 border-b border-border">
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mengen</span>
                   <button
                     onClick={() => handleRequestQuantities(selectedKey)}
                     disabled={pendingQKey === selectedKey}
                     className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-muted hover:bg-primary/20 hover:text-primary text-muted-foreground border border-border transition-colors disabled:opacity-40"
-                    title="Volumen, Oberfläche und Abmessungen aus Geometrie berechnen"
+                    title="Volumen automatisch aus Geometrie berechnen"
                   >
                     <Calculator size={10} />
-                    {pendingQKey === selectedKey ? "Berechne…" : "Berechnen"}
+                    {pendingQKey === selectedKey ? "Berechne…" : "Auto"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const el = elements.find(e => e.key === selectedKey);
+                      bcRef.current?.postMessage({
+                        t: "startInspection",
+                        key: selectedKey,
+                        elementName: el?.name ?? selectedEntry.elementName,
+                      } satisfies BillingMsg);
+                    }}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-muted hover:bg-primary/20 hover:text-primary text-muted-foreground border border-border transition-colors"
+                    title="Flächen und Kanten im Viewer manuell auswählen"
+                  >
+                    <Ruler size={10} />
+                    Messen
                   </button>
                   {(liveQuantities ?? selectedEntry.quantities) && (
                     <button

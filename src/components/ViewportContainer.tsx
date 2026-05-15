@@ -14,6 +14,9 @@ import { useBillingStore, BILLING_CHANNEL } from "../billing/billingStore";
 import { openBillingWindow } from "../utils/windowSync";
 import type { BillingMsg } from "../billing/types";
 import { computeQuantities } from "../billing/quantityUtils";
+import { FaceEdgePicker } from "../geometry-inspector/FaceEdgePicker";
+import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorPanel";
+import type { PickMode, InspFace, InspEdge, InspectionSession } from "../geometry-inspector/types";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -97,7 +100,14 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   const billingEntries = useBillingStore((s) => s.entries);
   const billingModuleActive = useBillingStore((s) => s.moduleActive);
-  const billingVizRef = useRef<BillingVisualizer | null>(null);
+  const billingVizRef  = useRef<BillingVisualizer | null>(null);
+  const pickerRef      = useRef<FaceEdgePicker | null>(null);
+  const [inspSession,  setInspSession]  = useState<InspectionSession | null>(null);
+  const [inspPickMode, setInspPickMode] = useState<PickMode>("face");
+  const [inspFaces,    setInspFaces]    = useState<InspFace[]>([]);
+  const [inspEdges,    setInspEdges]    = useState<InspEdge[]>([]);
+  const [inspSelFaces, setInspSelFaces] = useState<Set<number>>(new Set());
+  const [inspSelEdges, setInspSelEdges] = useState<Set<number>>(new Set());
 
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
@@ -317,36 +327,81 @@ export function ViewportContainer({ onElementClick }: Props) {
     needsRenderRef.current = true;
   }, [billingEntries, billingModuleActive]);
 
-  // Handle requestQuantities from billing window
+  // Handle requestQuantities + startInspection from billing window
   useEffect(() => {
     let bc: BroadcastChannel | null = null;
     try { bc = new BroadcastChannel(BILLING_CHANNEL); } catch { return; }
 
-    bc.addEventListener("message", (ev) => {
-      const msg = ev.data as BillingMsg;
-      if (msg.t !== "requestQuantities") return;
-
+    function collectMeshesForKey(key: string): THREE.Mesh[] {
       const scene = sceneRef.current;
-      if (!scene) { bc?.postMessage({ t: "quantities", key: msg.key, data: null } satisfies BillingMsg); return; }
-
+      if (!scene) return [];
       const sessionModels = useModelStore.getState().models;
       scene.updateMatrixWorld(true);
-
       const meshes: THREE.Mesh[] = [];
       scene.traverse((obj) => {
         if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
-        if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBillingOverlay) return;
+        if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBillingOverlay || obj.userData.isGeometryInspector) return;
         let modelId = "";
         let node: THREE.Object3D | null = obj;
         while (node) { if (node.userData.modelId) { modelId = node.userData.modelId as string; break; } node = node.parent; }
         if (!modelId) return;
         const filename = sessionModels.get(modelId)?.name ?? modelId;
-        const key = `${filename}:${obj.userData.expressId}`;
-        if (key === msg.key) meshes.push(obj);
+        if (`${filename}:${obj.userData.expressId}` === key) meshes.push(obj);
       });
+      return meshes;
+    }
 
-      const data = meshes.length > 0 ? computeQuantities(meshes) : null;
-      bc?.postMessage({ t: "quantities", key: msg.key, data } satisfies BillingMsg);
+    bc.addEventListener("message", (ev) => {
+      const msg = ev.data as BillingMsg;
+
+      if (msg.t === "requestQuantities") {
+        const meshes = collectMeshesForKey(msg.key);
+        const data = meshes.length > 0 ? computeQuantities(meshes) : null;
+        bc?.postMessage({ t: "quantities", key: msg.key, data } satisfies BillingMsg);
+        return;
+      }
+
+      if (msg.t === "startInspection") {
+        const meshes = collectMeshesForKey(msg.key);
+        if (meshes.length === 0) return;
+
+        // Find modelId + expressId from key
+        const sessionModels = useModelStore.getState().models;
+        const [filename, expStr] = msg.key.split(":");
+        const expressId = parseInt(expStr, 10);
+        let modelId = "";
+        sessionModels.forEach((m, id) => { if (m.name === filename) modelId = id; });
+        if (!modelId) return;
+
+        // Isolate element
+        useModelStore.getState().isolateEntries([{ modelId, expressId }]);
+
+        // Init picker
+        const scene = sceneRef.current!;
+        pickerRef.current?.dispose();
+        const picker = new FaceEdgePicker(scene, (faceIds, edgeIds) => {
+          setInspSelFaces(new Set(faceIds));
+          setInspSelEdges(new Set(edgeIds));
+          needsRenderRef.current = true;
+        });
+        picker.load(meshes);
+        pickerRef.current = picker;
+
+        // Mark overlay objects so normal raycaster ignores them
+        scene.traverse((obj) => {
+          if (obj.userData.inspFaceId !== undefined || obj.userData.inspEdgeId !== undefined) {
+            obj.userData.isGeometryInspector = true;
+          }
+        });
+
+        setInspSession({ modelId, expressId, elementName: msg.elementName, billingKey: msg.key });
+        setInspPickMode("face");
+        setInspFaces(picker.faces);
+        setInspEdges(picker.edges);
+        setInspSelFaces(new Set());
+        setInspSelEdges(new Set());
+        needsRenderRef.current = true;
+      }
     });
 
     return () => bc?.close();
@@ -929,6 +984,18 @@ export function ViewportContainer({ onElementClick }: Props) {
     setContextMenu(null);
     if (clickSuppressedRef.current) { clickSuppressedRef.current = false; return; }
 
+    // Inspection mode: route clicks to picker
+    if (pickerRef.current && inspSession && rendererRef.current && cameraRef.current) {
+      const rect = rendererRef.current.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+        -((e.clientY - rect.top)  / rect.height) * 2 + 1,
+      );
+      pickerRef.current.onClick(ndc, cameraRef.current, e.ctrlKey, inspPickMode);
+      needsRenderRef.current = true;
+      return;
+    }
+
     const hit = raycastPoint(e);
 
     if (activeTool === "measure") {
@@ -1029,6 +1096,15 @@ export function ViewportContainer({ onElementClick }: Props) {
       const dx = e.clientX - mouseDownPosRef.current.x;
       const dy = e.clientY - mouseDownPosRef.current.y;
       if (dx * dx + dy * dy > 25) clickSuppressedRef.current = true;
+    }
+    // Inspection hover
+    if (pickerRef.current && cameraRef.current && rendererRef.current) {
+      const rect = rendererRef.current.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+        -((e.clientY - rect.top)  / rect.height) * 2 + 1,
+      );
+      if (pickerRef.current.onMouseMove(ndc, cameraRef.current)) needsRenderRef.current = true;
     }
   }, []);
 
@@ -1256,6 +1332,27 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       {/* Section panel — top center, lazy: only mounts when active */}
       <SectionPanel />
+
+      {/* Geometry inspector panel */}
+      {inspSession && (
+        <GeometryInspectorPanel
+          elementName={inspSession.elementName}
+          billingKey={inspSession.billingKey}
+          faces={inspFaces}
+          edges={inspEdges}
+          selectedFaceIds={inspSelFaces}
+          selectedEdgeIds={inspSelEdges}
+          pickMode={inspPickMode}
+          onPickModeChange={setInspPickMode}
+          onClose={() => {
+            pickerRef.current?.dispose();
+            pickerRef.current = null;
+            setInspSession(null);
+            useModelStore.getState().showAll();
+            needsRenderRef.current = true;
+          }}
+        />
+      )}
 
       {/* SmartView: apply hint */}
       {stagedSmartViewId && stagedSmartViewId !== activeSmartViewId && (
