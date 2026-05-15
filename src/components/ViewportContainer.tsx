@@ -950,8 +950,11 @@ export function ViewportContainer({ onElementClick }: Props) {
   // ── Context menu action helpers ───────────────────────────────────────────
 
   const ctxZoomTo = useCallback((modelId: string, expressIds: number[]) => {
-    const scene = sceneRef.current;
-    if (!scene) return;
+    const scene    = sceneRef.current;
+    const camera   = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!scene || !camera || !controls) return;
+
     const idSet = new Set(expressIds);
     const box = new THREE.Box3();
     scene.traverse((obj) => {
@@ -960,8 +963,39 @@ export function ViewportContainer({ onElementClick }: Props) {
       let node: THREE.Object3D | null = obj;
       while (node) { if (node.userData.modelId === modelId) { box.expandByObject(obj); break; } node = node.parent; }
     });
-    if (!box.isEmpty()) fitCameraToBox(box);
-  }, [fitCameraToBox]);
+    if (box.isEmpty()) return;
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size   = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const fov    = (camera.fov * Math.PI) / 180;
+    const dist   = (maxDim / (2 * Math.tan(fov / 2))) * 1.6;
+
+    // Keep current look direction — only translate camera along that axis
+    const dir = new THREE.Vector3()
+      .subVectors(camera.position, controls.target)
+      .normalize();
+
+    camera.position.copy(center).addScaledVector(dir, dist);
+    controls.target.copy(center);
+    camera.near = Math.max(0.01, dist * 0.0001);
+    camera.far  = dist * 250;
+    camera.updateProjectionMatrix();
+
+    const ortho = orthoCameraRef.current;
+    if (ortho) {
+      const aspect = (rendererRef.current?.domElement.clientWidth  ?? 1) /
+                     (rendererRef.current?.domElement.clientHeight ?? 1);
+      const s = maxDim * 0.8;
+      ortho.left = -s * aspect; ortho.right = s * aspect;
+      ortho.top = s; ortho.bottom = -s;
+      ortho.position.copy(camera.position);
+      ortho.updateProjectionMatrix();
+    }
+
+    controls.update();
+    needsRenderRef.current = true;
+  }, []);
 
   // ── Double-click: zoom to element or apply staged SmartView ─────────────
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
