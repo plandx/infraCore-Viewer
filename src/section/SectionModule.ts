@@ -472,10 +472,12 @@ export class SectionModule {
     });
 
     for (const plane of enabledPlanes) {
-      const clipPlane = new THREE.Plane(
-        new THREE.Vector3(...plane.normal),
-        -new THREE.Vector3(...plane.normal).dot(new THREE.Vector3(...plane.point))
-      );
+      const N  = new THREE.Vector3(...plane.normal);
+      const Pt = new THREE.Vector3(...plane.point);
+      // Use same convention as updateClipPlanes: normal always points toward kept side
+      const clipPlane = plane.boxId
+        ? new THREE.Plane(N.clone().negate(), N.dot(Pt))
+        : new THREE.Plane(N, -N.dot(Pt));
 
       // Remove stale entries for this plane
       this.removeCapsForPlane(plane.id);
@@ -491,8 +493,8 @@ export class SectionModule {
           side: THREE.DoubleSide,
           depthWrite: true,
           polygonOffset: true,
-          polygonOffsetFactor: -2,
-          polygonOffsetUnits: -2,
+          polygonOffsetFactor: -6,
+          polygonOffsetUnits: -6,
         });
         const capMesh = new THREE.Mesh(result.capGeo, capMat);
         capMesh.renderOrder = CAP_RENDER_ORDER;

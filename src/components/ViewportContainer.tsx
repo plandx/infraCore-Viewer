@@ -811,7 +811,13 @@ export function ViewportContainer({ onElementClick }: Props) {
       const hits = raycaster.intersectObjects(meshes, false);
       if (!hits.length) return null;
 
-      const hit = hits[0];
+      // Reject hits whose point is on the clipped side of any active section plane
+      const clipPlanes = rendererRef.current?.clippingPlanes ?? [];
+      const hit = clipPlanes.length
+        ? hits.find(h => clipPlanes.every(cp => cp.distanceToPoint(h.point) >= -0.01)) ?? null
+        : hits[0];
+      if (!hit) return null;
+
       const hitMesh = hit.object as THREE.Mesh;
       const expressId = hitMesh.userData.expressId as number;
 

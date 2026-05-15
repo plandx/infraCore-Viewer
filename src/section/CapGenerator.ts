@@ -14,7 +14,7 @@ import * as THREE from "three";
 
 // ─── Internal helpers ──────────────────────────────────────────────────────
 
-const CHAIN_EPS = 1e-5;
+const CHAIN_EPS = 1e-4;
 
 function quantizeKey(x: number, y: number, z: number): string {
   const f = 1 / CHAIN_EPS;
@@ -193,6 +193,8 @@ export interface CapResult {
 /**
  * Compute cap + edge geometry for one mesh/plane pair.
  * Returns null when the mesh doesn't straddle the plane or has no geometry.
+ * The cap vertices are nudged 1 mm along plane.normal (toward the kept side)
+ * to prevent z-fighting with the clipped mesh surface.
  */
 export function computeCap(mesh: THREE.Mesh, plane: THREE.Plane): CapResult | null {
   const geo = mesh.geometry;
@@ -214,6 +216,10 @@ export function computeCap(mesh: THREE.Mesh, plane: THREE.Plane): CapResult | nu
   const N = plane.normal.clone().normalize();
   const { bx, by } = planeBasis(N);
 
+  // 1 mm nudge along plane normal (toward kept side) prevents z-fighting
+  const nudge = 0.001;
+  const nx = N.x * nudge, ny = N.y * nudge, nz = N.z * nudge;
+
   const allPos: number[] = [];
   const allIdx: number[] = [];
   const edgePos: number[] = [];
@@ -230,14 +236,17 @@ export function computeCap(mesh: THREE.Mesh, plane: THREE.Plane): CapResult | nu
       loop.reverse();
     }
 
-    const triIdxs = THREE.ShapeUtils.triangulateShape(pts2D, []);
+    let triIdxs: number[][] = [];
+    try {
+      triIdxs = THREE.ShapeUtils.triangulateShape(pts2D, []);
+    } catch { continue; }
     if (!triIdxs.length) continue;
 
     const base = allPos.length / 3;
-    for (const p of loop) allPos.push(p.x, p.y, p.z);
+    for (const p of loop) allPos.push(p.x + nx, p.y + ny, p.z + nz);
     for (const [a, b, c] of triIdxs) allIdx.push(base + a, base + b, base + c);
 
-    // Contour edges (closed loop)
+    // Contour edges sit on the exact plane (no nudge) so they align with geometry
     for (let i = 0; i < loop.length; i++) {
       const a = loop[i];
       const b = loop[(i + 1) % loop.length];
