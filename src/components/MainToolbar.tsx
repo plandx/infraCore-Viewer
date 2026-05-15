@@ -1,13 +1,14 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useCallback } from "react";
 import {
   FolderOpen, Plus, Sun, Moon, Maximize2,
   MousePointer2, Ruler, Scissors, Eye, EyeOff,
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
-  X, List, Glasses, AppWindow, Table2, ExternalLink,
+  X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2,
 } from "lucide-react";
 import { openSecondaryWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
+import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import type { ActiveTool } from "../types/ifc";
@@ -38,10 +39,34 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
   const smartViewsPanelOpen = useModelStore((s) => s.smartViewsPanelOpen);
   const setQTOPanelOpen = useModelStore((s) => s.setQTOPanelOpen);
   const qtoPanelOpen = useModelStore((s) => s.qtoPanelOpen);
-  const clearMeasurements = useModelStore((s) => s.clearMeasurements);
-  const measurements = useModelStore((s) => s.measurements);
+  const clearMeasurements    = useModelStore((s) => s.clearMeasurements);
+  const measurements         = useModelStore((s) => s.measurements);
+  const models               = useModelStore((s) => s.models);
+  const propertyOverrides    = useModelStore((s) => s.propertyOverrides);
 
   const [exportOpen, setExportOpen] = useState(false);
+  const [ifcExporting, setIfcExporting] = useState(false);
+
+  const handleIFCExport = useCallback(async () => {
+    if (ifcExporting) return;
+    setIfcExporting(true);
+    setExportOpen(false);
+    try {
+      for (const [modelId, model] of models.entries()) {
+        if (!model.file) continue;
+        const modelOvr = propertyOverrides.get(modelId);
+        const overridesList = modelOvr
+          ? Array.from(modelOvr.entries()).map(([expressId, ov]) => ({ expressId, overrides: ov }))
+          : [];
+        const data = await writeIFCWithOverrides(model.file, overridesList);
+        downloadFile(data, model.name.replace(/\.ifc$/i, "") + "_export.ifc");
+      }
+    } catch (e) {
+      console.error("[IFC Export]", e);
+    } finally {
+      setIfcExporting(false);
+    }
+  }, [models, propertyOverrides, ifcExporting]);
   const [viewOpen, setViewOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [windowOpen, setWindowOpen] = useState(false);
@@ -309,6 +334,30 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           {exportOpen && (
             <DropdownMenu onClose={() => setExportOpen(false)} align="right">
               <div className="p-1 text-[10px] text-muted-foreground px-2 py-1 uppercase tracking-wide">Export</div>
+              {(() => {
+                const hasModels = models.size > 0;
+                const totalOverrides = Array.from(propertyOverrides.values())
+                  .reduce((s, m) => s + Array.from(m.values()).reduce((a, o) => a + Object.keys(o).length, 0), 0);
+                return (
+                  <DropdownItem
+                    icon={ifcExporting
+                      ? <Loader2 size={13} className="animate-spin" />
+                      : <Download size={13} />}
+                    onClick={hasModels && !ifcExporting ? handleIFCExport : undefined}
+                    disabled={!hasModels || ifcExporting}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      IFC exportieren
+                      {totalOverrides > 0 && (
+                        <span className="bg-amber-500/20 text-amber-400 text-[9px] px-1 rounded">
+                          {totalOverrides} Änd.
+                        </span>
+                      )}
+                    </span>
+                  </DropdownItem>
+                );
+              })()}
+              <div className="h-px bg-border/50 my-0.5 mx-2" />
               <DropdownItem
                 icon={<Box size={13} />}
                 onClick={() => { window.dispatchEvent(new Event("viewer:exportGLTF")); setExportOpen(false); }}
