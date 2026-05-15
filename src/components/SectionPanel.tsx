@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import * as THREE from "three";
-import { X, FlipHorizontal2, Eye, EyeOff, Camera, Trash2, Box } from "lucide-react";
+import { X, FlipHorizontal2, Eye, EyeOff, Camera, Trash2, Box, Crosshair } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { useModelStore } from "../store/modelStore";
 import { useShallow } from "zustand/react/shallow";
@@ -26,12 +26,13 @@ export function SectionPanel() {
   const sectionPlanes = useModelStore((s) => s.sectionPlanes);
   const activeTool = useModelStore((s) => s.activeTool);
   const selectedElement = useModelStore((s) => s.selectedElement);
-  const { addSectionPlane, updateSectionPlane, removeSectionPlane, clearSectionPlanes } =
+  const { addSectionPlane, updateSectionPlane, removeSectionPlane, clearSectionPlanes, setActiveTool } =
     useModelStore(useShallow((s) => ({
       addSectionPlane: s.addSectionPlane,
       updateSectionPlane: s.updateSectionPlane,
       removeSectionPlane: s.removeSectionPlane,
       clearSectionPlanes: s.clearSectionPlanes,
+      setActiveTool: s.setActiveTool,
     })));
 
   const { sceneCenter, sceneRadius } = useMemo(() => {
@@ -146,6 +147,23 @@ export function SectionPanel() {
             Schnitt
           </span>
 
+          {/* Section-from-face tool toggle */}
+          <button
+            onClick={() => setActiveTool(activeTool === "section" ? "select" : "section")}
+            className={cn(
+              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors",
+              activeTool === "section"
+                ? "bg-primary/20 text-primary border border-primary/40"
+                : "bg-muted/60 hover:bg-primary/20 hover:text-primary text-muted-foreground"
+            )}
+            title={activeTool === "section" ? "Schnitt-Werkzeug deaktivieren" : "Schnitt auf Fläche klicken"}
+          >
+            <Crosshair size={10} />
+            <span>Fläche</span>
+          </button>
+
+          <div className="w-px h-3.5 bg-border mx-0.5" />
+
           {/* Axis presets */}
           {([ ["+X",[1,0,0]], ["−X",[-1,0,0]], ["+Y",[0,1,0]], ["−Y",[0,-1,0]], ["+Z",[0,0,1]], ["−Z",[0,0,-1]] ] as [string,[number,number,number]][]).map(([lbl, n]) => (
             <button
@@ -200,10 +218,10 @@ export function SectionPanel() {
           )}
         </div>
 
-        {/* Hint when in section tool mode and no planes yet */}
-        {activeTool === "section" && sectionPlanes.length === 0 && (
-          <div className="px-3 py-2 text-[11px] text-muted-foreground text-center">
-            Fläche im 3D-Viewer anklicken · oder Achse wählen
+        {/* Hint when in section-from-face tool mode */}
+        {activeTool === "section" && (
+          <div className="px-3 py-1.5 text-[11px] text-primary/70 text-center bg-primary/5 border-b border-primary/10">
+            Fläche im 3D-Viewer anklicken
           </div>
         )}
 

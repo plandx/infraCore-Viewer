@@ -1115,7 +1115,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // Cursor style per tool
   const cursor = activeTool === "measure" ? "crosshair"
-               : activeTool === "section" ? "cell"
+               : activeTool === "section" ? "crosshair"
                : "default";
 
   return (
