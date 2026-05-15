@@ -159,46 +159,69 @@ Drei unabhängige Override-Ebenen (müssen in Reihenfolge aufgebaut/abgebaut wer
 
 ---
 
-## Schnittebenen-System (Multi-Plane)
+## Schnittebenen-System — SectionModule (`src/section/`)
 
-### Datenstrukturen (Module-Level Interfaces)
+Das gesamte Schnittebenen-System ist als eigenständiges Paket ausgelagert. ViewportContainer hält nur noch eine Ref `sectionModuleRef` und ruft `module.syncPlanes(planes)` bei Store-Änderungen auf.
+
+### Dateistruktur
+
+```
+src/section/
+  index.ts           — Public API (Re-Export)
+  SectionModule.ts   — Haupt-Controller-Klasse
+  CapGenerator.ts    — CPU-Schnittflächen: Triangle-Plane-Intersection + Earcut
+```
+
+### SectionModule API
 
 ```typescript
-interface SectionVisuals {
-  group: THREE.Group;      // Eltern-Group in der Szene
-  handle: THREE.Mesh;      // Drag-Handle Sphere
-  planeMesh: THREE.Mesh;   // Transparente Disc
-  border: THREE.LineSegments;
-  arrow: THREE.ArrowHelper;
-}
-
-interface SectionDragState {
-  planeId: string;
-  normal: THREE.Vector3;
-  viewPlane: THREE.Plane;        // Senkrecht zur Kamera für Intersection
-  startIntersect: THREE.Vector3; // Startpunkt im World-Space
-  startPoint: THREE.Vector3;     // Startposition der Ebene
+class SectionModule {
+  constructor(cfg: SectionModuleConfig)   // erhält scene, handleScene, renderer, callbacks
+  syncPlanes(planes: SectionPlane[]): void // aus ViewportContainer useEffect
+  setVisualsHidden(hidden: boolean): void  // Gizmos ein/aus, Clipping bleibt aktiv
+  dispose(): void                          // vollständige Bereinigung
 }
 ```
 
-### syncSectionVisuals(planes)
+### userData-Flags
 
-Callback mit leerer Deps-Liste (`[]`) — nutzt nur Refs, löst keinen Re-Render aus:
-1. Entfernt Groups für gelöschte Planes aus Szene + `sectionVisualsRef`
-2. Für neue Planes: erstellt Group mit PlaneGeometry (transparent disc), border Line, ArrowHelper, Handle-Sphere
-   - Group-Orientierung: `quaternion.setFromUnitVectors(new Vector3(0,0,1), N)` — Group +Z → Plane-Normale
-   - Handle: `onBeforeRender = (rend) => { rend.clippingPlanes = []; }` + `onAfterRender` → Bypass des globalen Clippings
-   - `userData.planeId`, `userData.isHandle = true`, `userData.isSectionVisual = true`
-3. Aktualisiert Position/Quaternion existierender Groups
-4. Baut `renderer.clippingPlanes` aus allen enabled Planes: `new THREE.Plane(N, −N.dot(P))`
+| Flag | Bedeutung |
+|---|---|
+| `isSectionVisual = true` | Gizmo-Geometrie (Disc, Border, Arrow) — Raycast skip |
+| `isSectionHandle = true` | Drag-Handle Sphere — nur in Handle-Raycast |
+| `isSectionCap = true` | Cap/Edge Mesh — Raycast skip, ColorGroup skip |
+
+### Schnittflächen (Caps)
+
+**Algorithmus** (CPU, pro Mesh × Ebene):
+1. BoundingBox-Vorfilter — überspringt Meshes die die Ebene nicht schneiden
+2. Für jedes Dreieck: Berechne Schnittpunkte mit Ebene → 0 oder 2 Punkte → Segment
+3. Segmente zu geschlossenen Schleifen verketten (quantisierter Punkt-Hash, ε = 1e-5)
+4. 2D-Projektion auf Ebenenbasis (U/V) → Flächenvorzeichen prüfen (CCW-Pflicht für Earcut)
+5. `THREE.ShapeUtils.triangulateShape` (Earcut-Wrapper aus Three.js)
+6. Rückprojektion → `BufferGeometry` für Fläche + Konturkanten
+
+**Materialien:**
+- Cap-Fläche: `MeshLambertMaterial`, Farbe aus Mesh-Material (aufgehellt), `polygonOffset (-2/-2)`
+- Konturkanten: `LineBasicMaterial(0x111111)`, `renderOrder 2`, `polygonOffset (-4/-4)`
+
+**Performance:**
+- Rebuild debounced 150 ms nach Plane-Änderung
+- Während Drag: kein Rebuild (smooth 60 fps); Rebuild nach mouseup
 
 ### Drag-Ablauf
 
-1. `mousedown` auf Handle (`userData.isHandle === true`) → identifiziert `planeId`, baut View-Plane auf (senkrecht zur Kamera), setzt `dragSectionRef`, deaktiviert OrbitControls
-2. `mousemove` → Ray ∩ View-Plane → `delta.dot(normal)` → neuer Punkt → aktualisiert Group-Position + `renderer.clippingPlanes` **direkt** (kein React-State für Smooth-Dragging)
-3. `mouseup` → persistiert via `updateSectionPlane(planeId, { point: [P.x, P.y, P.z] })`, reaktiviert OrbitControls
+1. `pointerdown` (capture) auf Handle → `setPointerCapture` → deaktiviert OrbitControls
+2. `pointermove` (window) → Ray ∩ ViewPlane → Delta entlang Normal → Gizmo + `renderer.clippingPlanes` direkt aktualisiert
+3. `pointerup` (window) → persistiert via `onPlaneMoved` Callback → Store-Update → Re-Render
 
-**Raycasting überspringt** alle Meshes mit `isSectionVisual = true` (außer Handle bei `isHandle`-Check).
+**Gilt für Solo- und Box-Planes** — Box-Drag speichert korrekt per Handle-Position (früherer Bug behoben).
+
+### Gizmos
+
+- **Solo-Plane**: Kreisscheibe (CircleGeometry, 64 Segmente) + Kreisrand (LineLoop) + ArrowHelper + Kugelhandle
+- **Box-Schnitt**: Halb-transparenter Kubus (DoubleSide) + Kantenlinien + 6 Flächenhandles — alles in `handleScene`
+- Alle Gizmos in `handleScene` → werden ohne `renderer.clippingPlanes` gerendert → nie weggeschnitten
 
 ---
 

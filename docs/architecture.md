@@ -37,6 +37,10 @@ Browser
 │   ├── App.tsx                ← Root: erkennt Sekundär-Fenster, rendert MainApp
 │   ├── main.tsx
 │   ├── components/            ← Alle React-Komponenten
+│   ├── section/               ← Eigenständiges BIM-Schnitt-Paket
+│   │   ├── index.ts           ← Public API
+│   │   ├── SectionModule.ts   ← Controller: Gizmos, Caps, Drag, Clips
+│   │   └── CapGenerator.ts    ← CPU-Schnittflächen (Triangle → Earcut)
 │   ├── store/
 │   │   └── modelStore.ts      ← Zentraler Zustand (Zustand)
 │   ├── types/

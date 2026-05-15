@@ -333,16 +333,20 @@ Vorschau-Tabelle (read-only): zeigt aktuelle Werte mit sticky Info-Spalten.
 
 **Datei:** `src/components/SectionPanel.tsx`
 
-Floating-Overlay für das Mehr-Ebenen-Schnitt-System (erscheint wenn `sectionPlanes.length > 0 || activeTool === "section"`).
+Floating-Overlay für das Schnittebenen-System (erscheint wenn `sectionPlanes.length > 0 || activeTool === "section"`). Kommuniziert mit dem **SectionModule** (`src/section/`) über den Zustand-Store und Window-Events.
 
-- **Achsen-Presets**: Buttons +X −X +Y −Y +Z −Z — fügen eine Schnittebene mit der entsprechenden Normalen mittig durch die Szene hinzu
-- **Box-Schnitt**: Erzeugt 6 Ebenen aus der Modell-BoundingBox (±X, ±Y, ±Z an den Bbox-Flächen)
+- **Achsen-Presets**: +X −X +Y −Y +Z −Z — fügen eine Schnittebene mit der entsprechenden Normalen mittig durch die Szene hinzu
+- **Box-Schnitt**: Erzeugt 6 Ebenen als Box um ausgewähltes Element (Fallback: Szenen-BBox); alle teilen eine `boxId`
+- **Sichtbarkeits-Toggle**: dispatcht `viewer:sectionVisualsHidden` → SectionModule blendet Gizmos aus; Clipping bleibt aktiv
 - **Pro-Ebene-Zeile**: Farb-Dot, Name, Offset-Slider, Flip-Button, Kamera-Ausrichten, Sichtbarkeits-Toggle, Löschen
-- **Offset-Slider**: `offset = dot(P − sceneCenter, N)` → `P = sceneCenter + offset * N`; Range ±1,5×Szenenradius
-- **Flip**: Negiert die Normale `[−nx, −ny, −nz]` via `updateSectionPlane`
-- **Kamera-Ausrichten**: dispatcht `viewer:alignToPlane`-Event mit `{ normal, point }`
+- **Offset-Slider**: `offset = dot(P − sceneCenter, N)` → `P = sceneCenter + offset * N`
+- **Kamera-Ausrichten**: dispatcht `viewer:alignToPlane` → SectionModule positioniert Kamera auf `P − N*dist`
 - **Alle löschen**: `clearSectionPlanes()` + `setActiveTool("select")`
-- Lazy: liefert `null` wenn kein Schnitt aktiv (kein Performance-Overhead)
+- Lazy: liefert `null` wenn kein Schnitt aktiv
+
+### SectionModule (`src/section/`)
+
+Eigenständiges Paket — vollständig vom Viewer-Core getrennt. Für Details siehe `docs/viewer.md` → Schnittebenen-System.
 
 ---
 
