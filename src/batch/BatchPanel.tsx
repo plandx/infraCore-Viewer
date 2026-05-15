@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { X, Plus, Copy, Trash2, Sliders, Play, Check, ChevronDown, AlertTriangle } from "lucide-react";
+import { X, Plus, Copy, Trash2, Sliders, Play, Check, ChevronDown, AlertTriangle, RefreshCw } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { useBatchStore } from "./batchStore";
@@ -115,6 +115,7 @@ function OperationForm({
               <input
                 className="w-full bg-muted border border-border rounded px-2 py-1 text-xs"
                 placeholder="z.B. Name oder Pset.Prop"
+                list="batch-prop-keys"
                 value={op.key}
                 onChange={(e) => onChange({ key: e.target.value } as Partial<BatchOperation>)}
               />
@@ -151,6 +152,7 @@ function OperationForm({
             <input
               className="w-full bg-muted border border-border rounded px-2 py-1 text-xs"
               placeholder="z.B. Description"
+              list="batch-prop-keys"
               value={op.targetKey}
               onChange={(e) => onChange({ targetKey: e.target.value } as Partial<BatchOperation>)}
             />
@@ -176,6 +178,7 @@ function OperationForm({
             <input
               className="w-full bg-muted border border-border rounded px-2 py-1 text-xs"
               placeholder="Von (Schlüssel)"
+              list="batch-prop-keys"
               value={op.fromKey}
               onChange={(e) => onChange({ fromKey: e.target.value } as Partial<BatchOperation>)}
             />
@@ -185,6 +188,7 @@ function OperationForm({
             <input
               className="w-full bg-muted border border-border rounded px-2 py-1 text-xs"
               placeholder="Nach (Schlüssel)"
+              list="batch-prop-keys"
               value={op.toKey}
               onChange={(e) => onChange({ toKey: e.target.value } as Partial<BatchOperation>)}
             />
@@ -199,6 +203,7 @@ function OperationForm({
             <input
               className="w-full bg-muted border border-border rounded px-2 py-1 text-xs"
               placeholder="z.B. Name"
+              list="batch-prop-keys"
               value={op.key}
               onChange={(e) => onChange({ key: e.target.value } as Partial<BatchOperation>)}
             />
@@ -241,6 +246,7 @@ function OperationForm({
           <input
             className="w-full bg-muted border border-border rounded px-2 py-1 text-xs"
             placeholder="z.B. ObjectType"
+            list="batch-prop-keys"
             value={op.targetKey}
             onChange={(e) => onChange({ targetKey: e.target.value } as Partial<BatchOperation>)}
           />
@@ -253,6 +259,7 @@ function OperationForm({
           <input
             className="w-full bg-muted border border-border rounded px-2 py-1 text-xs"
             placeholder="z.B. Tag"
+            list="batch-prop-keys"
             value={op.sourceKey}
             onChange={(e) => onChange({ sourceKey: e.target.value } as Partial<BatchOperation>)}
           />
@@ -301,6 +308,7 @@ function FilterEditor({
         <input
           className="w-full bg-muted border border-border rounded px-2 py-1 text-xs"
           placeholder="z.B. IfcWall"
+          list="batch-ifc-types"
           value={filter.value}
           onChange={(e) => onChange({ kind: "ifcType", value: e.target.value })}
         />
@@ -311,6 +319,7 @@ function FilterEditor({
           <input
             className="w-full bg-muted border border-border rounded px-2 py-1 text-xs"
             placeholder="Property-Schlüssel (z.B. Name)"
+            list="batch-prop-keys"
             value={filter.key}
             onChange={(e) => onChange({ ...filter, key: e.target.value })}
           />
@@ -621,8 +630,44 @@ export function BatchPanel({ onClose }: Props) {
 
   const selectedRule = rules.find((r) => r.id === selectedRuleId) ?? null;
 
+  const [propKeys, setPropKeys] = useState<string[]>([]);
+  const [ifcTypes, setIfcTypes] = useState<string[]>([]);
+  const [loadingKeys, setLoadingKeys] = useState(false);
+
+  const handleLoadKeys = useCallback(() => {
+    setLoadingKeys(true);
+    try {
+      const { models, loadedProperties } = useModelStore.getState();
+
+      const types = new Set<string>();
+      models.forEach((m) => {
+        Object.keys(m.elementsByType).forEach((t) => types.add(t));
+      });
+
+      const keys = new Set<string>(["Name", "Description", "ObjectType", "Tag"]);
+      loadedProperties?.forEach((perModel) => {
+        perModel.forEach((props) => {
+          Object.keys(props).forEach((k) => keys.add(k));
+        });
+      });
+
+      setIfcTypes([...types].sort());
+      setPropKeys([...keys].sort());
+    } finally {
+      setLoadingKeys(false);
+    }
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-stretch justify-stretch p-4">
+      {/* Global datalists — referenced by list="..." on inputs throughout the panel */}
+      <datalist id="batch-prop-keys">
+        {propKeys.map((k) => <option key={k} value={k} />)}
+      </datalist>
+      <datalist id="batch-ifc-types">
+        {ifcTypes.map((t) => <option key={t} value={t} />)}
+      </datalist>
+
       <div
         className="flex flex-col w-full bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
@@ -635,6 +680,15 @@ export function BatchPanel({ onClose }: Props) {
             — {rules.length} {rules.length === 1 ? "Regel" : "Regeln"}
           </span>
           <div className="flex-1" />
+          <button
+            onClick={handleLoadKeys}
+            disabled={loadingKeys}
+            title="Property-Schlüssel und IFC-Typen aus geladenen Modellen einlesen"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs bg-muted hover:bg-primary/20 hover:text-primary border border-border disabled:opacity-40 transition-colors"
+          >
+            <RefreshCw size={12} className={loadingKeys ? "animate-spin" : ""} />
+            {propKeys.length > 0 ? `${propKeys.length} Properties` : "Properties laden"}
+          </button>
           <button
             onClick={onClose}
             className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
