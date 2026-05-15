@@ -4,6 +4,7 @@ import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { useBatchStore } from "./batchStore";
 import { buildElementRows, executeRule, collectEdits } from "./BatchExecutor";
+import { loadAllElementProperties } from "../utils/ifcLoader";
 import type { BatchOperation, BatchRule, FilterOp, IfcValueType, TargetFilter } from "./types";
 
 interface Props { onClose: () => void; }
@@ -633,28 +634,64 @@ export function BatchPanel({ onClose }: Props) {
   const [propKeys, setPropKeys] = useState<string[]>([]);
   const [ifcTypes, setIfcTypes] = useState<string[]>([]);
   const [loadingKeys, setLoadingKeys] = useState(false);
+  const [loadProgress, setLoadProgress] = useState<number | null>(null);
 
-  const handleLoadKeys = useCallback(() => {
+  const handleLoadKeys = useCallback(async () => {
     setLoadingKeys(true);
+    setLoadProgress(0);
     try {
-      const { models, loadedProperties } = useModelStore.getState();
+      const { models, loadedProperties: existing, setLoadedProperties } = useModelStore.getState();
 
       const types = new Set<string>();
       models.forEach((m) => {
-        Object.keys(m.elementsByType).forEach((t) => types.add(t));
+        if (m.status === "loaded") Object.keys(m.elementsByType).forEach((t) => types.add(t));
       });
+      setIfcTypes([...types].sort());
+
+      // Count total elements across all models for progress
+      let totalCount = 0;
+      models.forEach((m) => {
+        if (m.status === "loaded" && m.file) {
+          for (const els of Object.values(m.elementsByType)) {
+            totalCount += (els as Array<{ expressId: number }>).length;
+          }
+        }
+      });
+
+      const allProps = new Map(existing ?? []);
+      let totalDone = 0;
+
+      for (const [modelId, m] of models.entries()) {
+        if (m.status !== "loaded" || !m.file) continue;
+
+        const expressIds: number[] = [];
+        for (const els of Object.values(m.elementsByType)) {
+          for (const el of els as Array<{ expressId: number }>) {
+            expressIds.push(el.expressId);
+          }
+        }
+
+        const props = await loadAllElementProperties(m.file, expressIds, (done) => {
+          setLoadProgress(totalCount > 0
+            ? Math.round(((totalDone + done) / totalCount) * 100)
+            : 100);
+        });
+        totalDone += expressIds.length;
+        allProps.set(modelId, props);
+      }
 
       const keys = new Set<string>(["Name", "Description", "ObjectType", "Tag"]);
-      loadedProperties?.forEach((perModel) => {
-        perModel.forEach((props) => {
-          Object.keys(props).forEach((k) => keys.add(k));
-        });
+      allProps.forEach((perModel) => {
+        perModel.forEach((props) => { Object.keys(props).forEach((k) => keys.add(k)); });
       });
+      const keysList = [...keys].sort();
+      setPropKeys(keysList);
 
-      setIfcTypes([...types].sort());
-      setPropKeys([...keys].sort());
+      // Write back into the store so the batch executor can use the full data
+      setLoadedProperties(allProps, keysList);
     } finally {
       setLoadingKeys(false);
+      setLoadProgress(null);
     }
   }, []);
 
@@ -681,13 +718,17 @@ export function BatchPanel({ onClose }: Props) {
           </span>
           <div className="flex-1" />
           <button
-            onClick={handleLoadKeys}
+            onClick={() => { void handleLoadKeys(); }}
             disabled={loadingKeys}
-            title="Property-Schlüssel und IFC-Typen aus geladenen Modellen einlesen"
+            title="Alle Properties aus IFC-Dateien vollständig einlesen"
             className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs bg-muted hover:bg-primary/20 hover:text-primary border border-border disabled:opacity-40 transition-colors"
           >
             <RefreshCw size={12} className={loadingKeys ? "animate-spin" : ""} />
-            {propKeys.length > 0 ? `${propKeys.length} Properties` : "Properties laden"}
+            {loadingKeys && loadProgress !== null
+              ? `Lade… ${loadProgress}%`
+              : propKeys.length > 0
+                ? `${propKeys.length} Properties`
+                : "Properties laden"}
           </button>
           <button
             onClick={onClose}
