@@ -329,13 +329,20 @@ Vorschau-Tabelle (read-only): zeigt aktuelle Werte mit sticky Info-Spalten.
 
 ---
 
-## ClipPlaneControl
+## SectionPanel
 
-**Datei:** `src/components/ClipPlaneControl.tsx`
+**Datei:** `src/components/SectionPanel.tsx`
 
-Overlay-Steuerung für die Schnittebene (erscheint wenn `settings.clipPlanes === true`):
-- Richtung spiegeln
-- Schnitt deaktivieren
+Floating-Overlay für das Mehr-Ebenen-Schnitt-System (erscheint wenn `sectionPlanes.length > 0 || activeTool === "section"`).
+
+- **Achsen-Presets**: Buttons +X −X +Y −Y +Z −Z — fügen eine Schnittebene mit der entsprechenden Normalen mittig durch die Szene hinzu
+- **Box-Schnitt**: Erzeugt 6 Ebenen aus der Modell-BoundingBox (±X, ±Y, ±Z an den Bbox-Flächen)
+- **Pro-Ebene-Zeile**: Farb-Dot, Name, Offset-Slider, Flip-Button, Kamera-Ausrichten, Sichtbarkeits-Toggle, Löschen
+- **Offset-Slider**: `offset = dot(P − sceneCenter, N)` → `P = sceneCenter + offset * N`; Range ±1,5×Szenenradius
+- **Flip**: Negiert die Normale `[−nx, −ny, −nz]` via `updateSectionPlane`
+- **Kamera-Ausrichten**: dispatcht `viewer:alignToPlane`-Event mit `{ normal, point }`
+- **Alle löschen**: `clearSectionPlanes()` + `setActiveTool("select")`
+- Lazy: liefert `null` wenn kein Schnitt aktiv (kein Performance-Overhead)
 
 ---
 

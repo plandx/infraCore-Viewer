@@ -83,6 +83,11 @@ interface SmartTier {
 |---|---|---|
 | `propertyOverrides` | `Map<string, Map<number, Record<string, PropOverride>>>` | In-Session-Editierungen: modelId → expressId → key → PropOverride; **nicht** BroadcastChannel-synchronisiert |
 
+### Schnittebenen
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| `sectionPlanes` | `SectionPlane[]` | Alle aktiven Schnittebenen (leer = kein Schnitt) |
+
 ### Werkzeuge & UI
 | Feld | Typ | Beschreibung |
 |---|---|---|
@@ -131,12 +136,22 @@ interface ViewerSettings {
   shadows: boolean;
   fog: boolean;
   logDepthBuffer: boolean;
-  clipPlanes: boolean;         // Schnittebene aktiv
-  clipNormal: [number, number, number];   // Richtungsvektor
-  clipPoint: [number, number, number];    // Punkt auf der Ebene
   theme: "light" | "dark";
   showSpaces: boolean;
   orthographic: boolean;
+}
+```
+
+## SectionPlane
+
+```typescript
+interface SectionPlane {
+  id: string;
+  name: string;
+  normal: [number, number, number];  // Einheitsvektor
+  point: [number, number, number];   // Punkt auf der Ebene (World-Space)
+  enabled: boolean;
+  color: string;                     // Hex-Farbe für Visualisierung
 }
 ```
 
@@ -227,6 +242,14 @@ removeQTOList(id: string): void
 
 `QTOFilter`: `{ id, key, condition: SmartCondition, value }`
 `QTOColumn`: `{ id, key, label }`
+
+### Schnittebenen
+```typescript
+addSectionPlane(plane: SectionPlane): void
+updateSectionPlane(id: string, patch: Partial<SectionPlane>): void
+removeSectionPlane(id: string): void
+clearSectionPlanes(): void
+```
 
 ### Sonstiges
 ```typescript
