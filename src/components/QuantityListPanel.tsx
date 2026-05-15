@@ -731,7 +731,7 @@ export function QuantityListPanel() {
             <ChevronDown size={12} className={cn("text-muted-foreground transition-transform duration-150", editorOpen && "rotate-180")} />
             <span className="text-[11px] font-medium text-muted-foreground">Einstellungen</span>
             <span className="text-[11px] text-muted-foreground/50 ml-0.5">
-              {activeList.filters.length > 0 && `${activeList.filters.length} Filter · `}{activeList.columns.length} Spalten
+              {activeList.filters.length > 0 && `${activeList.filters.length} Filter - `}{activeList.columns.length} Spalten
             </span>
             <div className="flex-1" />
             {/* Run always accessible */}
