@@ -468,13 +468,59 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   applyPropertyEdits: (edits) =>
     set((state) => {
-      const next = new Map(state.propertyOverrides);
+      const nextOverrides = new Map(state.propertyOverrides);
+
+      // Collect name overrides: modelId → expressId → newName
+      const nameChanges = new Map<string, Map<number, string>>();
+
       for (const { modelId, expressId, key, value, ifcType } of edits) {
-        const modelMap = new Map(next.get(modelId) ?? []);
+        const modelMap = new Map(nextOverrides.get(modelId) ?? []);
         modelMap.set(expressId, { ...(modelMap.get(expressId) ?? {}), [key]: { value, ifcType } });
-        next.set(modelId, modelMap);
+        nextOverrides.set(modelId, modelMap);
+
+        if (key === "Name") {
+          const m = nameChanges.get(modelId) ?? new Map<number, string>();
+          m.set(expressId, value);
+          nameChanges.set(modelId, m);
+        }
       }
-      return { propertyOverrides: next };
+
+      if (nameChanges.size === 0) return { propertyOverrides: nextOverrides };
+
+      // Propagate name changes into elementsByType and spatialTree so the
+      // HierarchyPanel reflects the updated names immediately.
+      const nextModels = new Map(state.models);
+      for (const [modelId, changes] of nameChanges) {
+        const model = nextModels.get(modelId);
+        if (!model) continue;
+
+        const nextElementsByType: Record<string, typeof model.elementsByType[string]> = {};
+        for (const [type, els] of Object.entries(model.elementsByType)) {
+          nextElementsByType[type] = els.map((el) =>
+            changes.has(el.expressId) ? { ...el, name: changes.get(el.expressId)! } : el
+          );
+        }
+
+        function patchTree(node: typeof model.spatialTree): typeof model.spatialTree {
+          if (!node) return node;
+          return {
+            ...node,
+            name: changes.has(node.expressId) ? changes.get(node.expressId)! : node.name,
+            elements: node.elements?.map((el) =>
+              changes.has(el.expressId) ? { ...el, name: changes.get(el.expressId)! } : el
+            ),
+            children: node.children.map(patchTree),
+          };
+        }
+
+        nextModels.set(modelId, {
+          ...model,
+          elementsByType: nextElementsByType,
+          spatialTree: patchTree(model.spatialTree),
+        });
+      }
+
+      return { propertyOverrides: nextOverrides, models: nextModels };
     }),
 
   clearPropertyOverrides: () => set({ propertyOverrides: new Map() }),
