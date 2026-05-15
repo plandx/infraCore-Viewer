@@ -149,6 +149,7 @@ export const PANEL_META: Record<PanelType, { label: string; w: number; h: number
   properties: { label: "Eigenschaften",       w: 420, h: 600 },
   lists:      { label: "Lens Rules",          w: 480, h: 640 },
   sql:        { label: "SQL-Abfrage",         w: 760, h: 480 },
+  basket:     { label: "Auswahlkorb",         w: 380, h: 600 },
 };
 
 export function openSecondaryWindow(panel: PanelType) {

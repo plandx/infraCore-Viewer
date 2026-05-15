@@ -250,7 +250,6 @@ function MainApp() {
     if (!model) return;
 
     setSelected({ modelId, expressId, properties: {}, psets: [] });
-
     const st = useModelStore.getState();
     if (st.basketAutoAdd) st.addToBasket(modelId, expressId);
 

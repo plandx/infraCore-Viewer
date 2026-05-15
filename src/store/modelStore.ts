@@ -449,7 +449,6 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   clearBasket: () => set({ selectionBasket: new Set() }),
 
   setBasketMode: (mode) => set({ basketMode: mode }),
-
   setBasketAutoAdd: (v) => set({ basketAutoAdd: v }),
 
   // ── Property overrides ──────────────────────────────────────────────────────

@@ -61,6 +61,7 @@ controls.mouseButtons = {
 | `basketOverlaysRef` | `Mesh[]` | Overlay-Meshes für Korb-Hervorhebung |
 | `basketOverlayMatRef` | `Material` | Shared Highlight-Material für Korb |
 | `basketGhostMatsRef` | `Map<Mesh, Material>` | Original-Materialien vor Ghost-Modus |
+| `basketOutlinesRef` | `LineSegments[]` | Gelbe Edge-Outlines für Korb-Elemente |
 | `sectionGroupRef` | `Group` | Schnittebene-Visuals-Gruppe |
 | `sectionHandleRef` | `Mesh` | Drag-Handle Sphere |
 
@@ -78,7 +79,8 @@ controls.mouseButtons = {
 8. **Element-Sichtbarkeit** — `hiddenElements, isolatedElements, selectionBasket, basketMode, models` → traversiert Szene, setzt `obj.visible`
 9. **ColorGroup-Overrides** — `colorGroups` → ersetzt Materialien, speichert Originale in `userData.originalMaterial`
 10. **Korb-Overrides** — `selectionBasket, basketMode, models` → Overlay-Meshes (highlight) oder Ghost-Materialien
-11. **Selektion-Highlight** — `selectedElement, hiddenElements, isolatedElements` → findet alle Sub-Meshes, fügt amber Overlay-Meshes ein (`matrixWorld`-Kopie, `depthTest=false`); **kein Highlight wenn Element ausgeblendet oder isoliert**
+11. **Korb-Outlines** — `selectionBasket, models` → gelbe `LineSegments` (`EdgesGeometry`, 15°, Farbe `0xfbbf24`, `depthTest=false`, `renderOrder=998`) als Kinder jedes Korb-Mesh; `userData.isBasketOutline=true`
+12. **Selektion-Highlight** — `selectedElement, hiddenElements, isolatedElements` → findet alle Sub-Meshes, fügt amber Overlay-Meshes ein (`matrixWorld`-Kopie, `depthTest=false`); **kein Highlight wenn Element ausgeblendet oder isoliert**
 
 ---
 

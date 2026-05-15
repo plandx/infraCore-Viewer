@@ -12,7 +12,6 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
   const removeFromBasket = useModelStore((s) => s.removeFromBasket);
   const clearBasket = useModelStore((s) => s.clearBasket);
   const setBasketMode = useModelStore((s) => s.setBasketMode);
-
   const basketAutoAdd = useModelStore((s) => s.basketAutoAdd);
   const setBasketAutoAdd = useModelStore((s) => s.setBasketAutoAdd);
 

@@ -243,6 +243,7 @@ Props:
 ```
 
 Operatoren:
+- **Auto** — Auto-Hinzufügen-Toggle (MousePointerClick-Icon, amber wenn aktiv): jeder Viewport-Klick fügt das geklickte Element automatisch zum Korb hinzu
 - `=` — Korb = aktuell selektiertes Element
 - `+` — Element hinzufügen (disabled wenn bereits drin)
 - `−` — Element entfernen (disabled wenn nicht drin)
@@ -280,6 +281,26 @@ Pro Zeile:
 Header: Elementanzahl + „Alle entfernen"-Button (leert Korb + setzt Modus zurück).
 
 Leer-Zustand: Hinweistext wenn Korb leer.
+
+---
+
+## BasketListPanel
+
+**Datei:** `src/components/BasketListPanel.tsx`
+
+Listenansicht aller Elemente im Auswahlkorb. Verfügbar als Sekundärfenster (`"basket"`).
+
+Props:
+```typescript
+{ onSelectElement?: (modelId: string, expressId: number) => void }
+```
+
+Features:
+- Header mit Elementanzahl und „Alle entfernen"-Button
+- Scrollbare Liste: pro Element Modell-Farbe, Name (oder Typ), Typ · Modellname
+- Hover-Aktionen: Zoom auf Element (`viewer:zoomToElement`-Event), Aus Korb entfernen
+- Aktuell selektiertes Element hervorgehoben (`bg-primary/10`)
+- Leerzustand mit Hinweis-Text
 
 ---
 
@@ -352,5 +373,7 @@ Rendert je nach `panel`-Parameter:
 - `lists` → `<LensRulesPanel>`
 - `smartviews` → `<SmartViewsPanel>`
 - `sql` → `<SQLPanel>`
+- `qto` → `<QuantityListPanel>`
+- `basket` → `<BasketListPanel>` mit `onSelectElement=handleElementClick`
 
 Enthält `SyncIndicator` (Verbindungs-Status-Punkt in der Titelleiste).

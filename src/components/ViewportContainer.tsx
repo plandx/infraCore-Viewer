@@ -83,10 +83,10 @@ export function ViewportContainer({ onElementClick }: Props) {
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
 
+  const basketOutlinesRef = useRef<THREE.LineSegments[]>([]);
+
   // Basket material overrides: stores original material per mesh for restore
   const basketMatsRef = useRef<Map<THREE.Mesh, THREE.Material | THREE.Material[]>>(new Map());
-
-  const basketOutlinesRef = useRef<THREE.LineSegments[]>([]);
 
   // ── Init scene ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -633,7 +633,6 @@ export function ViewportContainer({ onElementClick }: Props) {
     };
   }, [selectionBasket, basketMode, models]);
 
-  // ── Yellow outlines on basket elements ───────────────────────────────────
   useEffect(() => {
     basketOutlinesRef.current.forEach((line) => {
       line.parent?.remove(line);
