@@ -448,6 +448,10 @@ function VisibleView({ snapshot, onRefresh, activeKey, multiSelected, onItemClic
             data-mid={entry.modelId}
             data-eid={entry.expressId}
             onClick={(e) => onItemClick(entry.modelId, entry.expressId, e)}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              window.dispatchEvent(new CustomEvent("viewer:zoomToElement", { detail: { modelId: entry.modelId, expressIds: [entry.expressId] } }));
+            }}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1 cursor-pointer border-b border-border/30 hover:bg-muted/40 select-none",
               isActive && "bg-primary/10 text-primary"
