@@ -598,6 +598,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       else h.material.dispose();
     }
     highlightRef.current = [];
+    needsRenderRef.current = true;
 
     if (!selectedElement) return;
 
