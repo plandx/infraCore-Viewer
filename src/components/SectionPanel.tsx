@@ -25,6 +25,7 @@ export function SectionPanel() {
   const models = useModelStore((s) => s.models);
   const sectionPlanes = useModelStore((s) => s.sectionPlanes);
   const activeTool = useModelStore((s) => s.activeTool);
+  const selectedElement = useModelStore((s) => s.selectedElement);
   const { addSectionPlane, updateSectionPlane, removeSectionPlane, clearSectionPlanes } =
     useModelStore(useShallow((s) => ({
       addSectionPlane: s.addSectionPlane,
@@ -56,8 +57,26 @@ export function SectionPanel() {
   };
 
   const addBoxSection = () => {
-    const box = getSceneBox(models);
+    let box = new THREE.Box3();
+
+    // Prefer bounding box of the selected element, fall back to entire scene
+    if (selectedElement) {
+      const model = models.get(selectedElement.modelId);
+      if (model) {
+        model.mesh.traverse((obj) => {
+          if (obj instanceof THREE.Mesh && obj.userData.expressId === selectedElement.expressId) {
+            box.expandByObject(obj);
+          }
+        });
+      }
+    }
+    if (box.isEmpty()) box = getSceneBox(models);
     if (box.isEmpty()) box.set(new THREE.Vector3(-10, -10, -10), new THREE.Vector3(10, 10, 10));
+
+    // Small padding so the element fits snugly inside the box
+    const sz = box.getSize(new THREE.Vector3());
+    box.expandByScalar(Math.max(sz.length() * 0.04, 0.1));
+
     const mn = box.min, mx = box.max;
     const cx = (mn.x + mx.x) / 2, cy = (mn.y + mx.y) / 2, cz = (mn.z + mx.z) / 2;
     clearSectionPlanes();
@@ -125,8 +144,11 @@ export function SectionPanel() {
 
           <button
             onClick={addBoxSection}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted/60 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors"
-            title="Box-Schnitt aus Modell-BoundingBox erstellen"
+            className={cn(
+              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted/60 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors",
+              selectedElement && "ring-1 ring-primary/40 text-primary/80"
+            )}
+            title={selectedElement ? "Box-Schnitt um ausgewähltes Element" : "Box-Schnitt aus Modell-BoundingBox"}
           >
             <Box size={10} />
             <span>Box</span>

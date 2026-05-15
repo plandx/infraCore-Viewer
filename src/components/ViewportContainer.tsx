@@ -44,6 +44,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const sceneModelIds = useRef<Set<string>>(new Set());
 
   const sectionVisualsRef = useRef<Map<string, SectionVisuals>>(new Map());
+  const handleSceneRef   = useRef<THREE.Scene | null>(null);
   const dragSectionRef = useRef<SectionDragState | null>(null);
   const isDraggingHandleRef = useRef(false);
   const wasDraggingRef = useRef(false);
@@ -135,6 +136,10 @@ export function ViewportContainer({ onElementClick }: Props) {
     scene.background = new THREE.Color("#1a1b26");
     sceneRef.current = scene;
 
+    // Separate scene for section handles — rendered without clip planes so handles are never cut
+    const handleScene = new THREE.Scene();
+    handleSceneRef.current = handleScene;
+
     // Perspective camera
     const camera = new THREE.PerspectiveCamera(60, mount.clientWidth / mount.clientHeight, 0.01, 500_000);
     camera.position.set(50, 50, 100);
@@ -212,7 +217,19 @@ export function ViewportContainer({ onElementClick }: Props) {
         ortho.updateProjectionMatrix();
       }
 
-      renderer.render(scene, isOrtho ? ortho : camera);
+      const activeCamera = isOrtho ? ortho : camera;
+      renderer.render(scene, activeCamera);
+
+      // Render section handles without clip planes — global clippingPlanes are set once per frame
+      // so onBeforeRender cannot override them; a separate pass is the only reliable fix.
+      if (handleScene.children.length > 0) {
+        const savedPlanes = renderer.clippingPlanes.slice();
+        renderer.autoClear = false;
+        renderer.clippingPlanes = [];
+        renderer.render(handleScene, activeCamera);
+        renderer.autoClear = true;
+        renderer.clippingPlanes = savedPlanes;
+      }
     };
     animate();
 
@@ -239,30 +256,33 @@ export function ViewportContainer({ onElementClick }: Props) {
       controls.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
+      handleSceneRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Multi-plane section: sync Three.js visuals with sectionPlanes store ─────
   const syncSectionVisuals = useCallback((planes: typeof sectionPlanes) => {
-    const scene = sceneRef.current;
-    const renderer = rendererRef.current;
+    const scene       = sceneRef.current;
+    const renderer    = rendererRef.current;
+    const handleScene = handleSceneRef.current;
     if (!scene || !renderer) return;
 
-    // Compute visual scale from scene bbox
+    // Visual scale from scene bbox
     const box = new THREE.Box3();
     useModelStore.getState().models.forEach((m) => { if (!m.boundingBox.isEmpty()) box.union(m.boundingBox); });
-    const span = box.isEmpty() ? 50 : box.getSize(new THREE.Vector3()).length();
-    const planeSize = Math.max(span * 2.0, 30);
-    const handleR   = Math.max(span * 0.012, 0.3);
-    const arrowLen  = Math.max(span * 0.08, 1.5);
-    const half = planeSize / 2;
+    const span      = box.isEmpty() ? 50 : box.getSize(new THREE.Vector3()).length();
+    const planeSize = Math.max(span * 0.45, 8);
+    const handleR   = Math.max(span * 0.006, 0.15);
+    const arrowLen  = Math.max(span * 0.06, 1.0);
+    const half      = planeSize / 2;
 
     // Remove stale visuals
     const liveIds = new Set(planes.map((p) => p.id));
     for (const [id, vis] of sectionVisualsRef.current) {
       if (!liveIds.has(id)) {
         scene.remove(vis.group);
+        if (handleScene) handleScene.remove(vis.handle);
         vis.group.traverse((o) => {
           if (o instanceof THREE.Mesh || o instanceof THREE.Line || o instanceof THREE.LineSegments) {
             o.geometry.dispose();
@@ -270,6 +290,8 @@ export function ViewportContainer({ onElementClick }: Props) {
             (Array.isArray(mat) ? mat : [mat]).forEach((m) => (m as THREE.Material).dispose());
           }
         });
+        vis.handle.geometry.dispose();
+        (vis.handle.material as THREE.Material).dispose();
         sectionVisualsRef.current.delete(id);
       }
     }
@@ -293,12 +315,15 @@ export function ViewportContainer({ onElementClick }: Props) {
         const group = new THREE.Group();
         group.name = `__section_${plane.id}`;
 
-        // Semi-transparent plane surface
+        // Semi-transparent plane disc — polygonOffset prevents z-fighting at the cut boundary
         const planeMesh = new THREE.Mesh(
           new THREE.PlaneGeometry(planeSize, planeSize),
-          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.10, side: THREE.DoubleSide, depthWrite: false })
+          new THREE.MeshBasicMaterial({
+            color, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false,
+            polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4,
+          })
         );
-        planeMesh.renderOrder = 1;
+        planeMesh.renderOrder = 2;
         planeMesh.userData.isSectionVisual = true;
         group.add(planeMesh);
 
@@ -323,22 +348,16 @@ export function ViewportContainer({ onElementClick }: Props) {
         arrow.userData.isSectionVisual = true;
         group.add(arrow);
 
-        // Drag handle — always rendered (bypasses global clip)
+        // Drag handle lives in a separate scene that renders without clip planes,
+        // so the sphere is always fully visible and never cut by the section.
         const handle = new THREE.Mesh(
-          new THREE.SphereGeometry(handleR, 12, 8),
+          new THREE.SphereGeometry(handleR, 14, 10),
           new THREE.MeshBasicMaterial({ color, depthTest: false })
         );
-        handle.renderOrder = 999;
-        handle.userData.isSectionVisual = true;
         handle.userData.isSectionHandle = true;
         handle.userData.planeId = plane.id;
-        handle.onBeforeRender = (rend) => { (rend as THREE.WebGLRenderer).clippingPlanes = []; };
-        handle.onAfterRender  = (rend) => {
-          (rend as THREE.WebGLRenderer).clippingPlanes = useModelStore.getState().sectionPlanes
-            .filter((p) => p.enabled)
-            .map((p) => { const n = new THREE.Vector3(...p.normal); const pt = new THREE.Vector3(...p.point); return new THREE.Plane(n, -n.dot(pt)); });
-        };
-        group.add(handle);
+        handle.position.copy(P); // world-space position (no parent transform)
+        if (handleScene) handleScene.add(handle);
 
         scene.add(group);
         sectionVisualsRef.current.set(plane.id, { group, handle, arrow });
@@ -347,12 +366,14 @@ export function ViewportContainer({ onElementClick }: Props) {
       // ── Update position / orientation / color / visibility ────────
       const vis = sectionVisualsRef.current.get(plane.id)!;
       vis.group.position.copy(P);
+      vis.handle.position.copy(P); // handle is scene-root; keep in sync
       vis.group.quaternion.copy(quat);
-      vis.group.visible = plane.enabled;
+      vis.group.visible  = plane.enabled;
+      vis.handle.visible = plane.enabled;
 
       vis.group.traverse((o) => {
         if (o === vis.group) return;
-        if (o instanceof THREE.Mesh && !o.userData.isSectionHandle) {
+        if (o instanceof THREE.Mesh) {
           (o.material as THREE.MeshBasicMaterial).color.copy(color);
         }
         if (o instanceof THREE.Line) {
@@ -385,7 +406,9 @@ export function ViewportContainer({ onElementClick }: Props) {
       const N   = new THREE.Vector3(...normal).normalize();
       const P   = new THREE.Vector3(...point);
       const dist = Math.max(cam.position.distanceTo(P), 20);
-      cam.position.copy(P).addScaledVector(N, dist);
+      // Place camera on the kept side (−N): the cut removes everything in the +N direction from P,
+      // so looking from −N toward P shows the open cross-section.
+      cam.position.copy(P).addScaledVector(N, -dist);
       controls.target.copy(P);
       controls.update();
       needsRenderRef.current = true;
@@ -1132,7 +1155,10 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     // Update Three.js visuals directly (smooth, skip React state)
     const vis = sectionVisualsRef.current.get(planeId);
-    if (vis) vis.group.position.copy(newP);
+    if (vis) {
+      vis.group.position.copy(newP);
+      vis.handle.position.copy(newP); // handle is in handleScene (world-space)
+    }
 
     // Update this plane's clipping plane in the renderer
     const planes = useModelStore.getState().sectionPlanes;
