@@ -2,7 +2,6 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
-import { X } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
 import { useShallow } from "zustand/react/shallow";
 import type { SpatialNode } from "../types/ifc";
@@ -19,6 +18,20 @@ interface MeasureLabel {
   text: string;
 }
 
+interface SectionVisuals {
+  group: THREE.Group;
+  handle: THREE.Mesh;
+  arrow: THREE.ArrowHelper;
+}
+
+interface SectionDragState {
+  planeId: string;
+  viewPlane: THREE.Plane;
+  startIntersect: THREE.Vector3;
+  startPoint: THREE.Vector3;
+  normal: THREE.Vector3;
+}
+
 export function ViewportContainer({ onElementClick }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -30,15 +43,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const highlightRef = useRef<THREE.Mesh[]>([]);
   const sceneModelIds = useRef<Set<string>>(new Set());
 
-  // Multi-plane section visuals: planeId → { group, planeMesh, border, handle, arrow }
-  interface SectionVisuals { group: THREE.Group; handle: THREE.Mesh; arrow: THREE.ArrowHelper; }
   const sectionVisualsRef = useRef<Map<string, SectionVisuals>>(new Map());
-
-  // Section handle drag state
-  interface SectionDragState {
-    planeId: string; viewPlane: THREE.Plane;
-    startIntersect: THREE.Vector3; startPoint: THREE.Vector3; normal: THREE.Vector3;
-  }
   const dragSectionRef = useRef<SectionDragState | null>(null);
   const isDraggingHandleRef = useRef(false);
   const wasDraggingRef = useRef(false);
@@ -107,7 +112,6 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // Render-on-demand: only draw when something changed
   const needsRenderRef = useRef(true);
-  const scheduleRender = useCallback(() => { needsRenderRef.current = true; }, []);
 
   // ── Init scene ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -854,10 +858,9 @@ export function ViewportContainer({ onElementClick }: Props) {
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
-    const onChange = () => { updateMeasureLabels(); updateHandleScreenPos(); };
-    controls.addEventListener("change", onChange);
-    return () => controls.removeEventListener("change", onChange);
-  }, [updateMeasureLabels, updateHandleScreenPos]);
+    controls.addEventListener("change", updateMeasureLabels);
+    return () => controls.removeEventListener("change", updateMeasureLabels);
+  }, [updateMeasureLabels]);
 
   // ── Measurement helper functions ──────────────────────────────────────────
   const clearMeasure = useCallback(() => {
@@ -1395,7 +1398,7 @@ function isWorldVisible(obj: THREE.Object3D): boolean {
 // ── Context menu component ────────────────────────────────────────────────────
 
 function ContextMenu({
-  x, y, modelId, expressId, inBasket, faceNormal, hitPoint,
+  x, y, expressId, inBasket, faceNormal,
   onClose, onHide, onIsolate, onShowAll,
   onFit, onBasketToggle, onSelectClass, onSelectStorey, onSectionFromFace,
 }: {
