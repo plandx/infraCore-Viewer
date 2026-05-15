@@ -23,7 +23,9 @@ THREE.Scene
 │   ├── LineSegments (border ring)
 │   ├── ArrowHelper (Normale-Pfeil)
 │   └── Mesh (SphereGeometry, Drag-Handle; userData.planeId, userData.isHandle=true)
-└── highlightMesh           ← Klon des selektierten Mesh (isHighlight: true)
+├── highlightMesh           ← Klon des selektierten Mesh (isHighlight: true)
+└── billingOverlay          ← Merged-Mesh je Billing-Eintrag (userData.isBillingOverlay=true)
+                               ShaderMaterial mit Füllstand-Uniform (uFillTop)
 ```
 
 ## Kameras
@@ -265,6 +267,20 @@ Schließt sich bei nächstem `click`-Event (einmaliger Window-Listener).
 - Raycasts auf das angeklickte Element
 - Ruft `ctxZoomTo(modelId, [expressId])` auf → Kamera zoomt auf das Element
 - Auch aus dem HierarchyPanel auslösbar via `viewer:zoomToElement`-Event (für Eltern-Knoten: alle Kind-IDs)
+
+---
+
+## BillingVisualizer (`src/billing/BillingVisualizer.ts`)
+
+Erzeugt semitransparente Füllstand-Overlays über IFC-Elementen.
+
+- Pro `BillingEntry` wird ein zusammengeführtes `BufferGeometry` aller zugehörigen Meshes erstellt (world-space transformiert)
+- Ein `ShaderMaterial` mit `uFillTop`-Uniform schneidet via GLSL-Discard alles über dem Füllstand ab
+- Farbe: orange → grün je nach Prozentsatz (0 % = orange, 100 % = grün `#22c55e`)
+- `renderOrder = 2`, `depthWrite = false`, `transparent = true`
+- Wird von `ViewportContainer` gesteuert: aktiv nur wenn `billingModuleActive === true`
+- `BillingVisualizer.update(entries, meshMap)` — `meshMap` wird on-the-fly aus der Szene gebaut, Key = `${modelId}:${expressId}`
+- `BillingVisualizer.clear()` / `.dispose()` — entfernt alle Overlays und disposes Geometrie + Material
 
 ---
 

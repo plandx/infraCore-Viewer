@@ -30,8 +30,10 @@ Sekundär:   http://localhost:5173/?secondary&panel=hierarchy
                                               panel=properties
                                               panel=lists
                                               panel=sql
+Billing:    http://localhost:5173/?billing
 ```
 
+`main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
 `App.tsx` erkennt `?secondary` und rendert `<SecondaryWindow panel={...}>` statt der vollen App.
 
 ---
@@ -159,6 +161,41 @@ export function openSecondaryWindow(panel: PanelType) {
 ```
 
 Aufruf aus `MainToolbar` via Dropdown.
+
+### Billing-Fenster öffnen
+
+```typescript
+export function openBillingWindow() {
+  window.open(`?billing`, "infracore-billing", "width=1100,height=760,resizable=yes");
+}
+```
+
+Aufruf über den "5D"-Button in der `MainToolbar`.
+
+---
+
+## 5D-Abrechnung Kanal
+
+**Kanal:** `"infracore-billing"` (Konstante `BILLING_CHANNEL` in `billingStore.ts`)
+
+Separater BroadcastChannel ausschließlich für das Billing-Modul:
+
+```typescript
+type BillingMsg =
+  | { t: "ready" }                          // Billing-Fenster → Main: "Ich bin da"
+  | { t: "elements"; list: ElementInfo[] }  // Main → Billing: aktuelle Elementliste
+  | { t: "moduleActive"; active: boolean }  // Billing → Main: Visualisierung ein/aus
+  | { t: "dataSync"; entries: BillingEntry[] }; // beliebig → beliebig: Datensync
+```
+
+### Ablauf
+1. Billing-Fenster öffnet sich, sendet `{ t: "ready" }`
+2. Main-Fenster antwortet mit `{ t: "elements", list }` — alle Elemente aller geladenen Modelle
+3. Bei Modellwechsel im Main-Fenster sendet es erneut `{ t: "elements", ... }`
+4. Beim Speichern im Billing-Store: `{ t: "dataSync", entries }` — synchronisiert LocalStorage + Store in beiden Fenstern
+
+### Datenpersistenz
+Billing-Einträge werden in `localStorage` unter dem Key `infracore-billing-v1` gespeichert. Die Daten überleben Browser-Reload.
 
 ---
 

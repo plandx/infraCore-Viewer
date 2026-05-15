@@ -35,7 +35,13 @@ Browser
 │   └── wasm/                  ← web-ifc WASM-Binaries
 ├── src/
 │   ├── App.tsx                ← Root: erkennt Sekundär-Fenster, rendert MainApp
-│   ├── main.tsx
+│   ├── main.tsx               ← Erkennt ?billing → BillingApp, sonst App
+│   ├── billing/               ← 5D-Abrechnungsmodul
+│   │   ├── types.ts           ← BillingEntry, BillingStage, DocumentRef, ElementInfo, BillingMsg
+│   │   ├── billingStore.ts    ← Zustand-Store + localStorage + BroadcastChannel
+│   │   ├── BillingVisualizer.ts ← Three.js Füllstand-Overlays (ShaderMaterial)
+│   │   ├── BillingPanel.tsx   ← Haupt-UI im Billing-Fenster
+│   │   └── BillingApp.tsx     ← Root-Komponente für ?billing
 │   ├── components/            ← Alle React-Komponenten
 │   ├── section/               ← Eigenständiges BIM-Schnitt-Paket
 │   │   ├── index.ts           ← Public API

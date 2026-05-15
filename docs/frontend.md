@@ -14,6 +14,39 @@ const SECONDARY_PANEL = params.get("panel") ?? "hierarchy";
 
 `MainApp` enthält das 3-spaltige Layout (HierarchyPanel | Viewport | PropertiesPanel) mit react-resizable-panels.
 
+`main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
+
+`MainApp` betreibt einen `BroadcastChannel("infracore-billing")`-Listener: antwortet auf `{ t: "ready" }` mit der aktuellen Elementliste und sendet bei Modellwechsel automatisch `{ t: "elements", list }`.
+
+---
+
+## 5D-Abrechnung (Billing-Modul)
+
+### BillingApp (`src/billing/BillingApp.tsx`)
+
+Standalone-Root-Komponente für das Billing-Fenster (`?billing`). Lauscht auf `{ t: "elements" }` über den Billing-Channel und übergibt die Liste an `<BillingPanel>`.
+
+### BillingPanel (`src/billing/BillingPanel.tsx`)
+
+Haupt-UI des Billing-Fensters.
+
+Props:
+```typescript
+interface Props {
+  elements: ElementInfo[]; // Elementliste vom Main-Fenster
+}
+```
+
+Aufbau:
+- **Header**: Titel, Visualisierungs-Toggle, Import-JSON-Button, Export-JSON-Button
+- **Linke Spalte** (272px): Suchfeld + scrollbare Elementliste. Jede Zeile zeigt Status-Dot (nicht erfasst/in Bearbeitung/fertig), Elementname, IFC-Typ-Chip, Fortschrittsbalken. Hover zeigt "Hinzufügen"-Button für nicht erfasste Elemente.
+- **Rechte Spalte**: Detailansicht des gewählten Elements mit:
+  - Elementkopf: Name, Typ, GUID, ExpressId
+  - Tabelle der Abrechnungsstände (Nr, Bezeichnung, Datum, Grad%, Delta, Löschen-Button)
+  - Formular für neuen Stand (Bezeichnung, Datum, Grad%, Notiz)
+  - Dokumentenliste mit Links
+  - Formular für neues Dokument (Dok.-Nr., Titel, URL)
+
 ---
 
 ## MainToolbar
@@ -29,6 +62,7 @@ Oberste Toolbar-Leiste. Enthält:
 - Kamera-Preset-Dropdown (Oben, Vorne, Links, …)
 - Export: GLTF, Screenshot
 - **Lens Rules**-Panel (`L`), **SmartViews**-Panel (`V`), SQL-Panel (`Q`), **Listen / Mengen**-Panel (`T`)
+- **5D-Abrechnung**-Button (`BarChart2`-Icon + "5D") — öffnet Billing-Fenster via `openBillingWindow()`
 - Sekundär-Fenster öffnen (Dropdown mit 5 Panel-Typen)
 
 ---

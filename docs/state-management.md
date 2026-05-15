@@ -310,3 +310,39 @@ Checkliste:
 7. `docs/state-management.md` aktualisieren
 
 **Hinweis:** `propertyOverrides` wird bewusst **nicht** synchronisiert — Eigenschafts-Editierungen sind session-lokal.
+
+---
+
+## Billing-Store (`src/billing/billingStore.ts`)
+
+Separater Zustand-Store ausschließlich für das 5D-Abrechnungsmodul. **Unabhängig vom Model-Store.**
+
+### Felder
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `entries` | `Record<string, BillingEntry>` | Alle erfassten Elemente, Key = `${modelId}:${expressId}` |
+| `moduleActive` | `boolean` | 3D-Visualisierung ein/aus |
+
+### Aktionen
+
+| Aktion | Signatur | Beschreibung |
+|---|---|---|
+| `addEntry` | `(info) => void` | Erstellt neuen Eintrag (kein Duplikat) |
+| `removeEntry` | `(key) => void` | Entfernt Eintrag inkl. Phasen/Dokumente |
+| `addStage` | `(key, stage) => void` | Fügt Abrechnungsstand hinzu |
+| `updateStage` | `(key, stageId, patch) => void` | Aktualisiert Felder eines Stands |
+| `removeStage` | `(key, stageId) => void` | Entfernt Stand |
+| `addDocument` | `(key, doc) => void` | Verknüpft Dokument |
+| `updateDocument` | `(key, docId, patch) => void` | Aktualisiert Dokumentfelder |
+| `removeDocument` | `(key, docId) => void` | Entfernt Dokument |
+| `importData` | `(BillingExport) => void` | Merged Import-JSON in bestehende Einträge |
+| `exportData` | `() => BillingExport` | Gibt alle Einträge als JSON-Snapshot zurück |
+| `setModuleActive` | `(active) => void` | Schaltet 3D-Visualisierung, sendet `{ t: "moduleActive" }` |
+| `_applySync` | `(entries) => void` | Interner Sync-Empfang (kein Broadcast zurück) |
+
+### Persistenz & Sync
+
+- **localStorage**: Key `infracore-billing-v1` — alle Writes persistieren sofort
+- **BroadcastChannel** `"infracore-billing"`: Jede Mutation sendet `{ t: "dataSync", entries }` an alle anderen Fenster
+- Empfangene `dataSync`-Nachrichten werden via `_applySync()` angewendet (ohne erneutes Broadcast)
