@@ -39,9 +39,14 @@ Browser
 │   ├── billing/               ← 5D-Abrechnungsmodul
 │   │   ├── types.ts           ← BillingEntry, BillingStage, DocumentRef, ElementInfo, BillingMsg
 │   │   ├── billingStore.ts    ← Zustand-Store + localStorage + BroadcastChannel
-│   │   ├── BillingVisualizer.ts ← Three.js Füllstand-Overlays (ShaderMaterial)
+│   │   ├── BillingVisualizer.ts ← Three.js Füllstand-Overlays (MeshBasicMaterial + clip plane)
 │   │   ├── BillingPanel.tsx   ← Haupt-UI im Billing-Fenster
 │   │   └── BillingApp.tsx     ← Root-Komponente für ?billing
+│   ├── batch/                 ← Batch-Änderungsmodul
+│   │   ├── types.ts           ← IfcValueType, FilterOp, TargetFilter, BatchOperation, BatchRule, PreviewResult
+│   │   ├── batchStore.ts      ← In-Memory-Zustand-Store (keine Persistenz)
+│   │   ├── BatchExecutor.ts   ← Pure Funktionen: buildElementRows, executeRule, collectEdits
+│   │   └── BatchPanel.tsx     ← Modal-UI: Regeleditor, Vorschau, Anwenden
 │   ├── components/            ← Alle React-Komponenten
 │   ├── section/               ← Eigenständiges BIM-Schnitt-Paket
 │   │   ├── index.ts           ← Public API
@@ -101,8 +106,10 @@ handleElementClick(modelId, expressId)
 ## Datenfluss beim IFC-Export (Eigenschafts-Overrides)
 
 ```
-User bearbeitet Eigenschaft in PropertiesPanel
-      ↓
+User bearbeitet Eigenschaft in PropertiesPanel  ─────┐
+                                                      │
+User wendet Batch-Regel an in BatchPanel  ────────────┤
+      ↓                                               │
 applyPropertyEdits([{modelId, expressId, key, value, ifcType}]) [modelStore]
       ↓  (propertyOverrides: Map<modelId, Map<expressId, Record<key, PropOverride>>>)
 User klickt „IFC Export"
@@ -114,6 +121,26 @@ writeIFCWithOverrides(file, overrides) [ifcWriter.ts]
   └── api.SaveModel(modelId) → Uint8Array
         ↓
 downloadFile(data, filename)
+```
+
+## Datenfluss Batch-Änderungen
+
+```
+User öffnet BatchPanel (Toolbar „Batch"-Button)
+      ↓
+BatchPanel liest models + propertyOverrides aus modelStore
+      ↓
+buildElementRows() → ElementRow[] (alle Elemente aller Modelle)
+      ↓
+executeRule() → PreviewResult (max. 50 Vorschau-Änderungen)
+      ↓  [Vorschau-Tabelle anzeigen]
+User klickt „Anwenden"
+      ↓
+collectEdits() → alle Änderungen als Flat-Liste
+      ↓
+applyPropertyEdits() → propertyOverrides aktualisiert
+      ↓
+Nächster IFC-Export enthält alle Batch-Änderungen
 ```
 
 ## Kritische Abhängigkeiten

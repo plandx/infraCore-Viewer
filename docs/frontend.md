@@ -63,6 +63,7 @@ Oberste Toolbar-Leiste. Enthält:
 - Export: GLTF, Screenshot
 - **Lens Rules**-Panel (`L`), **SmartViews**-Panel (`V`), SQL-Panel (`Q`), **Listen / Mengen**-Panel (`T`)
 - **5D-Abrechnung**-Button (`BarChart2`-Icon + "5D") — öffnet Billing-Fenster via `openBillingWindow()`
+- **Batch**-Button (`Sliders`-Icon) — öffnet `BatchPanel`-Modal über `onOpenBatch`-Prop
 - Sekundär-Fenster öffnen (Dropdown mit 5 Panel-Typen)
 
 ---
@@ -403,6 +404,59 @@ Unterste Zeile:
 - JS-Heap-Speicher (Chrome API)
 - FPS-Zähler (farbcodiert: grün ≥ 50, gelb 30–49, rot < 30)
 - Version
+
+---
+
+## Batch-Änderungen (Batch-Modul)
+
+### BatchPanel (`src/batch/BatchPanel.tsx`)
+
+Modal-Overlay-UI für massenhafte Eigenschaftsänderungen. Wird über den „Batch"-Button in der Toolbar geöffnet.
+
+Props:
+```typescript
+interface Props { onClose: () => void; }
+```
+
+Aufbau (zwei Spalten):
+- **Linke Spalte** (256px): Regelliste + „Neue Regel"-Button. Jede Zeile zeigt Regelbezeichnung, Typ-Chip und Aktions-Buttons (Duplizieren, Löschen).
+- **Rechte Spalte**: Regeleditor mit:
+  - **Bezeichnung**: Freitextfeld für den Regelnamen
+  - **Filter**: Art der Zielauswahl (`TargetFilter`)
+  - **Operationen**: Liste von `BatchOperation`-Einträgen (Typ-Dropdown + typ-spezifische Felder)
+  - **Vorschau-Button**: Führt `executeRule()` aus, zeigt erste 50 Änderungen in Tabelle (Element, Schlüssel, Alt → Neu)
+  - **Anwenden-Button**: Führt `collectEdits()` aus, ruft `applyPropertyEdits()` auf
+
+### Filterarten (`TargetFilter`)
+
+| `kind` | Beschreibung |
+|---|---|
+| `all` | Alle geladenen Elemente |
+| `ifcType` | Nur Elemente eines bestimmten IFC-Typs (z.B. `IfcWall`) |
+| `propCondition` | Eigenschaft erfüllt eine Bedingung (`eq`, `neq`, `contains`, `regex`, `empty`, `notEmpty`) |
+| `basket` | Nur Elemente im Auswahlkorb |
+
+### Operationsarten (`BatchOperation`)
+
+| `type` | Beschreibung |
+|---|---|
+| `set_property` | Setzt eine Eigenschaft auf einen festen Wert (mit IFC-Werttyp) |
+| `template` | Berechnet Wert aus Template-String mit `{Schlüssel}`-Platzhaltern |
+| `copy_property` | Kopiert Wert von einer Eigenschaft zu einer anderen |
+| `find_replace` | Suchen & Ersetzen (optional Regex) in einer Eigenschaft |
+| `name_to_prop` | Schreibt Elementname in eine Eigenschaft |
+| `prop_to_name` | Setzt Elementname aus einer Eigenschaft |
+
+### BatchExecutor (`src/batch/BatchExecutor.ts`)
+
+Pure Funktionen ohne React-Abhängigkeit:
+- `buildElementRows(models, propMap)` → `ElementRow[]` — alle Elemente aller Modelle flach
+- `executeRule(rule, rows, basketKeys, maxChanges?)` → `PreviewResult` — Vorschau (max. 50)
+- `collectEdits(rule, rows, basketKeys)` → Flat-Liste aller Änderungen für `applyPropertyEdits`
+
+### batchStore (`src/batch/batchStore.ts`)
+
+In-Memory-Zustand-Store (kein localStorage, kein BroadcastChannel). Felder: `rules[]`, `selectedRuleId`, `previewResult`, `isPreviewing`, `isApplying`. Aktionen: `addRule`, `duplicateRule`, `removeRule`, `updateRule`, `selectRule`, `setPreviewResult`, `setIsPreviewing`, `setIsApplying`.
 
 ---
 
