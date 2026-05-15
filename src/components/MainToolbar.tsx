@@ -11,6 +11,8 @@ import type { PanelType } from "../utils/windowSync";
 import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
+import { useBillingStore } from "../billing/billingStore";
+import * as XLSX from "xlsx";
 import type { ActiveTool } from "../types/ifc";
 
 interface Props {
@@ -67,6 +69,77 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
       setIfcExporting(false);
     }
   }, [models, propertyOverrides, ifcExporting]);
+
+  const handleExport5DJson = useCallback(() => {
+    const data = useBillingStore.getState().exportData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `5d-abrechnung-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setExportOpen(false);
+  }, []);
+
+  const handleExportMonthlyXLSX = useCallback(() => {
+    const entries = useBillingStore.getState().entries;
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastDay  = new Date(now.getFullYear(), now.getMonth(), 0);
+    const monthLabel = firstDay.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+    const fmt = (d: string) => { const [y,m,dd] = d.split("-"); return `${dd}.${m}.${y}`; };
+
+    const dataRows: (string | number)[][] = [];
+    for (const entry of Object.values(entries)) {
+      const monthStages = entry.stages.filter(s => {
+        const d = new Date(s.date + "T00:00:00");
+        return d >= firstDay && d <= lastDay;
+      });
+      for (const stage of monthStages) {
+        const idx = entry.stages.indexOf(stage);
+        const prev = idx > 0 ? entry.stages[idx - 1] : null;
+        const delta = prev !== null ? stage.degree - prev.degree : null;
+        const docs = entry.documents.map(d => d.docId ? `${d.docId}: ${d.title}` : d.title).join("; ");
+        dataRows.push([
+          entry.elementName,
+          entry.ifcType.replace(/^Ifc/, ""),
+          entry.guid || "–",
+          idx + 1,
+          stage.label,
+          fmt(stage.date),
+          stage.degree,
+          delta !== null ? (delta >= 0 ? `+${delta}` : String(delta)) : "–",
+          stage.note || "",
+          docs || "–",
+        ]);
+      }
+    }
+
+    const cols = ["Element", "Typ", "GUID", "Stand-Nr.", "Bezeichnung", "Datum",
+                  "Fertigstellungsgrad (%)", "Δ (%)", "Anmerkung", "Dokumente"];
+
+    const aoa: (string | number)[][] = [
+      [`Monatsbericht 5D-Abrechnung – ${monthLabel}`],
+      [`Erstellt am: ${now.toLocaleDateString("de-DE")}`],
+      [],
+      cols,
+      ...(dataRows.length ? dataRows : [["Keine Einträge für diesen Zeitraum."]]),
+      [],
+      [`Gesamt: ${dataRows.length} Abrechnung(en) | Zeitraum: ${firstDay.toLocaleDateString("de-DE")} – ${lastDay.toLocaleDateString("de-DE")}`],
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [30,14,22,10,20,12,22,8,24,30].map(wch => ({ wch }));
+    ws["!merges"] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, monthLabel.slice(0, 31));
+    XLSX.writeFile(wb, `5d-monatsbericht-${firstDay.toISOString().slice(0, 7)}.xlsx`);
+    setExportOpen(false);
+  }, []);
+
   const [viewOpen, setViewOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [windowOpen, setWindowOpen] = useState(false);
@@ -368,6 +441,33 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
                     </span>
                   </DropdownItem>
                 );
+              })()}
+              <div className="h-px bg-border/50 my-0.5 mx-2" />
+              {(() => {
+                const has5D = Object.keys(useBillingStore.getState().entries).length > 0;
+                return (<>
+                  <DropdownItem
+                    icon={<BarChart2 size={13} />}
+                    onClick={has5D ? handleExport5DJson : undefined}
+                    disabled={!has5D}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      5D-Daten als JSON
+                      {has5D && (
+                        <span className="bg-primary/20 text-primary text-[9px] px-1 rounded">
+                          {Object.keys(useBillingStore.getState().entries).length}
+                        </span>
+                      )}
+                    </span>
+                  </DropdownItem>
+                  <DropdownItem
+                    icon={<Table2 size={13} />}
+                    onClick={has5D ? handleExportMonthlyXLSX : undefined}
+                    disabled={!has5D}
+                  >
+                    Monatsbericht als XLSX
+                  </DropdownItem>
+                </>);
               })()}
               <div className="h-px bg-border/50 my-0.5 mx-2" />
               <DropdownItem
