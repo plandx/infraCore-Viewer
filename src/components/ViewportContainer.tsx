@@ -102,6 +102,10 @@ export function ViewportContainer({ onElementClick }: Props) {
   // Basket material overrides: stores original material per mesh for restore
   const basketMatsRef = useRef<Map<THREE.Mesh, THREE.Material | THREE.Material[]>>(new Map());
 
+  // Render-on-demand: only draw when something changed
+  const needsRenderRef = useRef(true);
+  const scheduleRender = useCallback(() => { needsRenderRef.current = true; }, []);
+
   // ── Init scene ───────────────────────────────────────────────────────────
   useEffect(() => {
     const mount = mountRef.current;
@@ -114,8 +118,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.enabled = false;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.localClippingEnabled = true;
     mount.appendChild(renderer.domElement);
@@ -155,11 +158,6 @@ export function ViewportContainer({ onElementClick }: Props) {
     scene.add(new THREE.AmbientLight(0xffffff, 0.65));
     const sun = new THREE.DirectionalLight(0xffffff, 1.2);
     sun.position.set(200, 400, 200);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = sun.shadow.camera.bottom = -5000;
-    sun.shadow.camera.right = sun.shadow.camera.top = 5000;
-    sun.shadow.camera.far = 500_000;
     scene.add(sun);
     scene.add(new THREE.HemisphereLight(0x8899ff, 0x443300, 0.45));
 
@@ -173,12 +171,18 @@ export function ViewportContainer({ onElementClick }: Props) {
     axes.name = "__axes";
     scene.add(axes);
 
-    // Render loop
+    // Trigger a render whenever the camera moves
+    controls.addEventListener("change", () => { needsRenderRef.current = true; });
+
+    // Render-on-demand loop: only calls renderer.render() when needsRenderRef is set.
+    // With enableDamping=false, controls.update() is a no-op so we skip it here.
     let running = true;
     const animate = () => {
       if (!running) return;
       rafRef.current = requestAnimationFrame(animate);
-      controls.update();
+      if (!needsRenderRef.current) return;
+      needsRenderRef.current = false;
+
       const isOrtho = useModelStore.getState().settings.orthographic;
 
       if (isOrtho) {
@@ -217,6 +221,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       ortho.left = -s * a; ortho.right = s * a;
       ortho.top = s; ortho.bottom = -s;
       ortho.updateProjectionMatrix();
+      needsRenderRef.current = true;
     });
     ro.observe(mount);
 
@@ -244,7 +249,8 @@ export function ViewportContainer({ onElementClick }: Props) {
     const P = new THREE.Vector3(...settings.clipPoint);
     const plane = new THREE.Plane(N, -N.dot(P));
     renderer.clippingPlanes = [plane];
-  }, [settings.clipPlanes, settings.clipNormal, settings.clipPoint]);
+    scheduleRender();
+  }, [settings.clipPlanes, settings.clipNormal, settings.clipPoint, scheduleRender]);
 
   // ── Section plane 3D visuals ──────────────────────────────────────────────
   useEffect(() => {
@@ -365,6 +371,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     scene.add(group);
     sectionGroupRef.current = group;
+    needsRenderRef.current = true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.clipPlanes, settings.clipNormal]);
 
@@ -417,6 +424,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     const N = new THREE.Vector3(...settings.clipNormal).normalize();
     const P = new THREE.Vector3(...settings.clipPoint);
     updateSectionPositions(N, P);
+    needsRenderRef.current = true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.clipPoint, settings.clipNormal, settings.clipPlanes]);
 
@@ -428,6 +436,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (grid) grid.visible = settings.grid ?? true;
     const axes = scene.getObjectByName("__axes");
     if (axes) axes.visible = settings.axes ?? true;
+    needsRenderRef.current = true;
   }, [settings.grid, settings.axes]);
 
   // ── Scene background follows theme ────────────────────────────────────────
@@ -437,6 +446,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     scene.background = new THREE.Color(
       settings.theme === "light" ? "#e8edf2" : (settings.background ?? "#1a1b26")
     );
+    needsRenderRef.current = true;
   }, [settings.theme, settings.background]);
 
   // ── Sync models into scene ────────────────────────────────────────────────
@@ -490,6 +500,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       const sceneObj = scene.getObjectByName(`model:${model.id}`);
       if (sceneObj) sceneObj.visible = model.visible;
     });
+    needsRenderRef.current = true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models]);
 
@@ -500,6 +511,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     scene.traverse((obj) => {
       if (obj.userData.isEdge) obj.visible = settings.edges;
     });
+    needsRenderRef.current = true;
   }, [settings.edges]);
 
   // ── Element-level visibility (hide/isolate) ───────────────────────────────
@@ -532,6 +544,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         obj.visible = !state.hiddenElements.has(key);
       }
     });
+    needsRenderRef.current = true;
   // selectionBasket only matters when basketMode === "isolate"; basketMode covers both
   }, [hiddenElements, isolatedElements, models, basketMode,
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -590,6 +603,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     colorMaterialsRef.current.forEach((m) => m.dispose());
     colorMaterialsRef.current = newMats;
+    needsRenderRef.current = true;
   }, [colorGroups]);
 
   // ── Basket visuals: outlines + material override (highlight / ghost) ────────
@@ -675,6 +689,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       basketMatsRef.current.clear();
       createdMats.forEach((m) => m.dispose());
     };
+    needsRenderRef.current = true;
   }, [selectionBasket, basketMode, models]);
 
   // ── Highlight selected element ────────────────────────────────────────────
@@ -730,6 +745,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       scene.add(hl);
       highlightRef.current.push(hl);
     });
+    needsRenderRef.current = true;
   }, [selectedElement, hiddenElements, isolatedElements]);
 
   // ── Camera fit helpers ────────────────────────────────────────────────────
@@ -768,6 +784,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     }
 
     controls.update();
+    needsRenderRef.current = true;
   }, []);
 
   const fitAllLoaded = useCallback(() => {
@@ -1023,6 +1040,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         line.renderOrder = 998;
         scene.add(line);
         measureLinesRef.current.push(line);
+        needsRenderRef.current = true;
 
         measureMidpointsRef.current.push({ a, b });
         pendingPointRef.current = null;
@@ -1139,6 +1157,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (rend && rend.clippingPlanes.length > 0) {
       rend.clippingPlanes[0].set(N, -N.dot(newP));
     }
+    needsRenderRef.current = true;
   }, [updateSectionPositions]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
