@@ -255,15 +255,13 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     const { hiddenElements: he, isolatedElements: ie, models: ms } = useModelStore.getState();
     const entries: VisibleEntry[] = [];
     ms.forEach((model) => {
-      if (!model.visible || model.status !== "loaded") return;
+      if (!model.visible) return;
       for (const [typeName, elements] of Object.entries(model.elementsByType)) {
         for (const el of elements) {
           const key = `${model.id}:${el.expressId}`;
-          const hidden = he.has(key);
-          const isolated = ie !== null && !ie.has(key);
-          if (!hidden && !isolated) {
-            entries.push({ modelId: model.id, modelName: model.name, modelColor: model.color, expressId: el.expressId, name: el.name, typeName });
-          }
+          if (he.has(key)) continue;
+          if (ie !== null && !ie.has(key)) continue;
+          entries.push({ modelId: model.id, modelName: model.name, modelColor: model.color, expressId: el.expressId, name: el.name, typeName });
         }
       }
     });
@@ -416,6 +414,8 @@ function VisibleView({ snapshot, onRefresh, activeKey, multiSelected, onItemClic
   multiSelected: Set<string>;
   onItemClick: (modelId: string, expressId: number, e: React.MouseEvent) => void;
 }) {
+  useEffect(() => { onRefresh(); }, []);
+
   if (!snapshot) return (
     <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-[11px] gap-2">
       <p>Wird geladen…</p>
