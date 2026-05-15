@@ -86,7 +86,19 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   // Guard: track key we triggered ourselves so the selectedElement effect doesn't clear it
   const lastPanelClickRef = useRef<string | null>(null);
 
+  // Cache findPathToNode results — spatial trees are immutable after loading
+  const pathCacheRef = useRef<Map<string, number[]>>(new Map());
+
   const arr = useMemo(() => Array.from(models.values()), [models]);
+
+  // Evict path cache entries for removed models
+  useEffect(() => {
+    const modelIds = new Set(models.keys());
+    for (const key of pathCacheRef.current.keys()) {
+      const modelId = key.split(":")[0];
+      if (!modelIds.has(modelId)) pathCacheRef.current.delete(key);
+    }
+  }, [models]);
 
   // Auto-expand depth 0–1 for newly loaded models
   useEffect(() => {
@@ -122,9 +134,14 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
 
     const model = models.get(selectedElement.modelId);
 
-    // Auto-expand spatial ancestors
+    // Auto-expand spatial ancestors (result cached per element since tree is immutable)
     if (model?.spatialTree) {
-      const path = findPathToNode(model.spatialTree, selectedElement.expressId);
+      const cacheKey = `${selectedElement.modelId}:${selectedElement.expressId}`;
+      let path = pathCacheRef.current.get(cacheKey);
+      if (!path) {
+        path = findPathToNode(model.spatialTree, selectedElement.expressId);
+        pathCacheRef.current.set(cacheKey, path);
+      }
       if (path.length > 1) {
         setExpandedSpatial((prev) => {
           const next = new Set(prev);
