@@ -76,6 +76,7 @@ interface SmartTier {
 |---|---|---|
 | `selectionBasket` | `Set<string>` | Akkumulierte Elementauswahl, Keys `"modelId:expressId"` |
 | `basketMode` | `BasketMode \| null` | `"highlight"` / `"ghost"` / `"isolate"` |
+| `basketAutoAdd` | `boolean` | Wenn `true`: jeder Viewport-Klick fügt das Element automatisch zum Korb hinzu |
 
 ### Eigenschafts-Overrides
 | Feld | Typ | Beschreibung |

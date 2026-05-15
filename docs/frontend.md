@@ -37,9 +37,10 @@ Oberste Toolbar-Leiste. Enthält:
 
 **Datei:** `src/components/HierarchyPanel.tsx`
 
-Zeigt alle geladenen Modelle in zwei Ansichten:
+Zeigt alle geladenen Modelle in drei Ansichten:
 - **Spatial** (Räumliche Struktur): Site → Building → Storey → Raum → Element
 - **Type** (Nach IFC-Typ gruppiert)
+- **Sichtbar** (Snapshot aller aktuell sichtbaren Elemente): Wird nur beim Tab-Wechsel aktualisiert (`captureVisibleSnapshot()`); berücksichtigt `hiddenElements` und `isolatedElements`; Doppelklick zoomt per `viewer:zoomToElement`
 
 Props:
 ```typescript
@@ -190,10 +191,14 @@ Zweispaltig:
 - Jede Spalte: `[Eigenschaft][Spaltenname][↑↓][×]`
 - Automatische Beschriftung aus BUILTIN_LABELS wenn Schlüssel gewählt
 
+**`PropertyLoader`** — Eingebettet im Editor; lädt alle IFC-Eigenschaften aller geladenen Modelle und zeigt Fortschritt in %. Aktiviert volle Eigenschaftsunterstützung im Filter- und Spalten-Picker (`loadedPropKeys`).
+
 **`ResultsTable`** — Ergebnisanzeige:
-- Sticky Header
+- Sticky Header mit **Excel-artigen Spaltenfiltern**: Pro Spalte Dropdown mit Checkbox-Liste aller vorkommenden Werte; `(Alle)` mit Indeterminate-Zustand; Suchfeld im Dropdown
 - Zeigt max. `MAX_VISIBLE = 500` Zeilen (gelber Hinweis wenn mehr)
-- XLSX-Export enthält alle Zeilen
+- Info-Leiste zeigt Anzahl gefilterter Zeilen + Reset-Link wenn Filter aktiv
+- Spaltenfilter werden beim erneuten Ausführen zurückgesetzt
+- XLSX-Export enthält alle gefilterten Zeilen
 
 ### Datenfluss
 
@@ -243,11 +248,38 @@ Operatoren:
 - `−` — Element entfernen (disabled wenn nicht drin)
 - `×` — Korb leeren + Modus deaktivieren
 - **Bearbeiten** — öffnet `BasketEditor` (Table2-Icon, nur sichtbar wenn Korb > 0)
+- **Auto** (`MousePointerClick`-Icon) — Auto-Hinzufügen-Toggle (`basketAutoAdd`): amber hervorgehoben wenn aktiv; jeder Viewport-Klick fügt dann automatisch hinzu
 
 Darstellungsmodi (nur sichtbar wenn Korb > 0):
 - **HV** (Hervorheben) — amber Material-Override auf Korb-Elementen
 - **Geist** — Nicht-Korb-Elemente auf 10% Opacity
 - **ISO** (Isolieren) — Nicht-Korb-Elemente ausgeblendet
+
+Alle Korb-Elemente erhalten im Viewport gelbe Kanten-Outlines (EdgesGeometry, `0xfbbf24`, `depthTest: false`, `renderOrder: 998`) unabhängig vom aktiven Darstellungsmodus.
+
+---
+
+## BasketListPanel
+
+**Datei:** `src/components/BasketListPanel.tsx`
+**Sekundärfenster:** `"basket"` (380 × 600 px)
+
+Zeigt alle Elemente im Auswahlkorb als scrollbare Liste.
+
+Props:
+```typescript
+{ onSelectElement?: (modelId: string, expressId: number) => void }
+```
+
+Pro Zeile:
+- Farb-Dot (Modellfarbe)
+- Name (oder IFC-Typ als Fallback) + Typ · Modellname
+- **Zoom**-Button (`Focus`-Icon) — dispatcht `viewer:zoomToElement`-Event
+- **Entfernen**-Button (`X`-Icon) — `removeFromBasket()`
+
+Header: Elementanzahl + „Alle entfernen"-Button (leert Korb + setzt Modus zurück).
+
+Leer-Zustand: Hinweistext wenn Korb leer.
 
 ---
 
