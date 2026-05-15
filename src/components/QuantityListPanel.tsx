@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
 import * as XLSX from "xlsx";
-import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, RefreshCw, Check, ListFilter, Search } from "lucide-react";
+import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, RefreshCw, Check, ListFilter, Search, ShoppingBasket, ScanEye } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
 import { evaluateRule, CONDITION_LABELS, CONDITIONS_WITHOUT_VALUE } from "../utils/smartViewUtils";
 import { loadAllElementProperties } from "../utils/ifcLoader";
@@ -516,6 +516,8 @@ export function QuantityListPanel() {
   const models        = useModelStore((s) => s.models);
   const loadedProperties = useModelStore((s) => s.loadedProperties);
   const loadedPropKeys   = useModelStore((s) => s.loadedPropKeys);
+  const addToBasket    = useModelStore((s) => s.addToBasket);
+  const isolateEntries = useModelStore((s) => s.isolateEntries);
 
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
@@ -636,6 +638,17 @@ export function QuantityListPanel() {
     );
   }, [results, activeList, columnFilters]);
 
+  const handleAddToBasket = () => {
+    const rows = getFilteredRows();
+    rows.forEach((r) => addToBasket(r.modelId, r.expressId));
+  };
+
+  const handleIsolate = () => {
+    const rows = getFilteredRows();
+    if (rows.length === 0) return;
+    isolateEntries(rows.map((r) => ({ modelId: r.modelId, expressId: r.expressId })));
+  };
+
   const handleExport = () => {
     if (!activeList || !results) return;
     const exportRows = getFilteredRows();
@@ -731,16 +744,34 @@ export function QuantityListPanel() {
               </button>
               {results !== null && (
                 <>
-                  <span className="text-muted-foreground text-[11px]">
+                  <span className="text-muted-foreground text-[11px] shrink-0">
                     {results.length} {results.length === 1 ? "Element" : "Elemente"}
                   </span>
-                  <button
-                    onClick={handleExport}
-                    disabled={results.length === 0}
-                    className="flex items-center gap-1.5 ml-auto px-2.5 py-1.5 rounded border border-border text-xs hover:bg-muted/50 disabled:opacity-40 transition-colors">
-                    <Download size={12} />
-                    XLSX exportieren
-                  </button>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <button
+                      onClick={handleIsolate}
+                      disabled={results.length === 0}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border text-xs hover:bg-muted/50 disabled:opacity-40 transition-colors"
+                      title="Ergebnis im Viewer isolieren">
+                      <ScanEye size={12} />
+                      Isolieren
+                    </button>
+                    <button
+                      onClick={handleAddToBasket}
+                      disabled={results.length === 0}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border text-xs hover:bg-muted/50 disabled:opacity-40 transition-colors"
+                      title="Ergebnis zum Auswahlkorb hinzufügen">
+                      <ShoppingBasket size={12} />
+                      Zum Korb
+                    </button>
+                    <button
+                      onClick={handleExport}
+                      disabled={results.length === 0}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border text-xs hover:bg-muted/50 disabled:opacity-40 transition-colors">
+                      <Download size={12} />
+                      XLSX
+                    </button>
+                  </div>
                 </>
               )}
             </div>
