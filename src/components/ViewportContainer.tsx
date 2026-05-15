@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
@@ -1347,8 +1347,24 @@ function ContextMenu({
   onSectionFromFace?: () => void; onAdd5D: () => void; onSet5DDegree: (d: number) => void;
 }) {
   const [subOpen, setSubOpen] = useState(false);
-  // Flip submenu to left when menu is in right half of viewport
-  const flipLeft = menuX > window.innerWidth - 360;
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: x, top: y });
+
+  // After first paint, clamp menu so it stays fully inside the container
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el) return;
+    const parent = el.parentElement;
+    const cw = parent?.offsetWidth ?? window.innerWidth;
+    const ch = parent?.offsetHeight ?? window.innerHeight;
+    setPos({
+      left: x + el.offsetWidth  > cw ? Math.max(0, cw - el.offsetWidth)  : x,
+      top:  y + el.offsetHeight > ch ? Math.max(0, ch - el.offsetHeight) : y,
+    });
+  }, [x, y]);
+
+  // Flip 5D submenu to left when menu is near the right edge
+  const flipLeft = pos.left > (menuRef.current?.parentElement?.offsetWidth ?? window.innerWidth) - 360;
 
   useEffect(() => {
     const handler = () => onClose();
@@ -1358,8 +1374,9 @@ function ContextMenu({
 
   return (
     <div
+      ref={menuRef}
       className="absolute z-50 bg-popover border border-border rounded-md shadow-xl text-xs min-w-[190px] py-1"
-      style={{ left: x, top: y }}
+      style={{ left: pos.left, top: pos.top }}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="px-3 py-1 text-muted-foreground/60 text-[10px] border-b border-border font-mono mb-1">
