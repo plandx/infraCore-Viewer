@@ -528,29 +528,29 @@ export function ViewportContainer({ onElementClick }: Props) {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // Restore original materials and dispose overrides
+    const colorMap = new Map<string, { color: string; opacity: number }>();
+    if (colorGroups && colorGroups.length > 0) {
+      colorGroups.forEach((group) => {
+        if (!group.visible) return;
+        const opacity = group.opacity ?? 1;
+        group.entries.forEach(({ modelId, expressId }) => {
+          colorMap.set(`${modelId}:${expressId}`, { color: group.color, opacity });
+        });
+      });
+    }
+
+    const newMats: THREE.Material[] = [];
+
+    // Single traversal: restore previous overrides and apply new colors
     scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh && obj.userData.originalMaterial !== undefined) {
+      if (!(obj instanceof THREE.Mesh)) return;
+
+      if (obj.userData.originalMaterial !== undefined) {
         obj.material = obj.userData.originalMaterial as THREE.Material;
         obj.userData.originalMaterial = undefined;
       }
-    });
-    colorMaterialsRef.current.forEach((m) => m.dispose());
-    colorMaterialsRef.current = [];
 
-    if (!colorGroups || colorGroups.length === 0) return;
-
-    const colorMap = new Map<string, { color: string; opacity: number }>();
-    colorGroups.forEach((group) => {
-      if (!group.visible) return;
-      const opacity = group.opacity ?? 1;
-      group.entries.forEach(({ modelId, expressId }) => {
-        colorMap.set(`${modelId}:${expressId}`, { color: group.color, opacity });
-      });
-    });
-
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
+      if (colorMap.size === 0 || obj.userData.expressId == null) return;
       if (obj.userData.isHighlight || obj.userData.isSectionVisual) return;
 
       let modelId = "";
@@ -561,9 +561,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
       if (!modelId) return;
 
-      const key = `${modelId}:${obj.userData.expressId}`;
-      const entry = colorMap.get(key);
-      if (entry === undefined) return;
+      const entry = colorMap.get(`${modelId}:${obj.userData.expressId}`);
+      if (!entry) return;
 
       const newMat = new THREE.MeshLambertMaterial({
         color: new THREE.Color(entry.color),
@@ -572,26 +571,36 @@ export function ViewportContainer({ onElementClick }: Props) {
       });
       obj.userData.originalMaterial = obj.material;
       obj.material = newMat;
-      colorMaterialsRef.current.push(newMat);
+      newMats.push(newMat);
     });
+
+    colorMaterialsRef.current.forEach((m) => m.dispose());
+    colorMaterialsRef.current = newMats;
   }, [colorGroups]);
 
-  // ── Basket visual override (highlight / ghost) ──────────────────────────────
+  // ── Basket visuals: outlines + material override (highlight / ghost) ────────
+  // Single traversal handles both to avoid two O(n) scene walks per basket change.
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // Restore all previously overridden materials
+    // Cleanup
+    basketOutlinesRef.current.forEach((line) => {
+      line.parent?.remove(line);
+      (line.material as THREE.Material).dispose();
+    });
+    basketOutlinesRef.current = [];
     basketMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
     basketMatsRef.current.clear();
 
-    if (!basketMode || basketMode === "isolate" || selectionBasket.size === 0) return;
+    if (selectionBasket.size === 0) return;
 
+    const doMaterials = basketMode && basketMode !== "isolate";
     const createdMats: THREE.Material[] = [];
 
     scene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
-      if (obj.userData.isHighlight || obj.userData.isSectionVisual) return;
+      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isEdge || obj.userData.isBasketOutline) return;
       if (obj.userData.expressId == null) return;
 
       let modelId = "";
@@ -604,78 +613,42 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       const key = `${modelId}:${obj.userData.expressId}`;
       const inBasket = selectionBasket.has(key);
-      const orig = obj.material as THREE.Material;
 
-      if (basketMode === "highlight" && inBasket) {
-        // Bright amber material — fully replaces original so it's clearly visible
-        const hlMat = new THREE.MeshStandardMaterial({
-          color: 0xf59e0b,
-          emissive: new THREE.Color(0xf59e0b),
-          emissiveIntensity: 0.5,
-          roughness: 0.35,
-          metalness: 0.1,
-        });
-        basketMatsRef.current.set(obj, orig);
-        obj.material = hlMat;
-        createdMats.push(hlMat);
-      } else if (basketMode === "ghost" && !inBasket) {
-        const ghost = orig.clone() as THREE.MeshLambertMaterial;
-        ghost.transparent = true;
-        ghost.opacity = 0.10;
-        ghost.needsUpdate = true;
-        basketMatsRef.current.set(obj, orig);
-        obj.material = ghost;
-        createdMats.push(ghost);
+      // Yellow outline for every basket member (all modes)
+      if (inBasket) {
+        if (!obj.userData._basketEdgesGeo) {
+          obj.userData._basketEdgesGeo = new THREE.EdgesGeometry(obj.geometry, 15);
+        }
+        const edgesGeo = obj.userData._basketEdgesGeo as THREE.EdgesGeometry;
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthTest: false });
+        const lines = new THREE.LineSegments(edgesGeo, lineMat);
+        lines.userData.isBasketOutline = true;
+        lines.renderOrder = 998;
+        obj.add(lines);
+        basketOutlinesRef.current.push(lines);
       }
-    });
 
-    return () => {
-      basketMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
-      basketMatsRef.current.clear();
-      createdMats.forEach((m) => m.dispose());
-    };
-  }, [selectionBasket, basketMode, models]);
-
-  useEffect(() => {
-    // Remove old outline objects — only dispose the material, not the geometry.
-    // EdgesGeometry is cached on obj.userData._basketEdgesGeo so it is computed
-    // at most once per mesh for the lifetime of the model.
-    basketOutlinesRef.current.forEach((line) => {
-      line.parent?.remove(line);
-      (line.material as THREE.Material).dispose();
-    });
-    basketOutlinesRef.current = [];
-
-    const scene = sceneRef.current;
-    if (!scene || selectionBasket.size === 0) return;
-
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh)) return;
-      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isBasketOutline) return;
-      if (obj.userData.expressId == null) return;
-
-      let modelId = "";
-      let node: THREE.Object3D | null = obj;
-      while (node) {
-        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
-        node = node.parent;
+      // Material override (highlight / ghost modes only)
+      if (doMaterials) {
+        const orig = obj.material as THREE.Material;
+        if (basketMode === "highlight" && inBasket) {
+          const hlMat = new THREE.MeshStandardMaterial({
+            color: 0xf59e0b, emissive: new THREE.Color(0xf59e0b),
+            emissiveIntensity: 0.5, roughness: 0.35, metalness: 0.1,
+          });
+          basketMatsRef.current.set(obj, orig);
+          obj.material = hlMat;
+          createdMats.push(hlMat);
+        } else if (basketMode === "ghost" && !inBasket) {
+          const ghost = orig.clone() as THREE.MeshLambertMaterial;
+          ghost.transparent = true;
+          ghost.opacity = 0.10;
+          ghost.needsUpdate = true;
+          basketMatsRef.current.set(obj, orig);
+          obj.material = ghost;
+          createdMats.push(ghost);
+        }
       }
-      if (!modelId) return;
-
-      const key = `${modelId}:${obj.userData.expressId}`;
-      if (!selectionBasket.has(key)) return;
-
-      // Compute once, reuse on every subsequent basket update
-      if (!obj.userData._basketEdgesGeo) {
-        obj.userData._basketEdgesGeo = new THREE.EdgesGeometry(obj.geometry, 15);
-      }
-      const edgesGeo = obj.userData._basketEdgesGeo as THREE.EdgesGeometry;
-      const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthTest: false });
-      const lines = new THREE.LineSegments(edgesGeo, lineMat);
-      lines.userData.isBasketOutline = true;
-      lines.renderOrder = 998;
-      obj.add(lines);
-      basketOutlinesRef.current.push(lines);
     });
 
     return () => {
@@ -684,8 +657,11 @@ export function ViewportContainer({ onElementClick }: Props) {
         (line.material as THREE.Material).dispose();
       });
       basketOutlinesRef.current = [];
+      basketMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
+      basketMatsRef.current.clear();
+      createdMats.forEach((m) => m.dispose());
     };
-  }, [selectionBasket, models]);
+  }, [selectionBasket, basketMode, models]);
 
   // ── Highlight selected element ────────────────────────────────────────────
   useEffect(() => {
