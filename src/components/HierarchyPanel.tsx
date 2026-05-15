@@ -28,7 +28,6 @@ interface Props {
 
 export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverride, onShowAllOverride, onIsolateOverride }: Props) {
   const models = useModelStore((s) => s.models);
-  const selectedElement = useModelStore((s) => s.selectedElement);
   const hiddenElements = useModelStore((s) => s.hiddenElements);
   const isolatedElements = useModelStore((s) => s.isolatedElements);
   const selectionBasket = useModelStore((s) => s.selectionBasket);
@@ -94,11 +93,6 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   // Scroll container ref for auto-scroll
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Guard: track key we triggered ourselves so the selectedElement effect doesn't clear it
-  const lastPanelClickRef = useRef<string | null>(null);
-
-  // Cache findPathToNode results — spatial trees are immutable after loading
-  const pathCacheRef = useRef<Map<string, number[]>>(new Map());
 
   const arr = useMemo(() => Array.from(models.values()), [models]);
 
@@ -129,14 +123,6 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     return map;
   }, [arr, hideElement, showElement, isolateElement]);
 
-  // Evict path cache entries for removed models
-  useEffect(() => {
-    const modelIds = new Set(models.keys());
-    for (const key of pathCacheRef.current.keys()) {
-      const modelId = key.split(":")[0];
-      if (!modelIds.has(modelId)) pathCacheRef.current.delete(key);
-    }
-  }, [models]);
 
   // Auto-expand depth 0–1 for newly loaded models
   useEffect(() => {
@@ -150,73 +136,9 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arr.map((m) => m.id).join(",")]);
 
-  // ── React to external selection (viewport click, SQL panel, etc.) ───────────
-  useEffect(() => {
-    if (!selectedElement) return;
-    const key = `${selectedElement.modelId}:${selectedElement.expressId}`;
 
-    if (lastPanelClickRef.current === key) {
-      // We triggered this ourselves — only scroll, don't clear multi-select
-      lastPanelClickRef.current = null;
-    } else {
-      // External change → clear multi-selection so the store selection shows
-      setMultiSelected(new Set());
-      setAnchorKey(null);
-    }
-
-    // Auto-expand model
-    setExpandedModels((prev) => {
-      if (prev.has(selectedElement.modelId)) return prev;
-      return new Set([...prev, selectedElement.modelId]);
-    });
-
-    const model = models.get(selectedElement.modelId);
-
-    // Auto-expand spatial ancestors (result cached per element since tree is immutable)
-    if (model?.spatialTree) {
-      const cacheKey = `${selectedElement.modelId}:${selectedElement.expressId}`;
-      let path = pathCacheRef.current.get(cacheKey);
-      if (!path) {
-        path = findPathToNode(model.spatialTree, selectedElement.expressId);
-        pathCacheRef.current.set(cacheKey, path);
-      }
-      if (path.length > 1) {
-        setExpandedSpatial((prev) => {
-          const next = new Set(prev);
-          // Expand all ancestors (all nodes on path except the leaf itself)
-          path.slice(0, -1).forEach((eid) => next.add(`${selectedElement.modelId}:${eid}`));
-          return next;
-        });
-      }
-    }
-
-    // Auto-expand the type group
-    if (model) {
-      for (const [typeName, elements] of Object.entries(model.elementsByType)) {
-        if (elements.some((el) => el.expressId === selectedElement.expressId)) {
-          setExpandedTypeGroups((prev) => {
-            const gk = `${selectedElement.modelId}:${typeName}`;
-            if (prev.has(gk)) return prev;
-            return new Set([...prev, gk]);
-          });
-          break;
-        }
-      }
-    }
-
-    // Scroll into view after expansion settles
-    setTimeout(() => {
-      scrollContainerRef.current
-        ?.querySelector(`[data-mid="${selectedElement.modelId}"][data-eid="${selectedElement.expressId}"]`)
-        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }, 60);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedElement?.modelId, selectedElement?.expressId]);
-
-  // activeKey: store's single selection, used when multiSelected is empty
-  const activeKey = multiSelected.size === 0 && selectedElement
-    ? `${selectedElement.modelId}:${selectedElement.expressId}`
-    : null;
+  // activeKey: highlights only elements explicitly clicked in this panel
+  const activeKey: string | null = anchorKey;
 
   const hasIsolation = isolatedElements !== null;
   const hasHidden = hiddenElements.size > 0;
@@ -285,8 +207,6 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
       });
       if (!ak) setAnchorKey(key);
     } else {
-      // Mark as our own click before calling onSelectElement
-      lastPanelClickRef.current = key;
       setMultiSelected(new Set([key]));
       setAnchorKey(key);
       onSelectElement(modelId, expressId);
@@ -946,13 +866,3 @@ function flattenSpatialVisible(node: SpatialNode, modelId: string, expandedSpati
   }
 }
 
-// Returns the full path (list of expressIds) from root down to targetId, inclusive
-function findPathToNode(root: SpatialNode, targetId: number): number[] {
-  function search(node: SpatialNode, path: number[]): number[] | null {
-    const current = [...path, node.expressId];
-    if (node.expressId === targetId) return current;
-    for (const child of node.children) { const f = search(child, current); if (f) return f; }
-    return null;
-  }
-  return search(root, []) ?? [];
-}
