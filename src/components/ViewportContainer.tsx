@@ -4,6 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { FlipHorizontal2, X } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
+import { useShallow } from "zustand/react/shallow";
 import type { SpatialNode } from "../types/ifc";
 import { v4 as uuidv4 } from "uuid";
 
@@ -65,20 +66,33 @@ export function ViewportContainer({ onElementClick }: Props) {
   const hiddenElements = useModelStore((s) => s.hiddenElements);
   const isolatedElements = useModelStore((s) => s.isolatedElements);
   const selectedElement = useModelStore((s) => s.selectedElement);
-  const addMeasurement = useModelStore((s) => s.addMeasurement);
-  const clearMeasurements = useModelStore((s) => s.clearMeasurements);
-  const hideElement = useModelStore((s) => s.hideElement);
-  const isolateElement = useModelStore((s) => s.isolateElement);
-  const showAll = useModelStore((s) => s.showAll);
   const colorGroups = useModelStore((s) => s.colorGroups);
-  const stagedSmartViewId = useModelStore((s) => s.stagedSmartViewId);
-  const activeSmartViewId = useModelStore((s) => s.activeSmartViewId);
-  const applySmartView = useModelStore((s) => s.applySmartView);
-  const selectionBasket = useModelStore((s) => s.selectionBasket);
-  const basketMode = useModelStore((s) => s.basketMode);
-  const addToBasket = useModelStore((s) => s.addToBasket);
-  const removeFromBasket = useModelStore((s) => s.removeFromBasket);
-  const setBasket = useModelStore((s) => s.setBasket);
+
+  // Basket state — always used together
+  const { selectionBasket, basketMode } = useModelStore(
+    useShallow((s) => ({ selectionBasket: s.selectionBasket, basketMode: s.basketMode }))
+  );
+
+  // SmartView UI — always used together
+  const { stagedSmartViewId, activeSmartViewId } = useModelStore(
+    useShallow((s) => ({ stagedSmartViewId: s.stagedSmartViewId, activeSmartViewId: s.activeSmartViewId }))
+  );
+
+  // Actions — stable references, grouped to reduce subscription count from 9 → 1
+  const {
+    addMeasurement, clearMeasurements, hideElement, isolateElement, showAll,
+    applySmartView, addToBasket, removeFromBasket, setBasket,
+  } = useModelStore(useShallow((s) => ({
+    addMeasurement: s.addMeasurement,
+    clearMeasurements: s.clearMeasurements,
+    hideElement: s.hideElement,
+    isolateElement: s.isolateElement,
+    showAll: s.showAll,
+    applySmartView: s.applySmartView,
+    addToBasket: s.addToBasket,
+    removeFromBasket: s.removeFromBasket,
+    setBasket: s.setBasket,
+  })));
 
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
