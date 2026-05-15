@@ -162,6 +162,14 @@ export class SectionModule {
   }
 
   /**
+   * Trigger a cap rebuild (e.g. after element visibility changes externally).
+   * Debounced 150 ms, no-op if no planes are active.
+   */
+  invalidateCaps(): void {
+    if (this.planes.some(p => p.enabled)) this.scheduleCapRebuild(this.planes);
+  }
+
+  /**
    * Toggle gizmo visibility without disabling the clip planes themselves.
    * Called by SectionPanel eye-toggle (also via window event internally).
    */
@@ -457,16 +465,18 @@ export class SectionModule {
 
     if (!enabledPlanes.length) return;
 
-    // Collect all model meshes
+    // Collect visible model meshes only (respects hide/isolate/basket state)
     const meshes: THREE.Mesh[] = [];
     this.getModels().forEach(m => {
       m.mesh.traverse(obj => {
         if (
           obj instanceof THREE.Mesh &&
+          obj.visible &&
           !obj.userData.isHighlight &&
           !obj.userData.isEdge &&
           !obj.userData.isSectionVisual &&
-          !obj.userData.isBasketOverlay
+          !obj.userData.isBasketOverlay &&
+          !obj.userData.isSectionCap
         ) meshes.push(obj);
       });
     });
@@ -492,9 +502,6 @@ export class SectionModule {
           color: result.color,
           side: THREE.DoubleSide,
           depthWrite: true,
-          polygonOffset: true,
-          polygonOffsetFactor: -6,
-          polygonOffsetUnits: -6,
         });
         const capMesh = new THREE.Mesh(result.capGeo, capMat);
         capMesh.renderOrder = CAP_RENDER_ORDER;
@@ -502,13 +509,12 @@ export class SectionModule {
         capMesh.matrix.identity();
         capMesh.userData.isSectionCap = true;
 
+        // Edges rendered without depth test so they always appear sharp at the cut boundary.
+        // polygonOffset has no effect with logarithmicDepthBuffer, so depthTest:false is used instead.
         const edgeMat = new THREE.LineBasicMaterial({
-          color: 0x111111,
-          depthTest: true,
+          color: 0x222222,
+          depthTest: false,
           depthWrite: false,
-          polygonOffset: true,
-          polygonOffsetFactor: -4,
-          polygonOffsetUnits: -4,
         });
         const edgeMesh = new THREE.LineSegments(result.edgeGeo, edgeMat);
         edgeMesh.renderOrder = EDGE_RENDER_ORDER;

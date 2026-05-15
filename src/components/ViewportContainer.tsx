@@ -392,6 +392,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
     });
     needsRenderRef.current = true;
+    // Rebuild section caps to match new visibility
+    sectionModuleRef.current?.invalidateCaps();
   // selectionBasket only matters when basketMode === "isolate"; basketMode covers both
   }, [hiddenElements, isolatedElements, models, basketMode,
       // eslint-disable-next-line react-hooks/exhaustive-deps

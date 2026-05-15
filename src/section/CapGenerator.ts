@@ -216,8 +216,10 @@ export function computeCap(mesh: THREE.Mesh, plane: THREE.Plane): CapResult | nu
   const N = plane.normal.clone().normalize();
   const { bx, by } = planeBasis(N);
 
-  // 1 mm nudge along plane normal (toward kept side) prevents z-fighting
-  const nudge = 0.001;
+  // 1 cm nudge along plane normal (toward kept side).
+  // polygonOffset is ineffective with logarithmicDepthBuffer, so physical
+  // displacement is the only reliable way to avoid z-fighting.
+  const nudge = 0.01;
   const nx = N.x * nudge, ny = N.y * nudge, nz = N.z * nudge;
 
   const allPos: number[] = [];
