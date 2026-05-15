@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef } from "react";
-import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine, Download, X, Loader2 } from "lucide-react";
+import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine, Download, X, Loader2, ScanEye } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { IFC_CLASS_NAMES } from "../utils/ifcClassNames";
 import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
-import type { PropOverride } from "../types/ifc";
+import { loadAllElementProperties } from "../utils/ifcLoader";
+import type { PropOverride, FlatElementProps } from "../types/ifc";
 
 type Tab = "attributes" | "properties" | "quantities" | "raw";
 
@@ -42,8 +43,12 @@ export function PropertiesPanel() {
   const showAll           = useModelStore((s) => s.showAll);
   const isolatedElements  = useModelStore((s) => s.isolatedElements);
   const hiddenElements    = useModelStore((s) => s.hiddenElements);
-  const propertyOverrides = useModelStore((s) => s.propertyOverrides);
-  const applyPropertyEdits = useModelStore((s) => s.applyPropertyEdits);
+  const propertyOverrides   = useModelStore((s) => s.propertyOverrides);
+  const applyPropertyEdits  = useModelStore((s) => s.applyPropertyEdits);
+  const loadedProperties    = useModelStore((s) => s.loadedProperties);
+  const setLoadedProperties = useModelStore((s) => s.setLoadedProperties);
+  const isolateEntries      = useModelStore((s) => s.isolateEntries);
+  const [isolatingKey, setIsolatingKey] = useState<string | null>(null);
 
   if (!selected) {
     return (
@@ -76,6 +81,42 @@ export function PropertiesPanel() {
   const modelOverrideCount = modelOverrides
     ? Array.from(modelOverrides.values()).reduce((s, m) => s + Object.keys(m).length, 0)
     : 0;
+
+  const handleIsolateSimilar = useCallback(async (key: string, value: string) => {
+    setIsolatingKey(key);
+    try {
+      let props = loadedProperties;
+      if (!props) {
+        const result = new Map<string, Map<number, FlatElementProps>>();
+        const keySet = new Set<string>();
+        for (const [modelId, model] of models.entries()) {
+          if (!model.file) continue;
+          const ids: number[] = [];
+          for (const els of Object.values(model.elementsByType))
+            for (const el of els) ids.push(el.expressId);
+          const map = await loadAllElementProperties(model.file, ids);
+          map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
+          result.set(modelId, map);
+        }
+        const sorted = Array.from(keySet).sort((a, b) => {
+          const ad = a.includes("."), bd = b.includes(".");
+          if (ad !== bd) return ad ? 1 : -1;
+          return a.localeCompare(b);
+        });
+        setLoadedProperties(result, sorted);
+        props = result;
+      }
+      const entries: Array<{ modelId: string; expressId: number }> = [];
+      props.forEach((modelMap, modelId) => {
+        modelMap.forEach((flatProps, expressId) => {
+          if (renderVal(flatProps[key]) === value) entries.push({ modelId, expressId });
+        });
+      });
+      if (entries.length > 0) isolateEntries(entries);
+    } finally {
+      setIsolatingKey(null);
+    }
+  }, [loadedProperties, setLoadedProperties, isolateEntries, models]);
 
   async function handleExportIFC() {
     if (!model?.file) return;
@@ -189,13 +230,21 @@ export function PropertiesPanel() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {activeTab === "attributes" && (
-          <AttributesTab properties={selected.properties} overrides={overrides} onEdit={onEdit} />
+          <AttributesTab
+            properties={selected.properties}
+            overrides={overrides}
+            onEdit={onEdit}
+            onIsolateSimilar={handleIsolateSimilar}
+            isolatingKey={isolatingKey}
+          />
         )}
         {activeTab === "properties" && (
           <PropertySetsTab
             psets={selected.psets.filter(p => !p.name.startsWith("Qto_"))}
             overrides={overrides}
             onEdit={onEdit}
+            onIsolateSimilar={handleIsolateSimilar}
+            isolatingKey={isolatingKey}
           />
         )}
         {activeTab === "quantities" && (
@@ -204,6 +253,8 @@ export function PropertiesPanel() {
             overrides={overrides}
             onEdit={onEdit}
             emptyMsg="Keine Mengen vorhanden"
+            onIsolateSimilar={handleIsolateSimilar}
+            isolatingKey={isolatingKey}
           />
         )}
         {activeTab === "raw" && (
@@ -224,11 +275,13 @@ function PanelHeader({ children }: { children?: React.ReactNode }) {
 }
 
 function AttributesTab({
-  properties, overrides, onEdit,
+  properties, overrides, onEdit, onIsolateSimilar, isolatingKey,
 }: {
   properties: Record<string, unknown>;
   overrides: Record<string, PropOverride>;
   onEdit: (key: string, value: string, ifcType?: number) => void;
+  onIsolateSimilar: (key: string, value: string) => void;
+  isolatingKey: string | null;
 }) {
   const ifcTypeCode = typeof properties.type === "number" ? properties.type : null;
   const ifcTypeName = ifcTypeCode ? lookupIfcTypeName(ifcTypeCode) : null;
@@ -253,18 +306,20 @@ function AttributesTab({
           )}
         </tbody>
       </table>
-      <PropTable rows={entries} overrides={overrides} onEdit={onEdit} />
+      <PropTable rows={entries} overrides={overrides} onEdit={onEdit} onIsolateSimilar={onIsolateSimilar} isolatingKey={isolatingKey} />
     </div>
   );
 }
 
 function PropertySetsTab({
-  psets, overrides, onEdit, emptyMsg = "Keine Eigenschaften vorhanden",
+  psets, overrides, onEdit, emptyMsg = "Keine Eigenschaften vorhanden", onIsolateSimilar, isolatingKey,
 }: {
   psets: { name: string; properties: { name: string; value: unknown; type: string }[] }[];
   overrides: Record<string, PropOverride>;
   onEdit: (key: string, value: string, ifcType?: number) => void;
   emptyMsg?: string;
+  onIsolateSimilar: (key: string, value: string) => void;
+  isolatingKey: string | null;
 }) {
   if (!psets.length) return <EmptyState msg={emptyMsg} />;
   return (
@@ -272,7 +327,7 @@ function PropertySetsTab({
       {psets.map((pset) => (
         <div key={pset.name}>
           <SectionHeader title={pset.name} count={pset.properties.length} />
-          <PropTable rows={pset.properties} overrides={overrides} psetName={pset.name} onEdit={onEdit} />
+          <PropTable rows={pset.properties} overrides={overrides} psetName={pset.name} onEdit={onEdit} onIsolateSimilar={onIsolateSimilar} isolatingKey={isolatingKey} />
         </div>
       ))}
     </div>
@@ -312,12 +367,14 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
 }
 
 function PropTable({
-  rows, overrides, psetName, onEdit,
+  rows, overrides, psetName, onEdit, onIsolateSimilar, isolatingKey,
 }: {
   rows: { name: string; value: unknown; type?: string }[];
   overrides: Record<string, PropOverride>;
   psetName?: string;
   onEdit: (key: string, value: string, ifcType?: number) => void;
+  onIsolateSimilar: (key: string, value: string) => void;
+  isolatingKey: string | null;
 }) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -433,6 +490,16 @@ function PropTable({
                         <PencilLine size={11} />
                       </button>
                       <CopyButton value={displayVal} />
+                      <button
+                        className="toolbar-button p-0.5 text-muted-foreground/60 hover:text-primary"
+                        title="Ähnliche Elemente isolieren"
+                        disabled={isolatingKey !== null}
+                        onClick={() => onIsolateSimilar(overrideKey, displayVal)}
+                      >
+                        {isolatingKey === overrideKey
+                          ? <Loader2 size={11} className="animate-spin" />
+                          : <ScanEye size={11} />}
+                      </button>
                     </div>
                   </div>
                 )}
