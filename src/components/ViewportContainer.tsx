@@ -33,10 +33,10 @@ interface SectionDragState {
 }
 
 interface BoxVisuals {
-  boxGroup: THREE.Group;
+  // All box geometry lives in handleScene so the box's own clip planes don't cut it.
   boxFaceMesh: THREE.Mesh;
   boxEdgeMesh: THREE.LineSegments;
-  handles: THREE.Mesh[];     // 6 face handles in handleScene
+  handles: THREE.Mesh[];
 }
 
 /** Recompute box cube geometry + face handle positions from current plane data. */
@@ -57,8 +57,10 @@ function applyBoxGeometry(boxVis: BoxVisuals, boxPlanes: SectionPlane[]): void {
   const h  = Math.max(py - my, 0.01);
   const d  = Math.max(pz - mz, 0.01);
 
-  boxVis.boxGroup.position.set(cx, cy, cz);
+  // Face mesh and edge lines sit directly in handleScene (world-space transform)
+  boxVis.boxFaceMesh.position.set(cx, cy, cz);
   boxVis.boxFaceMesh.scale.set(w, h, d);
+  boxVis.boxEdgeMesh.position.set(cx, cy, cz);
   boxVis.boxEdgeMesh.scale.set(w, h, d);
 
   // Recompute each face-handle world position
@@ -343,8 +345,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     const liveBoxIds = new Set(boxGroupMap.keys());
     for (const [boxId, boxVis] of boxVisualsRef.current) {
       if (!liveBoxIds.has(boxId)) {
-        scene.remove(boxVis.boxGroup);
-        if (handleScene) boxVis.handles.forEach(h => handleScene.remove(h));
+        if (handleScene) {
+          handleScene.remove(boxVis.boxFaceMesh);
+          handleScene.remove(boxVis.boxEdgeMesh);
+          boxVis.handles.forEach(h => handleScene.remove(h));
+        }
         boxVis.boxFaceMesh.geometry.dispose();
         (boxVis.boxFaceMesh.material as THREE.Material).dispose();
         boxVis.boxEdgeMesh.geometry.dispose();
@@ -379,19 +384,17 @@ export function ViewportContainer({ onElementClick }: Props) {
       const enabled = boxPlanes.some(p => p.enabled);
 
       if (!boxVisualsRef.current.has(boxId)) {
-        const boxGroup = new THREE.Group();
-        boxGroup.name = `__box_${boxId}`;
-
-        // Semi-transparent face mesh (BackSide shows the inner surfaces)
+        // All box geometry lives in handleScene so clip planes don't self-clip the cube faces
         const boxFaceMesh = new THREE.Mesh(
           new THREE.BoxGeometry(1, 1, 1),
           new THREE.MeshBasicMaterial({
-            color, transparent: true, opacity: 0.07,
-            side: THREE.BackSide, depthWrite: false,
+            color, transparent: true, opacity: 0.12,
+            side: THREE.DoubleSide, depthWrite: false,
           })
         );
         boxFaceMesh.renderOrder = 2;
         boxFaceMesh.userData.isSectionVisual = true;
+        if (handleScene) handleScene.add(boxFaceMesh);
 
         // Wireframe edges
         const boxEdgeMesh = new THREE.LineSegments(
@@ -399,12 +402,9 @@ export function ViewportContainer({ onElementClick }: Props) {
           new THREE.LineBasicMaterial({ color })
         );
         boxEdgeMesh.userData.isSectionVisual = true;
+        if (handleScene) handleScene.add(boxEdgeMesh);
 
-        boxGroup.add(boxFaceMesh);
-        boxGroup.add(boxEdgeMesh);
-        scene.add(boxGroup);
-
-        // 6 face handles (in handleScene so they're never cut)
+        // 6 face handles
         const handles: THREE.Mesh[] = [];
         for (const plane of boxPlanes) {
           const handle = new THREE.Mesh(
@@ -417,7 +417,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           handles.push(handle);
         }
 
-        boxVisualsRef.current.set(boxId, { boxGroup, boxFaceMesh, boxEdgeMesh, handles });
+        boxVisualsRef.current.set(boxId, { boxFaceMesh, boxEdgeMesh, handles });
       }
 
       // Update geometry, colors, visibility
@@ -429,7 +429,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       boxVis.handles.forEach(h => { (h.material as THREE.MeshBasicMaterial).color.copy(color); });
 
       const boxOn = !hidden && enabled;
-      boxVis.boxGroup.visible = boxOn;
+      boxVis.boxFaceMesh.visible = boxOn;
+      boxVis.boxEdgeMesh.visible = boxOn;
       boxVis.handles.forEach(h => { h.visible = boxOn; });
     }
 
@@ -538,7 +539,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       for (const [boxId, boxVis] of boxVisualsRef.current) {
         const enabled = planes.filter(p => p.boxId === boxId).some(p => p.enabled);
         const on = !hidden && enabled;
-        boxVis.boxGroup.visible = on;
+        boxVis.boxFaceMesh.visible = on;
+        boxVis.boxEdgeMesh.visible = on;
         boxVis.handles.forEach(h => { h.visible = on; });
       }
       needsRenderRef.current = true;
@@ -1246,7 +1248,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (vis.group.visible) handles.push(vis.handle);
     }
     for (const boxVis of boxVisualsRef.current.values()) {
-      if (boxVis.boxGroup.visible) handles.push(...boxVis.handles);
+      if (boxVis.boxFaceMesh.visible) handles.push(...boxVis.handles);
     }
     const hits = raycaster.intersectObjects(handles, false);
     if (!hits.length) return;
