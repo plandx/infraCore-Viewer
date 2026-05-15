@@ -50,6 +50,42 @@ export function PropertiesPanel() {
   const isolateEntries      = useModelStore((s) => s.isolateEntries);
   const [isolatingKey, setIsolatingKey] = useState<string | null>(null);
 
+  const handleIsolateSimilar = useCallback(async (key: string, value: string) => {
+    setIsolatingKey(key);
+    try {
+      let props = loadedProperties;
+      if (!props) {
+        const result = new Map<string, Map<number, FlatElementProps>>();
+        const keySet = new Set<string>();
+        for (const [modelId, m] of models.entries()) {
+          if (!m.file) continue;
+          const ids: number[] = [];
+          for (const els of Object.values(m.elementsByType))
+            for (const el of els) ids.push(el.expressId);
+          const map = await loadAllElementProperties(m.file, ids);
+          map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
+          result.set(modelId, map);
+        }
+        const sorted = Array.from(keySet).sort((a, b) => {
+          const ad = a.includes("."), bd = b.includes(".");
+          if (ad !== bd) return ad ? 1 : -1;
+          return a.localeCompare(b);
+        });
+        setLoadedProperties(result, sorted);
+        props = result;
+      }
+      const entries: Array<{ modelId: string; expressId: number }> = [];
+      props.forEach((modelMap, modelId) => {
+        modelMap.forEach((flatProps, expressId) => {
+          if (renderVal(flatProps[key]) === value) entries.push({ modelId, expressId });
+        });
+      });
+      if (entries.length > 0) isolateEntries(entries);
+    } finally {
+      setIsolatingKey(null);
+    }
+  }, [loadedProperties, setLoadedProperties, isolateEntries, models]);
+
   if (!selected) {
     return (
       <div className="flex flex-col h-full">
@@ -81,42 +117,6 @@ export function PropertiesPanel() {
   const modelOverrideCount = modelOverrides
     ? Array.from(modelOverrides.values()).reduce((s, m) => s + Object.keys(m).length, 0)
     : 0;
-
-  const handleIsolateSimilar = useCallback(async (key: string, value: string) => {
-    setIsolatingKey(key);
-    try {
-      let props = loadedProperties;
-      if (!props) {
-        const result = new Map<string, Map<number, FlatElementProps>>();
-        const keySet = new Set<string>();
-        for (const [modelId, model] of models.entries()) {
-          if (!model.file) continue;
-          const ids: number[] = [];
-          for (const els of Object.values(model.elementsByType))
-            for (const el of els) ids.push(el.expressId);
-          const map = await loadAllElementProperties(model.file, ids);
-          map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
-          result.set(modelId, map);
-        }
-        const sorted = Array.from(keySet).sort((a, b) => {
-          const ad = a.includes("."), bd = b.includes(".");
-          if (ad !== bd) return ad ? 1 : -1;
-          return a.localeCompare(b);
-        });
-        setLoadedProperties(result, sorted);
-        props = result;
-      }
-      const entries: Array<{ modelId: string; expressId: number }> = [];
-      props.forEach((modelMap, modelId) => {
-        modelMap.forEach((flatProps, expressId) => {
-          if (renderVal(flatProps[key]) === value) entries.push({ modelId, expressId });
-        });
-      });
-      if (entries.length > 0) isolateEntries(entries);
-    } finally {
-      setIsolatingKey(null);
-    }
-  }, [loadedProperties, setLoadedProperties, isolateEntries, models]);
 
   async function handleExportIFC() {
     if (!model?.file) return;
