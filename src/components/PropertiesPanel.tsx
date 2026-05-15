@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine, Download, X, Loader2, ScanEye } from "lucide-react";
+import { Tag, List, Hash, Code, Copy, Check, Eye, EyeOff, ScanLine, PencilLine, Download, X, Loader2, ScanEye } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { IFC_CLASS_NAMES } from "../utils/ifcClassNames";
@@ -48,32 +48,36 @@ export function PropertiesPanel() {
   const loadedProperties    = useModelStore((s) => s.loadedProperties);
   const setLoadedProperties = useModelStore((s) => s.setLoadedProperties);
   const isolateEntries      = useModelStore((s) => s.isolateEntries);
+  const hideElements        = useModelStore((s) => s.hideElements);
   const [isolatingKey, setIsolatingKey] = useState<string | null>(null);
+  const [hidingKey, setHidingKey]       = useState<string | null>(null);
+
+  const resolveProps = useCallback(async (): Promise<Map<string, Map<number, FlatElementProps>>> => {
+    if (loadedProperties) return loadedProperties;
+    const result = new Map<string, Map<number, FlatElementProps>>();
+    const keySet = new Set<string>();
+    for (const [modelId, m] of models.entries()) {
+      if (!m.file) continue;
+      const ids: number[] = [];
+      for (const els of Object.values(m.elementsByType))
+        for (const el of els) ids.push(el.expressId);
+      const map = await loadAllElementProperties(m.file, ids);
+      map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
+      result.set(modelId, map);
+    }
+    const sorted = Array.from(keySet).sort((a, b) => {
+      const ad = a.includes("."), bd = b.includes(".");
+      if (ad !== bd) return ad ? 1 : -1;
+      return a.localeCompare(b);
+    });
+    setLoadedProperties(result, sorted);
+    return result;
+  }, [loadedProperties, setLoadedProperties, models]);
 
   const handleIsolateSimilar = useCallback(async (key: string, value: string) => {
     setIsolatingKey(key);
     try {
-      let props = loadedProperties;
-      if (!props) {
-        const result = new Map<string, Map<number, FlatElementProps>>();
-        const keySet = new Set<string>();
-        for (const [modelId, m] of models.entries()) {
-          if (!m.file) continue;
-          const ids: number[] = [];
-          for (const els of Object.values(m.elementsByType))
-            for (const el of els) ids.push(el.expressId);
-          const map = await loadAllElementProperties(m.file, ids);
-          map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
-          result.set(modelId, map);
-        }
-        const sorted = Array.from(keySet).sort((a, b) => {
-          const ad = a.includes("."), bd = b.includes(".");
-          if (ad !== bd) return ad ? 1 : -1;
-          return a.localeCompare(b);
-        });
-        setLoadedProperties(result, sorted);
-        props = result;
-      }
+      const props = await resolveProps();
       const entries: Array<{ modelId: string; expressId: number }> = [];
       props.forEach((modelMap, modelId) => {
         modelMap.forEach((flatProps, expressId) => {
@@ -84,7 +88,26 @@ export function PropertiesPanel() {
     } finally {
       setIsolatingKey(null);
     }
-  }, [loadedProperties, setLoadedProperties, isolateEntries, models]);
+  }, [resolveProps, isolateEntries]);
+
+  const handleHideSimilar = useCallback(async (key: string, value: string) => {
+    setHidingKey(key);
+    try {
+      const props = await resolveProps();
+      const byModel = new Map<string, number[]>();
+      props.forEach((modelMap, modelId) => {
+        modelMap.forEach((flatProps, expressId) => {
+          if (renderVal(flatProps[key]) === value) {
+            if (!byModel.has(modelId)) byModel.set(modelId, []);
+            byModel.get(modelId)!.push(expressId);
+          }
+        });
+      });
+      byModel.forEach((ids, modelId) => hideElements(modelId, ids));
+    } finally {
+      setHidingKey(null);
+    }
+  }, [resolveProps, hideElements]);
 
   if (!selected) {
     return (
@@ -236,6 +259,8 @@ export function PropertiesPanel() {
             onEdit={onEdit}
             onIsolateSimilar={handleIsolateSimilar}
             isolatingKey={isolatingKey}
+            onHideSimilar={handleHideSimilar}
+            hidingKey={hidingKey}
           />
         )}
         {activeTab === "properties" && (
@@ -245,6 +270,8 @@ export function PropertiesPanel() {
             onEdit={onEdit}
             onIsolateSimilar={handleIsolateSimilar}
             isolatingKey={isolatingKey}
+            onHideSimilar={handleHideSimilar}
+            hidingKey={hidingKey}
           />
         )}
         {activeTab === "quantities" && (
@@ -255,6 +282,8 @@ export function PropertiesPanel() {
             emptyMsg="Keine Mengen vorhanden"
             onIsolateSimilar={handleIsolateSimilar}
             isolatingKey={isolatingKey}
+            onHideSimilar={handleHideSimilar}
+            hidingKey={hidingKey}
           />
         )}
         {activeTab === "raw" && (
@@ -275,13 +304,15 @@ function PanelHeader({ children }: { children?: React.ReactNode }) {
 }
 
 function AttributesTab({
-  properties, overrides, onEdit, onIsolateSimilar, isolatingKey,
+  properties, overrides, onEdit, onIsolateSimilar, isolatingKey, onHideSimilar, hidingKey,
 }: {
   properties: Record<string, unknown>;
   overrides: Record<string, PropOverride>;
   onEdit: (key: string, value: string, ifcType?: number) => void;
   onIsolateSimilar: (key: string, value: string) => void;
   isolatingKey: string | null;
+  onHideSimilar: (key: string, value: string) => void;
+  hidingKey: string | null;
 }) {
   const ifcTypeCode = typeof properties.type === "number" ? properties.type : null;
   const ifcTypeName = ifcTypeCode ? lookupIfcTypeName(ifcTypeCode) : null;
@@ -306,13 +337,14 @@ function AttributesTab({
           )}
         </tbody>
       </table>
-      <PropTable rows={entries} overrides={overrides} onEdit={onEdit} onIsolateSimilar={onIsolateSimilar} isolatingKey={isolatingKey} />
+      <PropTable rows={entries} overrides={overrides} onEdit={onEdit} onIsolateSimilar={onIsolateSimilar} isolatingKey={isolatingKey} onHideSimilar={onHideSimilar} hidingKey={hidingKey} />
     </div>
   );
 }
 
 function PropertySetsTab({
-  psets, overrides, onEdit, emptyMsg = "Keine Eigenschaften vorhanden", onIsolateSimilar, isolatingKey,
+  psets, overrides, onEdit, emptyMsg = "Keine Eigenschaften vorhanden",
+  onIsolateSimilar, isolatingKey, onHideSimilar, hidingKey,
 }: {
   psets: { name: string; properties: { name: string; value: unknown; type: string }[] }[];
   overrides: Record<string, PropOverride>;
@@ -320,6 +352,8 @@ function PropertySetsTab({
   emptyMsg?: string;
   onIsolateSimilar: (key: string, value: string) => void;
   isolatingKey: string | null;
+  onHideSimilar: (key: string, value: string) => void;
+  hidingKey: string | null;
 }) {
   if (!psets.length) return <EmptyState msg={emptyMsg} />;
   return (
@@ -327,7 +361,7 @@ function PropertySetsTab({
       {psets.map((pset) => (
         <div key={pset.name}>
           <SectionHeader title={pset.name} count={pset.properties.length} />
-          <PropTable rows={pset.properties} overrides={overrides} psetName={pset.name} onEdit={onEdit} onIsolateSimilar={onIsolateSimilar} isolatingKey={isolatingKey} />
+          <PropTable rows={pset.properties} overrides={overrides} psetName={pset.name} onEdit={onEdit} onIsolateSimilar={onIsolateSimilar} isolatingKey={isolatingKey} onHideSimilar={onHideSimilar} hidingKey={hidingKey} />
         </div>
       ))}
     </div>
@@ -367,7 +401,7 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
 }
 
 function PropTable({
-  rows, overrides, psetName, onEdit, onIsolateSimilar, isolatingKey,
+  rows, overrides, psetName, onEdit, onIsolateSimilar, isolatingKey, onHideSimilar, hidingKey,
 }: {
   rows: { name: string; value: unknown; type?: string }[];
   overrides: Record<string, PropOverride>;
@@ -375,6 +409,8 @@ function PropTable({
   onEdit: (key: string, value: string, ifcType?: number) => void;
   onIsolateSimilar: (key: string, value: string) => void;
   isolatingKey: string | null;
+  onHideSimilar: (key: string, value: string) => void;
+  hidingKey: string | null;
 }) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -493,12 +529,22 @@ function PropTable({
                       <button
                         className="toolbar-button p-0.5 text-muted-foreground/60 hover:text-primary"
                         title="Ähnliche Elemente isolieren"
-                        disabled={isolatingKey !== null}
+                        disabled={isolatingKey !== null || hidingKey !== null}
                         onClick={() => onIsolateSimilar(overrideKey, displayVal)}
                       >
                         {isolatingKey === overrideKey
                           ? <Loader2 size={11} className="animate-spin" />
                           : <ScanEye size={11} />}
+                      </button>
+                      <button
+                        className="toolbar-button p-0.5 text-muted-foreground/60 hover:text-destructive"
+                        title="Ähnliche Elemente ausblenden"
+                        disabled={isolatingKey !== null || hidingKey !== null}
+                        onClick={() => onHideSimilar(overrideKey, displayVal)}
+                      >
+                        {hidingKey === overrideKey
+                          ? <Loader2 size={11} className="animate-spin" />
+                          : <EyeOff size={11} />}
                       </button>
                     </div>
                   </div>
