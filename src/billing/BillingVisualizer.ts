@@ -1,33 +1,13 @@
 import * as THREE from "three";
 import type { BillingEntry } from "./types";
 
-const VS = /* glsl */`
-  varying float vWorldY;
-  void main() {
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    vWorldY = wp.y;
-    gl_Position = projectionMatrix * viewMatrix * wp;
-  }
-`;
-
-const FS = /* glsl */`
-  uniform float uFillTop;
-  uniform vec3  uColor;
-  uniform float uOpacity;
-  varying float vWorldY;
-  void main() {
-    if (vWorldY > uFillTop + 0.002) discard;
-    gl_FragColor = vec4(uColor, uOpacity);
-  }
-`;
-
 function degreeToColor(d: number): THREE.Color {
   if (d >= 100) return new THREE.Color(0x22c55e);
   const t = d / 100;
   return new THREE.Color(1.0 - t * 0.65, 0.38 + t * 0.58, 0.08);
 }
 
-interface Overlay { mesh: THREE.Mesh }
+interface Overlay { mesh: THREE.Mesh; fillPlane: THREE.Plane }
 
 export class BillingVisualizer {
   private scene: THREE.Scene;
@@ -38,6 +18,7 @@ export class BillingVisualizer {
   }
 
   update(entries: Record<string, BillingEntry>, meshMap: Map<string, THREE.Mesh[]>): void {
+    // Remove stale
     for (const [key, ov] of this.overlays) {
       if (!entries[key]) {
         this.scene.remove(ov.mesh);
@@ -53,7 +34,16 @@ export class BillingVisualizer {
         : 0;
 
       const meshes = meshMap.get(key) ?? [];
-      if (!meshes.length) continue;
+      if (!meshes.length) {
+        const existing = this.overlays.get(key);
+        if (existing) {
+          this.scene.remove(existing.mesh);
+          existing.mesh.geometry.dispose();
+          (existing.mesh.material as THREE.Material).dispose();
+          this.overlays.delete(key);
+        }
+        continue;
+      }
 
       const bbox = new THREE.Box3();
       for (const m of meshes) bbox.expandByObject(m);
@@ -64,27 +54,32 @@ export class BillingVisualizer {
 
       const existing = this.overlays.get(key);
       if (existing) {
-        const mat = existing.mesh.material as THREE.ShaderMaterial;
-        mat.uniforms.uFillTop.value = fillTop;
-        mat.uniforms.uColor.value = color;
-        mat.uniforms.uOpacity.value = opacity;
+        const mat = existing.mesh.material as THREE.MeshBasicMaterial;
+        mat.color.set(color);
+        mat.opacity = opacity;
+        // Update the fill clip plane constant (plane keeps geometry where N·P + d >= 0)
+        existing.fillPlane.constant = fillTop;
+        mat.needsUpdate = true;
       } else {
         const geo = this.mergeGeo(meshes);
-        const mat = new THREE.ShaderMaterial({
-          vertexShader: VS, fragmentShader: FS,
-          uniforms: {
-            uFillTop:  { value: fillTop },
-            uColor:    { value: color },
-            uOpacity:  { value: opacity },
-          },
-          transparent: true, depthTest: true, depthWrite: false,
+        // Plane clips away fragments above fillTop:
+        // THREE.Plane clips where N·P + d < 0.
+        // Normal (0,-1,0), constant=fillTop → clips where -y + fillTop < 0 → y > fillTop ✓
+        const fillPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), fillTop);
+        const mat = new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity,
+          depthTest: true,
+          depthWrite: false,
           side: THREE.DoubleSide,
+          clippingPlanes: [fillPlane],
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.userData.isBillingOverlay = true;
         mesh.renderOrder = 2;
         this.scene.add(mesh);
-        this.overlays.set(key, { mesh });
+        this.overlays.set(key, { mesh, fillPlane });
       }
     }
   }

@@ -291,6 +291,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (!viz || !scene) return;
     if (!billingModuleActive) { viz.clear(); needsRenderRef.current = true; return; }
 
+    scene.updateMatrixWorld(true);
     const meshMap = new Map<string, THREE.Mesh[]>();
     scene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
