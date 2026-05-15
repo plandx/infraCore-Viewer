@@ -85,6 +85,8 @@ export interface SectionPlane {
   point: [number, number, number];
   enabled: boolean;
   color: string;
+  /** When set, this plane belongs to a box-section group with this shared UUID */
+  boxId?: string;
 }
 
 export interface SyncState {

@@ -4,7 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { useModelStore } from "../store/modelStore";
 import { useShallow } from "zustand/react/shallow";
-import type { SpatialNode } from "../types/ifc";
+import type { SpatialNode, SectionPlane } from "../types/ifc";
 import { SectionPanel } from "./SectionPanel";
 import { v4 as uuidv4 } from "uuid";
 
@@ -32,6 +32,49 @@ interface SectionDragState {
   normal: THREE.Vector3;
 }
 
+interface BoxVisuals {
+  boxGroup: THREE.Group;
+  boxFaceMesh: THREE.Mesh;
+  boxEdgeMesh: THREE.LineSegments;
+  handles: THREE.Mesh[];     // 6 face handles in handleScene
+}
+
+/** Recompute box cube geometry + face handle positions from current plane data. */
+function applyBoxGeometry(boxVis: BoxVisuals, boxPlanes: SectionPlane[]): void {
+  const pxP = boxPlanes.find(p => p.normal[0] > 0.5);
+  const mxP = boxPlanes.find(p => p.normal[0] < -0.5);
+  const pyP = boxPlanes.find(p => p.normal[1] > 0.5);
+  const myP = boxPlanes.find(p => p.normal[1] < -0.5);
+  const pzP = boxPlanes.find(p => p.normal[2] > 0.5);
+  const mzP = boxPlanes.find(p => p.normal[2] < -0.5);
+
+  const px = pxP?.point[0] ?? 10,  mx = mxP?.point[0] ?? -10;
+  const py = pyP?.point[1] ?? 10,  my = myP?.point[1] ?? -10;
+  const pz = pzP?.point[2] ?? 10,  mz = mzP?.point[2] ?? -10;
+
+  const cx = (px + mx) / 2, cy = (py + my) / 2, cz = (pz + mz) / 2;
+  const w  = Math.max(px - mx, 0.01);
+  const h  = Math.max(py - my, 0.01);
+  const d  = Math.max(pz - mz, 0.01);
+
+  boxVis.boxGroup.position.set(cx, cy, cz);
+  boxVis.boxFaceMesh.scale.set(w, h, d);
+  boxVis.boxEdgeMesh.scale.set(w, h, d);
+
+  // Recompute each face-handle world position
+  const centers: Record<string, [number, number, number]> = {};
+  if (pxP) centers[pxP.id] = [px, cy, cz];
+  if (mxP) centers[mxP.id] = [mx, cy, cz];
+  if (pyP) centers[pyP.id] = [cx, py, cz];
+  if (myP) centers[myP.id] = [cx, my, cz];
+  if (pzP) centers[pzP.id] = [cx, cy, pz];
+  if (mzP) centers[mzP.id] = [cx, cy, mz];
+  for (const h of boxVis.handles) {
+    const c = centers[h.userData.planeId as string];
+    if (c) h.position.set(c[0], c[1], c[2]);
+  }
+}
+
 export function ViewportContainer({ onElementClick }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -44,7 +87,9 @@ export function ViewportContainer({ onElementClick }: Props) {
   const sceneModelIds = useRef<Set<string>>(new Set());
 
   const sectionVisualsRef = useRef<Map<string, SectionVisuals>>(new Map());
+  const boxVisualsRef    = useRef<Map<string, BoxVisuals>>(new Map());
   const handleSceneRef   = useRef<THREE.Scene | null>(null);
+  const sectionVisualsHiddenRef = useRef(false);
   const dragSectionRef = useRef<SectionDragState | null>(null);
   const isDraggingHandleRef = useRef(false);
   const wasDraggingRef = useRef(false);
@@ -268,19 +313,49 @@ export function ViewportContainer({ onElementClick }: Props) {
     const handleScene = handleSceneRef.current;
     if (!scene || !renderer) return;
 
+    const hidden = sectionVisualsHiddenRef.current;
+
     // Visual scale from scene bbox
-    const box = new THREE.Box3();
-    useModelStore.getState().models.forEach((m) => { if (!m.boundingBox.isEmpty()) box.union(m.boundingBox); });
-    const span      = box.isEmpty() ? 50 : box.getSize(new THREE.Vector3()).length();
+    const sceneBox = new THREE.Box3();
+    useModelStore.getState().models.forEach((m) => { if (!m.boundingBox.isEmpty()) sceneBox.union(m.boundingBox); });
+    const span      = sceneBox.isEmpty() ? 50 : sceneBox.getSize(new THREE.Vector3()).length();
     const planeSize = Math.max(span * 0.45, 8);
     const handleR   = Math.max(span * 0.006, 0.15);
     const arrowLen  = Math.max(span * 0.06, 1.0);
     const half      = planeSize / 2;
 
-    // Remove stale visuals
-    const liveIds = new Set(planes.map((p) => p.id));
+    // Separate planes into box groups and solo planes
+    const boxGroupMap = new Map<string, SectionPlane[]>();
+    const soloPlanes: SectionPlane[] = [];
+    for (const plane of planes) {
+      if (plane.boxId) {
+        const g = boxGroupMap.get(plane.boxId) ?? [];
+        g.push(plane);
+        boxGroupMap.set(plane.boxId, g);
+      } else {
+        soloPlanes.push(plane);
+      }
+    }
+
+    // ── Remove stale box visuals ──────────────────────────────────────
+    const liveBoxIds = new Set(boxGroupMap.keys());
+    for (const [boxId, boxVis] of boxVisualsRef.current) {
+      if (!liveBoxIds.has(boxId)) {
+        scene.remove(boxVis.boxGroup);
+        if (handleScene) boxVis.handles.forEach(h => handleScene.remove(h));
+        boxVis.boxFaceMesh.geometry.dispose();
+        (boxVis.boxFaceMesh.material as THREE.Material).dispose();
+        boxVis.boxEdgeMesh.geometry.dispose();
+        (boxVis.boxEdgeMesh.material as THREE.Material).dispose();
+        boxVis.handles.forEach(h => { h.geometry.dispose(); (h.material as THREE.Material).dispose(); });
+        boxVisualsRef.current.delete(boxId);
+      }
+    }
+
+    // ── Remove stale solo plane visuals ───────────────────────────────
+    const liveSoloIds = new Set(soloPlanes.map(p => p.id));
     for (const [id, vis] of sectionVisualsRef.current) {
-      if (!liveIds.has(id)) {
+      if (!liveSoloIds.has(id)) {
         scene.remove(vis.group);
         if (handleScene) handleScene.remove(vis.handle);
         vis.group.traverse((o) => {
@@ -296,13 +371,72 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
     }
 
-    // Create or update visuals for each plane
-    for (const plane of planes) {
+    // ── Create / update box visuals ───────────────────────────────────
+    for (const [boxId, boxPlanes] of boxGroupMap) {
+      const color   = new THREE.Color(boxPlanes[0]?.color ?? "#7aa2f7");
+      const enabled = boxPlanes.some(p => p.enabled);
+
+      if (!boxVisualsRef.current.has(boxId)) {
+        const boxGroup = new THREE.Group();
+        boxGroup.name = `__box_${boxId}`;
+
+        // Semi-transparent face mesh (BackSide shows the inner surfaces)
+        const boxFaceMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(1, 1, 1),
+          new THREE.MeshBasicMaterial({
+            color, transparent: true, opacity: 0.07,
+            side: THREE.BackSide, depthWrite: false,
+          })
+        );
+        boxFaceMesh.renderOrder = 2;
+        boxFaceMesh.userData.isSectionVisual = true;
+
+        // Wireframe edges
+        const boxEdgeMesh = new THREE.LineSegments(
+          new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+          new THREE.LineBasicMaterial({ color })
+        );
+        boxEdgeMesh.userData.isSectionVisual = true;
+
+        boxGroup.add(boxFaceMesh);
+        boxGroup.add(boxEdgeMesh);
+        scene.add(boxGroup);
+
+        // 6 face handles (in handleScene so they're never cut)
+        const handles: THREE.Mesh[] = [];
+        for (const plane of boxPlanes) {
+          const handle = new THREE.Mesh(
+            new THREE.SphereGeometry(handleR, 14, 10),
+            new THREE.MeshBasicMaterial({ color, depthTest: false })
+          );
+          handle.userData.isSectionHandle = true;
+          handle.userData.planeId = plane.id;
+          if (handleScene) handleScene.add(handle);
+          handles.push(handle);
+        }
+
+        boxVisualsRef.current.set(boxId, { boxGroup, boxFaceMesh, boxEdgeMesh, handles });
+      }
+
+      // Update geometry, colors, visibility
+      const boxVis = boxVisualsRef.current.get(boxId)!;
+      applyBoxGeometry(boxVis, boxPlanes);
+
+      (boxVis.boxFaceMesh.material as THREE.MeshBasicMaterial).color.copy(color);
+      (boxVis.boxEdgeMesh.material as THREE.LineBasicMaterial).color.copy(color);
+      boxVis.handles.forEach(h => { (h.material as THREE.MeshBasicMaterial).color.copy(color); });
+
+      const boxOn = !hidden && enabled;
+      boxVis.boxGroup.visible = boxOn;
+      boxVis.handles.forEach(h => { h.visible = boxOn; });
+    }
+
+    // ── Create / update solo plane visuals ────────────────────────────
+    for (const plane of soloPlanes) {
       const N = new THREE.Vector3(...plane.normal).normalize();
       const P = new THREE.Vector3(...plane.point);
       const color = new THREE.Color(plane.color);
 
-      // Orient: group +Z → N
       const defaultN = new THREE.Vector3(0, 0, 1);
       const quat = N.dot(defaultN) > 0.9999
         ? new THREE.Quaternion()
@@ -311,11 +445,9 @@ export function ViewportContainer({ onElementClick }: Props) {
           : new THREE.Quaternion().setFromUnitVectors(defaultN, N);
 
       if (!sectionVisualsRef.current.has(plane.id)) {
-        // ── Create visual group ──────────────────────────────────────
         const group = new THREE.Group();
         group.name = `__section_${plane.id}`;
 
-        // Semi-transparent plane disc — polygonOffset prevents z-fighting at the cut boundary
         const planeMesh = new THREE.Mesh(
           new THREE.PlaneGeometry(planeSize, planeSize),
           new THREE.MeshBasicMaterial({
@@ -327,10 +459,9 @@ export function ViewportContainer({ onElementClick }: Props) {
         planeMesh.userData.isSectionVisual = true;
         group.add(planeMesh);
 
-        // Border rectangle
         const borderPts = [
           new THREE.Vector3(-half, -half, 0), new THREE.Vector3(half, -half, 0),
-          new THREE.Vector3(half, half, 0), new THREE.Vector3(-half, half, 0),
+          new THREE.Vector3(half,   half, 0), new THREE.Vector3(-half,  half, 0),
           new THREE.Vector3(-half, -half, 0),
         ];
         const border = new THREE.Line(
@@ -340,7 +471,6 @@ export function ViewportContainer({ onElementClick }: Props) {
         border.userData.isSectionVisual = true;
         group.add(border);
 
-        // Direction arrow (local +Z = plane normal in world)
         const arrow = new THREE.ArrowHelper(
           new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0),
           arrowLen, color.getHex(), arrowLen * 0.3, arrowLen * 0.15
@@ -348,43 +478,37 @@ export function ViewportContainer({ onElementClick }: Props) {
         arrow.userData.isSectionVisual = true;
         group.add(arrow);
 
-        // Drag handle lives in a separate scene that renders without clip planes,
-        // so the sphere is always fully visible and never cut by the section.
         const handle = new THREE.Mesh(
           new THREE.SphereGeometry(handleR, 14, 10),
           new THREE.MeshBasicMaterial({ color, depthTest: false })
         );
         handle.userData.isSectionHandle = true;
         handle.userData.planeId = plane.id;
-        handle.position.copy(P); // world-space position (no parent transform)
+        handle.position.copy(P);
         if (handleScene) handleScene.add(handle);
 
         scene.add(group);
         sectionVisualsRef.current.set(plane.id, { group, handle, arrow });
       }
 
-      // ── Update position / orientation / color / visibility ────────
       const vis = sectionVisualsRef.current.get(plane.id)!;
       vis.group.position.copy(P);
-      vis.handle.position.copy(P); // handle is scene-root; keep in sync
+      vis.handle.position.copy(P);
       vis.group.quaternion.copy(quat);
-      vis.group.visible  = plane.enabled;
-      vis.handle.visible = plane.enabled;
+      const soloOn = !hidden && plane.enabled;
+      vis.group.visible  = soloOn;
+      vis.handle.visible = soloOn;
 
       vis.group.traverse((o) => {
         if (o === vis.group) return;
-        if (o instanceof THREE.Mesh) {
-          (o.material as THREE.MeshBasicMaterial).color.copy(color);
-        }
-        if (o instanceof THREE.Line) {
-          (o.material as THREE.LineBasicMaterial).color.copy(color);
-        }
+        if (o instanceof THREE.Mesh) (o.material as THREE.MeshBasicMaterial).color.copy(color);
+        if (o instanceof THREE.Line) (o.material as THREE.LineBasicMaterial).color.copy(color);
       });
       (vis.handle.material as THREE.MeshBasicMaterial).color.copy(color);
       vis.arrow.setColor(color.getHex());
     }
 
-    // Sync renderer clipping planes
+    // Sync renderer clipping planes (always active, even when visuals are hidden)
     renderer.clippingPlanes = planes
       .filter((p) => p.enabled)
       .map((p) => { const n = new THREE.Vector3(...p.normal); const pt = new THREE.Vector3(...p.point); return new THREE.Plane(n, -n.dot(pt)); });
@@ -395,6 +519,31 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // Reactive sync: run whenever sectionPlanes array reference changes
   useEffect(() => { syncSectionVisuals(sectionPlanes); }, [sectionPlanes, syncSectionVisuals]);
+
+  // Toggle section visuals visibility without disabling the clip planes
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const hidden = (e as CustomEvent<boolean>).detail;
+      sectionVisualsHiddenRef.current = hidden;
+      const planes = useModelStore.getState().sectionPlanes;
+
+      for (const [id, vis] of sectionVisualsRef.current) {
+        const plane = planes.find(p => p.id === id);
+        const on = !hidden && (plane?.enabled ?? false);
+        vis.group.visible  = on;
+        vis.handle.visible = on;
+      }
+      for (const [boxId, boxVis] of boxVisualsRef.current) {
+        const enabled = planes.filter(p => p.boxId === boxId).some(p => p.enabled);
+        const on = !hidden && enabled;
+        boxVis.boxGroup.visible = on;
+        boxVis.handles.forEach(h => { h.visible = on; });
+      }
+      needsRenderRef.current = true;
+    };
+    window.addEventListener("viewer:sectionVisualsHidden", handler);
+    return () => window.removeEventListener("viewer:sectionVisualsHidden", handler);
+  }, []);
 
   // Camera-align event from SectionPanel
   useEffect(() => {
@@ -1089,10 +1238,13 @@ export function ViewportContainer({ onElementClick }: Props) {
       ? orthoCameraRef.current ?? camera : camera;
     raycaster.setFromCamera(mouse, activeCamera);
 
-    // Raycast against all visible section handles
+    // Raycast against all visible section handles (solo planes + box faces)
     const handles: THREE.Mesh[] = [];
     for (const vis of sectionVisualsRef.current.values()) {
       if (vis.group.visible) handles.push(vis.handle);
+    }
+    for (const boxVis of boxVisualsRef.current.values()) {
+      if (boxVis.boxGroup.visible) handles.push(...boxVis.handles);
     }
     const hits = raycaster.intersectObjects(handles, false);
     if (!hits.length) return;
@@ -1154,10 +1306,25 @@ export function ViewportContainer({ onElementClick }: Props) {
     const newP   = startPoint.clone().addScaledVector(normal, travel);
 
     // Update Three.js visuals directly (smooth, skip React state)
-    const vis = sectionVisualsRef.current.get(planeId);
-    if (vis) {
-      vis.group.position.copy(newP);
-      vis.handle.position.copy(newP); // handle is in handleScene (world-space)
+    const movingPlane = useModelStore.getState().sectionPlanes.find(p => p.id === planeId);
+    if (movingPlane?.boxId) {
+      // Box plane: recompute the whole cube with the in-flight position
+      const boxVis = boxVisualsRef.current.get(movingPlane.boxId);
+      if (boxVis) {
+        const tempBoxPlanes = useModelStore.getState().sectionPlanes
+          .filter(p => p.boxId === movingPlane.boxId)
+          .map(p => p.id === planeId
+            ? { ...p, point: [newP.x, newP.y, newP.z] as [number, number, number] }
+            : p
+          );
+        applyBoxGeometry(boxVis, tempBoxPlanes);
+      }
+    } else {
+      const vis = sectionVisualsRef.current.get(planeId);
+      if (vis) {
+        vis.group.position.copy(newP);
+        vis.handle.position.copy(newP);
+      }
     }
 
     // Update this plane's clipping plane in the renderer

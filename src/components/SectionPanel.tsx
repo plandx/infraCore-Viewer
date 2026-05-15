@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import * as THREE from "three";
 import { X, FlipHorizontal2, Eye, EyeOff, Camera, Trash2, Box } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
@@ -41,6 +41,22 @@ export function SectionPanel() {
     return { sceneCenter: center, sceneRadius: Math.max(radius, 5) };
   }, [models]);
 
+  const [visualsHidden, setVisualsHidden] = useState(false);
+
+  // Sync hidden state to ViewportContainer via event; reset when panel unmounts
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("viewer:sectionVisualsHidden", { detail: false }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("viewer:sectionVisualsHidden", { detail: false }));
+    };
+  }, []);
+
+  const toggleVisuals = () => {
+    const next = !visualsHidden;
+    setVisualsHidden(next);
+    window.dispatchEvent(new CustomEvent("viewer:sectionVisualsHidden", { detail: next }));
+  };
+
   const isActive = sectionPlanes.length > 0 || activeTool === "section";
   if (!isActive) return null;
 
@@ -79,14 +95,16 @@ export function SectionPanel() {
 
     const mn = box.min, mx = box.max;
     const cx = (mn.x + mx.x) / 2, cy = (mn.y + mx.y) / 2, cz = (mn.z + mx.z) / 2;
+    const boxId = uuidv4();
+    const COL = "#7aa2f7";
     clearSectionPlanes();
     const boxPlanes: SectionPlane[] = [
-      { id: uuidv4(), name: "Box +X", normal: [1, 0, 0],  point: [mx.x, cy, cz], enabled: true, color: "#f7768e" },
-      { id: uuidv4(), name: "Box −X", normal: [-1, 0, 0], point: [mn.x, cy, cz], enabled: true, color: "#f7768e" },
-      { id: uuidv4(), name: "Box +Y", normal: [0, 1, 0],  point: [cx, mx.y, cz], enabled: true, color: "#9ece6a" },
-      { id: uuidv4(), name: "Box −Y", normal: [0, -1, 0], point: [cx, mn.y, cz], enabled: true, color: "#9ece6a" },
-      { id: uuidv4(), name: "Box +Z", normal: [0, 0, 1],  point: [cx, cy, mx.z], enabled: true, color: "#7aa2f7" },
-      { id: uuidv4(), name: "Box −Z", normal: [0, 0, -1], point: [cx, cy, mn.z], enabled: true, color: "#7aa2f7" },
+      { id: uuidv4(), boxId, name: "Box +X", normal: [1, 0, 0],  point: [mx.x, cy, cz], enabled: true, color: COL },
+      { id: uuidv4(), boxId, name: "Box −X", normal: [-1, 0, 0], point: [mn.x, cy, cz], enabled: true, color: COL },
+      { id: uuidv4(), boxId, name: "Box +Y", normal: [0, 1, 0],  point: [cx, mx.y, cz], enabled: true, color: COL },
+      { id: uuidv4(), boxId, name: "Box −Y", normal: [0, -1, 0], point: [cx, mn.y, cz], enabled: true, color: COL },
+      { id: uuidv4(), boxId, name: "Box +Z", normal: [0, 0, 1],  point: [cx, cy, mx.z], enabled: true, color: COL },
+      { id: uuidv4(), boxId, name: "Box −Z", normal: [0, 0, -1], point: [cx, cy, mn.z], enabled: true, color: COL },
     ];
     boxPlanes.forEach((p) => addSectionPlane(p));
   };
@@ -156,6 +174,20 @@ export function SectionPanel() {
 
           <div className="flex-1" />
 
+          {/* Hide / show all 3D section visuals */}
+          {sectionPlanes.length > 0 && (
+            <button
+              onClick={toggleVisuals}
+              className={cn(
+                "p-1 rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors",
+                visualsHidden && "text-primary bg-primary/10"
+              )}
+              title={visualsHidden ? "Schnittflächen einblenden" : "Schnittflächen ausblenden"}
+            >
+              {visualsHidden ? <EyeOff size={11} /> : <Eye size={11} />}
+            </button>
+          )}
+
           {sectionPlanes.length > 0 && (
             <button
               onClick={() => { clearSectionPlanes(); useModelStore.getState().setActiveTool("select"); }}
@@ -175,74 +207,116 @@ export function SectionPanel() {
           </div>
         )}
 
-        {/* Plane list */}
-        {sectionPlanes.length > 0 && (
-          <div className="max-h-52 overflow-y-auto divide-y divide-border/40">
-            {sectionPlanes.map((plane) => {
-              const offset = getOffset(plane);
-              return (
-                <div key={plane.id} className={cn("flex items-center gap-2 px-2.5 py-1.5", !plane.enabled && "opacity-50")}>
-                  {/* Color dot */}
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20"
-                    style={{ backgroundColor: plane.color }}
-                  />
+        {/* Plane list — box groups first, then solo planes */}
+        {sectionPlanes.length > 0 && (() => {
+          const boxGroupMap = new Map<string, SectionPlane[]>();
+          const soloList: SectionPlane[] = [];
+          for (const p of sectionPlanes) {
+            if (p.boxId) {
+              const g = boxGroupMap.get(p.boxId) ?? [];
+              g.push(p);
+              boxGroupMap.set(p.boxId, g);
+            } else {
+              soloList.push(p);
+            }
+          }
 
-                  {/* Name */}
-                  <span className="text-[11px] text-foreground w-20 shrink-0 truncate">{plane.name}</span>
-
-                  {/* Offset slider */}
-                  <div className="flex-1 flex items-center gap-1.5 min-w-0">
-                    <span className="text-[9px] text-muted-foreground/60 w-10 text-right shrink-0">
-                      {offset.toFixed(1)}m
-                    </span>
-                    <input
-                      type="range"
-                      min={-sliderRange}
-                      max={sliderRange}
-                      step={sliderRange / 200}
-                      value={offset}
-                      onChange={(e) => setOffset(plane, parseFloat(e.target.value))}
-                      className="flex-1 h-1 accent-primary cursor-pointer"
-                    />
+          return (
+            <div className="max-h-64 overflow-y-auto divide-y divide-border/40">
+              {/* Box groups */}
+              {Array.from(boxGroupMap.entries()).map(([boxId, bPlanes]) => {
+                const allEnabled = bPlanes.every(p => p.enabled);
+                const color = bPlanes[0]?.color ?? "#7aa2f7";
+                return (
+                  <div key={boxId}>
+                    {/* Box group header */}
+                    <div className="flex items-center gap-2 px-2.5 py-1 bg-muted/20 border-b border-border/30">
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0 ring-1 ring-black/20" style={{ backgroundColor: color }} />
+                      <Box size={9} className="text-muted-foreground shrink-0" />
+                      <span className="text-[10px] font-medium text-foreground flex-1">Box-Schnitt</span>
+                      <button
+                        onClick={() => bPlanes.forEach(p => updateSectionPlane(p.id, { enabled: !allEnabled }))}
+                        className="p-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+                        title={allEnabled ? "Box deaktivieren" : "Box aktivieren"}
+                      >
+                        {allEnabled ? <Eye size={10} /> : <EyeOff size={10} />}
+                      </button>
+                      <button
+                        onClick={() => bPlanes.forEach(p => removeSectionPlane(p.id))}
+                        className="p-0.5 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
+                        title="Box-Schnitt entfernen"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                    {/* Individual face rows */}
+                    {bPlanes.map((plane) => {
+                      const offset = getOffset(plane);
+                      return (
+                        <div key={plane.id} className={cn("flex items-center gap-2 px-2.5 py-1 pl-6", !plane.enabled && "opacity-40")}>
+                          <span className="text-[10px] text-muted-foreground w-12 shrink-0 font-mono">{plane.name.replace("Box ", "")}</span>
+                          <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                            <span className="text-[9px] text-muted-foreground/60 w-10 text-right shrink-0">
+                              {offset.toFixed(1)}m
+                            </span>
+                            <input
+                              type="range"
+                              min={-sliderRange}
+                              max={sliderRange}
+                              step={sliderRange / 200}
+                              value={offset}
+                              onChange={(e) => setOffset(plane, parseFloat(e.target.value))}
+                              className="flex-1 h-1 accent-primary cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
+                );
+              })}
 
-                  {/* Action buttons */}
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    <button
-                      onClick={() => flipPlane(plane)}
-                      className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-                      title="Normale umkehren"
-                    >
-                      <FlipHorizontal2 size={11} />
-                    </button>
-                    <button
-                      onClick={() => alignCamera(plane)}
-                      className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-                      title="Kamera zur Schnittebene ausrichten"
-                    >
-                      <Camera size={11} />
-                    </button>
-                    <button
-                      onClick={() => updateSectionPlane(plane.id, { enabled: !plane.enabled })}
-                      className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-                      title={plane.enabled ? "Ebene deaktivieren" : "Ebene aktivieren"}
-                    >
-                      {plane.enabled ? <Eye size={11} /> : <EyeOff size={11} />}
-                    </button>
-                    <button
-                      onClick={() => removeSectionPlane(plane.id)}
-                      className="p-1 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
-                      title="Schnittebene löschen"
-                    >
-                      <X size={11} />
-                    </button>
+              {/* Solo planes */}
+              {soloList.map((plane) => {
+                const offset = getOffset(plane);
+                return (
+                  <div key={plane.id} className={cn("flex items-center gap-2 px-2.5 py-1.5", !plane.enabled && "opacity-50")}>
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20" style={{ backgroundColor: plane.color }} />
+                    <span className="text-[11px] text-foreground w-20 shrink-0 truncate">{plane.name}</span>
+                    <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                      <span className="text-[9px] text-muted-foreground/60 w-10 text-right shrink-0">
+                        {offset.toFixed(1)}m
+                      </span>
+                      <input
+                        type="range"
+                        min={-sliderRange}
+                        max={sliderRange}
+                        step={sliderRange / 200}
+                        value={offset}
+                        onChange={(e) => setOffset(plane, parseFloat(e.target.value))}
+                        className="flex-1 h-1 accent-primary cursor-pointer"
+                      />
+                    </div>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <button onClick={() => flipPlane(plane)} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors" title="Normale umkehren">
+                        <FlipHorizontal2 size={11} />
+                      </button>
+                      <button onClick={() => alignCamera(plane)} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors" title="Kamera zur Schnittebene ausrichten">
+                        <Camera size={11} />
+                      </button>
+                      <button onClick={() => updateSectionPlane(plane.id, { enabled: !plane.enabled })} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors" title={plane.enabled ? "Ebene deaktivieren" : "Ebene aktivieren"}>
+                        {plane.enabled ? <Eye size={11} /> : <EyeOff size={11} />}
+                      </button>
+                      <button onClick={() => removeSectionPlane(plane.id)} className="p-1 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors" title="Schnittebene löschen">
+                        <X size={11} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
