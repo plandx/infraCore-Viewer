@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { X, Trash2, Focus } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
 import { cn } from "../lib/utils";
@@ -10,19 +11,29 @@ export function BasketListPanel({ onSelectElement }: { onSelectElement?: (modelI
   const setBasketMode = useModelStore((s) => s.setBasketMode);
   const selectedElement = useModelStore((s) => s.selectedElement);
 
-  const entries = Array.from(selectionBasket).map((key) => {
-    const [modelId, expressIdStr] = key.split(":");
-    const expressId = parseInt(expressIdStr);
-    const model = models.get(modelId);
-    if (!model) return null;
-    let name = "";
-    let typeName = "";
-    for (const [type, els] of Object.entries(model.elementsByType)) {
-      const el = els.find((e) => e.expressId === expressId);
-      if (el) { name = el.name; typeName = type; break; }
-    }
-    return { key, modelId, expressId, modelName: model.name, modelColor: model.color, name, typeName };
-  }).filter(Boolean) as Array<{ key: string; modelId: string; expressId: number; modelName: string; modelColor: string; name: string; typeName: string }>;
+  // Build O(1) lookup index: "modelId:expressId" → {name, typeName}
+  const elementIndex = useMemo(() => {
+    const idx = new Map<string, { name: string; typeName: string }>();
+    models.forEach((model, modelId) => {
+      for (const [typeName, els] of Object.entries(model.elementsByType)) {
+        for (const el of els) {
+          idx.set(`${modelId}:${el.expressId}`, { name: el.name, typeName });
+        }
+      }
+    });
+    return idx;
+  }, [models]);
+
+  const entries = useMemo(() =>
+    Array.from(selectionBasket).flatMap((key) => {
+      const [modelId, expressIdStr] = key.split(":");
+      const model = models.get(modelId);
+      if (!model) return [];
+      const { name = "", typeName = "" } = elementIndex.get(key) ?? {};
+      return [{ key, modelId, expressId: parseInt(expressIdStr), modelName: model.name, modelColor: model.color, name, typeName }];
+    }),
+    [selectionBasket, models, elementIndex]
+  );
 
   return (
     <div className="flex flex-col h-full text-xs">
