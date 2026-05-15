@@ -803,8 +803,7 @@ export function QuantityListPanel() {
               openFilterCol={openFilterCol}
               onOpenFilterCol={setOpenFilterCol}
             />
-            )}
-          </div>
+          )}
         </div>
       )}
     </div>
