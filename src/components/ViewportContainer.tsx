@@ -1349,9 +1349,12 @@ function ContextMenu({
 }) {
   const [subOpen, setSubOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const subRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pos, setPos] = useState({ left: x, top: y });
+  const [subStyle, setSubStyle] = useState<React.CSSProperties>({});
 
-  // After first paint, clamp menu so it stays fully inside the container
+  // Clamp main menu within container after first paint
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!el) return;
@@ -1364,8 +1367,43 @@ function ContextMenu({
     });
   }, [x, y]);
 
-  // Flip 5D submenu to left when menu is near the right edge
-  const flipLeft = pos.left > (menuRef.current?.parentElement?.offsetWidth ?? window.innerWidth) - 360;
+  // Clamp submenu position (horizontal flip + vertical clamp) after it renders
+  useLayoutEffect(() => {
+    if (!subOpen) { setSubStyle({}); return; }
+    const sub = subRef.current;
+    const menu = menuRef.current;
+    if (!sub || !menu) return;
+    const container = menu.parentElement;
+    const cw = container?.offsetWidth ?? window.innerWidth;
+    const ch = container?.offsetHeight ?? window.innerHeight;
+
+    // Horizontal: prefer right side, flip left if not enough space
+    const goLeft = pos.left + menu.offsetWidth + sub.offsetWidth > cw && pos.left >= sub.offsetWidth;
+
+    // Vertical: find submenu's top relative to container using getBoundingClientRect
+    const subRect = sub.getBoundingClientRect();
+    const containerRect = container
+      ? container.getBoundingClientRect()
+      : { top: 0, bottom: window.innerHeight };
+    const subTopInContainer = subRect.top - containerRect.top;
+    const overflow = subTopInContainer + sub.offsetHeight - ch;
+    const vertShift = overflow > 0 ? -Math.min(overflow, subTopInContainer) : 0;
+
+    setSubStyle({
+      top: vertShift,
+      ...(goLeft
+        ? { right: "100%", left: "auto", marginRight: 2, marginLeft: 0 }
+        : { left: "100%", right: "auto", marginLeft: 2, marginRight: 0 }),
+    });
+  }, [subOpen, pos]);
+
+  const openSub  = useCallback(() => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+    setSubOpen(true);
+  }, []);
+  const closeSub = useCallback(() => {
+    closeTimer.current = setTimeout(() => setSubOpen(false), 120);
+  }, []);
 
   useEffect(() => {
     const handler = () => onClose();
@@ -1401,11 +1439,7 @@ function ContextMenu({
       </button>
 
       {/* 5D item with flyout submenu */}
-      <div
-        className="relative"
-        onMouseEnter={() => setSubOpen(true)}
-        onMouseLeave={() => setSubOpen(false)}
-      >
+      <div className="relative" onMouseEnter={openSub} onMouseLeave={closeSub}>
         <button
           className={cn(
             "w-full text-left px-3 py-1.5 hover:bg-muted/60 flex items-center gap-1",
@@ -1430,10 +1464,11 @@ function ContextMenu({
 
         {subOpen && (
           <div
-            className="absolute top-0 bg-popover border border-border rounded-md shadow-xl py-1 z-[60] w-36"
-            style={flipLeft ? { right: "100%", marginRight: 3 } : { left: "100%", marginLeft: 3 }}
-            onMouseEnter={() => setSubOpen(true)}
-            onMouseLeave={() => setSubOpen(false)}
+            ref={subRef}
+            className="absolute bg-popover border border-border rounded-md shadow-xl py-1 z-[60] w-36"
+            style={subStyle}
+            onMouseEnter={openSub}
+            onMouseLeave={closeSub}
           >
             <div className="px-2.5 py-1 text-[10px] text-muted-foreground/70 border-b border-border mb-0.5 font-medium">
               Fertigstellungsgrad
