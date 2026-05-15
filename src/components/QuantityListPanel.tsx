@@ -524,6 +524,7 @@ export function QuantityListPanel() {
   const [columnFilters, setColumnFilters] = useState<Record<string, Set<string>>>({});
   const [openFilterCol, setOpenFilterCol] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeList = qtoLists.find((l) => l.id === activeListId) ?? null;
@@ -600,6 +601,7 @@ export function QuantityListPanel() {
     setResults(rows);
     setColumnFilters({});
     setOpenFilterCol(null);
+    setEditorOpen(false);
   }, [activeList, models, loadedProperties]);
 
   const handleFilterToggle = useCallback((colId: string, value: string) => {
@@ -682,7 +684,7 @@ export function QuantityListPanel() {
           {qtoLists.map((list) => (
             <button
               key={list.id}
-              onClick={() => { setActiveListId(list.id); setResults(null); }}
+              onClick={() => { setActiveListId(list.id); setResults(null); setColumnFilters({}); setEditorOpen(true); }}
               className={cn(
                 "w-full text-left px-3 py-2 text-[11px] border-b border-border/50 truncate hover:bg-muted/50 transition-colors",
                 list.id === activeListId && "bg-primary/10 text-primary font-semibold"
@@ -702,7 +704,7 @@ export function QuantityListPanel() {
         </div>
       ) : (
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {/* List header */}
+          {/* ── List header ── */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0 bg-card/30">
             <input
               className="flex-1 bg-transparent border-none outline-none font-semibold text-sm text-foreground"
@@ -721,73 +723,86 @@ export function QuantityListPanel() {
             </button>
           </div>
 
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-            <PropertyLoader />
-            <FilterSection
-              filters={activeList.filters}
-              filterLogic={activeList.filterLogic}
-              propKeys={loadedPropKeys}
-              onUpdate={(filters, filterLogic) => patch({ filters, filterLogic })} />
+          {/* ── Editor toggle bar ── always visible ── */}
+          <div
+            className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-muted/10 cursor-pointer select-none hover:bg-muted/20 transition-colors"
+            onClick={() => setEditorOpen((v) => !v)}
+          >
+            <ChevronDown size={12} className={cn("text-muted-foreground transition-transform duration-150", editorOpen && "rotate-180")} />
+            <span className="text-[11px] font-medium text-muted-foreground">Einstellungen</span>
+            <span className="text-[11px] text-muted-foreground/50 ml-0.5">
+              {activeList.filters.length > 0 && `${activeList.filters.length} Filter · `}{activeList.columns.length} Spalten
+            </span>
+            <div className="flex-1" />
+            {/* Run always accessible */}
+            <button
+              onClick={(e) => { e.stopPropagation(); handleRun(); }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-opacity"
+            >
+              <Play size={10} /> Ausführen
+            </button>
+          </div>
 
-            <ColumnSection
-              columns={activeList.columns}
-              propKeys={loadedPropKeys}
-              onUpdate={(columns) => patch({ columns })} />
-
-            {/* Run bar */}
-            <div className="flex items-center gap-2.5 px-3 py-2.5 border-b border-border shrink-0 bg-card/20">
-              <button
-                onClick={handleRun}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity">
-                <Play size={11} />
-                Ausführen
-              </button>
-              {results !== null && (
-                <>
-                  <span className="text-muted-foreground text-[11px] shrink-0">
-                    {results.length} {results.length === 1 ? "Element" : "Elemente"}
-                  </span>
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <button
-                      onClick={handleIsolate}
-                      disabled={results.length === 0}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border text-xs hover:bg-muted/50 disabled:opacity-40 transition-colors"
-                      title="Ergebnis im Viewer isolieren">
-                      <ScanEye size={12} />
-                      Isolieren
-                    </button>
-                    <button
-                      onClick={handleAddToBasket}
-                      disabled={results.length === 0}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border text-xs hover:bg-muted/50 disabled:opacity-40 transition-colors"
-                      title="Ergebnis zum Auswahlkorb hinzufügen">
-                      <ShoppingBasket size={12} />
-                      Zum Korb
-                    </button>
-                    <button
-                      onClick={handleExport}
-                      disabled={results.length === 0}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border text-xs hover:bg-muted/50 disabled:opacity-40 transition-colors">
-                      <Download size={12} />
-                      XLSX
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {results !== null && (
-              <ResultsTable
+          {/* ── Collapsible editor ── own scroll, capped height ── */}
+          {editorOpen && (
+            <div className="overflow-y-auto shrink-0 border-b border-border" style={{ maxHeight: 320 }}>
+              <PropertyLoader />
+              <FilterSection
+                filters={activeList.filters}
+                filterLogic={activeList.filterLogic}
+                propKeys={loadedPropKeys}
+                onUpdate={(filters, filterLogic) => patch({ filters, filterLogic })} />
+              <ColumnSection
                 columns={activeList.columns}
-                allRows={results}
-                columnFilters={columnFilters}
-                onFilterToggle={handleFilterToggle}
-                onFilterSelectAll={handleFilterSelectAll}
-                onFilterClearAll={handleFilterClearAll}
-                onFilterClose={() => setColumnFilters({})}
-                openFilterCol={openFilterCol}
-                onOpenFilterCol={setOpenFilterCol}
-              />
+                propKeys={loadedPropKeys}
+                onUpdate={(columns) => patch({ columns })} />
+            </div>
+          )}
+
+          {/* ── Results action bar ── only after run ── */}
+          {results !== null && (
+            <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-card/20">
+              <span className="text-muted-foreground text-[11px] shrink-0">
+                {results.length} {results.length === 1 ? "Element" : "Elemente"}
+              </span>
+              <div className="flex items-center gap-1.5 ml-auto">
+                <button
+                  onClick={handleIsolate}
+                  disabled={results.length === 0}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-border text-[11px] hover:bg-muted/50 disabled:opacity-40 transition-colors"
+                  title="Ergebnis im Viewer isolieren">
+                  <ScanEye size={11} /> Isolieren
+                </button>
+                <button
+                  onClick={handleAddToBasket}
+                  disabled={results.length === 0}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-border text-[11px] hover:bg-muted/50 disabled:opacity-40 transition-colors"
+                  title="Ergebnis zum Auswahlkorb hinzufügen">
+                  <ShoppingBasket size={11} /> Zum Korb
+                </button>
+                <button
+                  onClick={handleExport}
+                  disabled={results.length === 0}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-border text-[11px] hover:bg-muted/50 disabled:opacity-40 transition-colors">
+                  <Download size={11} /> XLSX
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Results table ── flex-1, always has space ── */}
+          {results !== null && (
+            <ResultsTable
+              columns={activeList.columns}
+              allRows={results}
+              columnFilters={columnFilters}
+              onFilterToggle={handleFilterToggle}
+              onFilterSelectAll={handleFilterSelectAll}
+              onFilterClearAll={handleFilterClearAll}
+              onFilterClose={() => setColumnFilters({})}
+              openFilterCol={openFilterCol}
+              onOpenFilterCol={setOpenFilterCol}
+            />
             )}
           </div>
         </div>
