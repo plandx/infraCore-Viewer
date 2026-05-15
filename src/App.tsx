@@ -268,6 +268,44 @@ function MainApp() {
 
   useMainWindowSync(handleElementClick);
 
+  // Billing window element-list provider
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null;
+    try { bc = new BroadcastChannel("infracore-billing"); } catch { return; }
+
+    function sendElements() {
+      const list: import("./billing/types").ElementInfo[] = [];
+      const store = useModelStore.getState();
+      store.models.forEach((m, modelId) => {
+        if (m.status !== "loaded") return;
+        for (const [ifcType, elements] of Object.entries(m.elementsByType)) {
+          for (const el of elements as Array<{ expressId: number; name: string }>) {
+            list.push({
+              key: `${modelId}:${el.expressId}`,
+              guid: "",
+              expressId: el.expressId,
+              modelId,
+              name: el.name || `${ifcType} #${el.expressId}`,
+              ifcType,
+            });
+          }
+        }
+      });
+      bc?.postMessage({ t: "elements", list } satisfies import("./billing/types").BillingMsg);
+    }
+
+    bc.addEventListener("message", (ev) => {
+      const msg = ev.data as import("./billing/types").BillingMsg;
+      if (msg.t === "ready") sendElements();
+    });
+
+    const unsub = useModelStore.subscribe((s, prev) => {
+      if (s.models !== prev.models) sendElements();
+    });
+
+    return () => { bc?.close(); unsub(); };
+  }, []);
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground">
       {/* Toolbar */}

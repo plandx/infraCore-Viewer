@@ -89,3 +89,8 @@ export function openSecondaryWindow(panel: PanelType) {
   const url = `${window.location.pathname}?secondary&panel=${panel}`;
   window.open(url, `infracore-${panel}`, `width=${w},height=${h},resizable=yes`);
 }
+
+export function openBillingWindow() {
+  const url = `${window.location.pathname}?billing`;
+  window.open(url, "infracore-billing", "width=1100,height=760,resizable=yes");
+}

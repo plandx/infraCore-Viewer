@@ -4,9 +4,9 @@ import {
   MousePointer2, Ruler, Scissors, Eye, EyeOff,
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
-  X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2,
+  X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2,
 } from "lucide-react";
-import { openSecondaryWindow, PANEL_META } from "../utils/windowSync";
+import { openSecondaryWindow, openBillingWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
 import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
 import { cn } from "../lib/utils";
@@ -286,6 +286,18 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
         >
           <Table2 size={16} />
         </PopoutPanelButton>
+
+        <div className="w-px h-5 bg-border mx-1" />
+
+        {/* 5D Billing */}
+        <button
+          onClick={() => openBillingWindow()}
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-muted hover:bg-primary/20 hover:text-primary transition-colors"
+          title="5D-Abrechnung öffnen"
+        >
+          <BarChart2 size={14} />
+          <span>5D</span>
+        </button>
 
         <div className="flex-1" />
 

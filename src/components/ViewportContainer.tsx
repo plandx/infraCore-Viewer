@@ -9,6 +9,8 @@ import { SectionPanel } from "./SectionPanel";
 import { v4 as uuidv4 } from "uuid";
 import { SectionModule } from "../section";
 import { cn } from "../lib/utils";
+import { BillingVisualizer } from "../billing/BillingVisualizer";
+import { useBillingStore } from "../billing/billingStore";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -89,6 +91,10 @@ export function ViewportContainer({ onElementClick }: Props) {
     setBasket: s.setBasket,
   })));
 
+  const billingEntries = useBillingStore((s) => s.entries);
+  const billingModuleActive = useBillingStore((s) => s.moduleActive);
+  const billingVizRef = useRef<BillingVisualizer | null>(null);
+
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
 
@@ -121,6 +127,8 @@ export function ViewportContainer({ onElementClick }: Props) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#1a1b26");
     sceneRef.current = scene;
+
+    billingVizRef.current = new BillingVisualizer(scene);
 
     // Separate scene for section handles/gizmos — rendered without clip planes
     const handleScene = new THREE.Scene();
@@ -258,6 +266,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       ro.disconnect();
       sectionModuleRef.current?.dispose();
       sectionModuleRef.current = null;
+      billingVizRef.current?.dispose();
+      billingVizRef.current = null;
       controls.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
@@ -270,6 +280,34 @@ export function ViewportContainer({ onElementClick }: Props) {
   useEffect(() => {
     sectionModuleRef.current?.syncPlanes(sectionPlanes);
   }, [sectionPlanes]);
+
+  // ── Billing visualizer ────────────────────────────────────────────────────
+  useEffect(() => {
+    const viz = billingVizRef.current;
+    const scene = sceneRef.current;
+    if (!viz || !scene) return;
+    if (!billingModuleActive) { viz.clear(); needsRenderRef.current = true; return; }
+
+    const meshMap = new Map<string, THREE.Mesh[]>();
+    scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
+      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBillingOverlay) return;
+      let modelId = "";
+      let node: THREE.Object3D | null = obj;
+      while (node) {
+        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
+        node = node.parent;
+      }
+      if (!modelId) return;
+      const key = `${modelId}:${obj.userData.expressId}`;
+      const list = meshMap.get(key) ?? [];
+      list.push(obj);
+      meshMap.set(key, list);
+    });
+
+    viz.update(billingEntries, meshMap);
+    needsRenderRef.current = true;
+  }, [billingEntries, billingModuleActive]);
 
   // Dead code below kept as tombstone start — replaced by SectionModule
 
