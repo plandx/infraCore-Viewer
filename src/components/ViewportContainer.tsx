@@ -1251,6 +1251,12 @@ export function ViewportContainer({ onElementClick }: Props) {
           onSelectClass={() => { ctxSelectClass(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
           onSelectStorey={() => { ctxSelectStorey(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
           inBilling={!!useBillingStore.getState().entries[`${useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId}:${contextMenu.expressId}`]}
+          currentDegree={(() => {
+            const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
+            const entry = billingEntries[`${filename}:${contextMenu.expressId}`];
+            return entry?.stages.length ? entry.stages[entry.stages.length - 1].degree : null;
+          })()}
+          menuX={contextMenu.x}
           onAdd5D={() => {
             const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
             const key = `${filename}:${contextMenu.expressId}`;
@@ -1259,7 +1265,6 @@ export function ViewportContainer({ onElementClick }: Props) {
               elementName: contextMenu.elementName, ifcType: contextMenu.ifcType,
             });
             openBillingWindow();
-            // Tell billing window to select this entry (slight delay for window to open)
             setTimeout(() => {
               try {
                 const bc = new BroadcastChannel(BILLING_CHANNEL);
@@ -1267,6 +1272,24 @@ export function ViewportContainer({ onElementClick }: Props) {
                 bc.close();
               } catch { /* ignore */ }
             }, 600);
+            setContextMenu(null);
+          }}
+          onSet5DDegree={(degree) => {
+            const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
+            const key = `${filename}:${contextMenu.expressId}`;
+            const store = useBillingStore.getState();
+            if (!store.entries[key]) {
+              store.addEntry({
+                key, guid: "", expressId: contextMenu.expressId, modelId: contextMenu.modelId,
+                elementName: contextMenu.elementName, ifcType: contextMenu.ifcType,
+              });
+            }
+            useBillingStore.getState().addStage(key, {
+              label: `Stand ${new Date().toLocaleDateString("de-DE")}`,
+              date: new Date().toISOString().slice(0, 10),
+              degree,
+              note: "",
+            });
             setContextMenu(null);
           }}
           faceNormal={contextMenu.faceNormal}
@@ -1303,18 +1326,30 @@ function isWorldVisible(obj: THREE.Object3D): boolean {
 
 // ── Context menu component ────────────────────────────────────────────────────
 
+function degreeColor(d: number): string {
+  if (d === 0) return "#94a3b8";
+  if (d >= 100) return "#22c55e";
+  const t = d / 100;
+  return `rgb(${Math.round((1 - t * 0.65) * 255)},${Math.round((0.38 + t * 0.58) * 255)},20)`;
+}
+
 function ContextMenu({
-  x, y, expressId, inBasket, inBilling, faceNormal,
+  x, y, expressId, inBasket, inBilling, currentDegree, menuX, faceNormal,
   onClose, onHide, onIsolate, onShowAll,
-  onFit, onBasketToggle, onSelectClass, onSelectStorey, onSectionFromFace, onAdd5D,
+  onFit, onBasketToggle, onSelectClass, onSelectStorey, onSectionFromFace, onAdd5D, onSet5DDegree,
 }: {
   x: number; y: number; modelId: string; expressId: number; inBasket: boolean; inBilling: boolean;
+  currentDegree: number | null; menuX: number;
   faceNormal?: [number, number, number]; hitPoint?: [number, number, number];
   onClose: () => void; onHide: () => void; onIsolate: () => void;
   onShowAll: () => void; onFit: () => void;
   onBasketToggle: () => void; onSelectClass: () => void; onSelectStorey: () => void;
-  onSectionFromFace?: () => void; onAdd5D: () => void;
+  onSectionFromFace?: () => void; onAdd5D: () => void; onSet5DDegree: (d: number) => void;
 }) {
+  const [subOpen, setSubOpen] = useState(false);
+  // Flip submenu to left when menu is in right half of viewport
+  const flipLeft = menuX > window.innerWidth - 360;
+
   useEffect(() => {
     const handler = () => onClose();
     window.addEventListener("click", handler, { once: true });
@@ -1346,12 +1381,69 @@ function ContextMenu({
       <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onBasketToggle}>
         {inBasket ? "Aus Auswahlkorb entfernen" : "Zum Auswahlkorb hinzufügen"}
       </button>
-      <button
-        className={`w-full text-left px-3 py-1.5 hover:bg-muted/60 ${inBilling ? "text-primary font-medium" : "text-foreground"}`}
-        onClick={onAdd5D}
+
+      {/* 5D item with flyout submenu */}
+      <div
+        className="relative"
+        onMouseEnter={() => setSubOpen(true)}
+        onMouseLeave={() => setSubOpen(false)}
       >
-        {inBilling ? "5D-Eintrag öffnen" : "In 5D aufnehmen"}
-      </button>
+        <button
+          className={cn(
+            "w-full text-left px-3 py-1.5 hover:bg-muted/60 flex items-center gap-1",
+            inBilling ? "text-primary font-medium" : "text-foreground",
+            subOpen && "bg-muted/60"
+          )}
+          onClick={onAdd5D}
+        >
+          <span className="flex-1">{inBilling ? "5D-Eintrag öffnen" : "In 5D aufnehmen"}</span>
+          {currentDegree !== null && (
+            <span
+              className="text-[10px] font-mono px-1 rounded"
+              style={{ color: degreeColor(currentDegree) }}
+            >
+              {currentDegree}%
+            </span>
+          )}
+          <svg width="8" height="8" viewBox="0 0 8 8" className="text-muted-foreground shrink-0">
+            <path d="M2 1l4 3-4 3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+
+        {subOpen && (
+          <div
+            className="absolute top-0 bg-popover border border-border rounded-md shadow-xl py-1 z-[60] w-36"
+            style={flipLeft ? { right: "100%", marginRight: 3 } : { left: "100%", marginLeft: 3 }}
+            onMouseEnter={() => setSubOpen(true)}
+            onMouseLeave={() => setSubOpen(false)}
+          >
+            <div className="px-2.5 py-1 text-[10px] text-muted-foreground/70 border-b border-border mb-0.5 font-medium">
+              Fertigstellungsgrad
+            </div>
+            {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((d) => (
+              <button
+                key={d}
+                className={cn(
+                  "w-full text-left px-2.5 py-1 flex items-center gap-2 hover:bg-muted/60 transition-colors",
+                  currentDegree === d ? "bg-muted/80 font-semibold" : "text-foreground"
+                )}
+                onClick={(e) => { e.stopPropagation(); onSet5DDegree(d); }}
+              >
+                <span
+                  className="w-3 h-3 rounded-full shrink-0 border border-white/10"
+                  style={{ backgroundColor: degreeColor(d) }}
+                />
+                <span className="font-mono text-xs flex-1">{d}%</span>
+                {d === 100 && <span className="text-green-500 text-[10px]">✓</span>}
+                {currentDegree === d && d !== 100 && (
+                  <span className="text-primary text-[10px]">●</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onSelectClass}>
         Alle Elemente dieser Klasse wählen
       </button>
