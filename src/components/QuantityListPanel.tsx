@@ -31,6 +31,17 @@ function PropertyLoader() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  const isStale = !loading && loadedProperties !== null && (() => {
+    const loadedIds = new Set(loadedProperties.keys());
+    for (const [id, m] of models.entries()) {
+      if (m.status === "loaded" && !loadedIds.has(id)) return true;
+    }
+    for (const id of loadedIds) {
+      if (!models.has(id)) return true;
+    }
+    return false;
+  })();
+
   async function handleLoad() {
     setLoading(true);
     setProgress(0);
@@ -60,7 +71,10 @@ function PropertyLoader() {
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/20">
+    <div className={cn(
+      "flex items-center gap-2 px-3 py-2 border-b border-border",
+      isStale ? "bg-red-500/10" : "bg-muted/20"
+    )}>
       <button
         className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium bg-muted hover:bg-muted/80 text-foreground transition-colors disabled:opacity-50"
         onClick={handleLoad}
@@ -70,7 +84,10 @@ function PropertyLoader() {
         {loadedProperties ? "Properties neu laden" : "Properties laden"}
       </button>
       {loading && <span className="text-[11px] text-muted-foreground">{progress}%</span>}
-      {!loading && loadedProperties && (
+      {!loading && isStale && (
+        <span className="text-[11px] text-red-400">Modelle geändert — bitte neu laden</span>
+      )}
+      {!loading && !isStale && loadedProperties && (
         <span className="text-[11px] text-emerald-500/80">
           {useModelStore.getState().loadedPropKeys.length} Schlüssel geladen
         </span>
@@ -230,7 +247,7 @@ function ColumnSection({ columns, propKeys, onUpdate }: {
 function ColumnFilterDropdown({ colId, allValues, active, onClose, onToggle, onSelectAll, onClearAll }: {
   colId: string;
   allValues: string[];
-  active: Set<string>;
+  active: Set<string> | undefined;
   onClose: () => void;
   onToggle: (v: string) => void;
   onSelectAll: () => void;
@@ -238,8 +255,8 @@ function ColumnFilterDropdown({ colId, allValues, active, onClose, onToggle, onS
 }) {
   const [search, setSearch] = useState("");
   const filtered = search ? allValues.filter((v) => v.toLowerCase().includes(search.toLowerCase())) : allValues;
-  const allChecked = active.size === 0 || allValues.every((v) => active.has(v));
-  const someChecked = !allChecked && allValues.some((v) => active.has(v));
+  const allChecked = active === undefined || allValues.every((v) => active.has(v));
+  const someChecked = !allChecked && active !== undefined && allValues.some((v) => active.has(v));
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -287,7 +304,7 @@ function ColumnFilterDropdown({ colId, allValues, active, onClose, onToggle, onS
           <label key={v} className="flex items-center gap-2 px-3 py-1 hover:bg-muted/40 cursor-pointer text-[11px]">
             <input
               type="checkbox"
-              checked={active.size === 0 || active.has(v)}
+              checked={active === undefined || active.has(v)}
               onChange={() => onToggle(v)}
               className="accent-primary shrink-0"
             />
@@ -318,7 +335,7 @@ function ResultsTable({ columns, allRows, columnFilters, onFilterToggle, onFilte
     return allRows.filter((row) =>
       columns.every((col) => {
         const f = columnFilters[col.id];
-        return !f || f.size === 0 || f.has(row.data[col.id] ?? "");
+        return f === undefined || f.has(row.data[col.id] ?? "");
       })
     );
   }, [allRows, columns, columnFilters]);
@@ -333,7 +350,7 @@ function ResultsTable({ columns, allRows, columnFilters, onFilterToggle, onFilte
     return map;
   }, [allRows, columns]);
 
-  const activeFilterCount = Object.values(columnFilters).filter((s) => s.size > 0).length;
+  const activeFilterCount = Object.values(columnFilters).filter((s) => s !== undefined).length;
 
   if (allRows.length === 0) return (
     <div className="flex items-center justify-center py-10 text-muted-foreground text-[11px]">Keine Elemente gefunden</div>
@@ -377,7 +394,7 @@ function ResultsTable({ columns, allRows, columnFilters, onFilterToggle, onFilte
                       <ColumnFilterDropdown
                         colId={col.id}
                         allValues={uniqueValues[col.id] ?? []}
-                        active={columnFilters[col.id] ?? new Set()}
+                        active={columnFilters[col.id]}
                         onClose={() => onOpenFilterCol(null)}
                         onToggle={(v) => onFilterToggle(col.id, v)}
                         onSelectAll={() => onFilterSelectAll(col.id)}
@@ -446,7 +463,18 @@ export function QuantityListPanel() {
   const patch = (p: Partial<QTOList>) => {
     if (!activeList) return;
     updateQTOList(activeList.id, p);
-    setResults(null);
+    if ("filters" in p || "filterLogic" in p) {
+      setResults(null);
+      setColumnFilters({});
+    } else if ("columns" in p && p.columns) {
+      // Drop filters whose column was removed
+      const surviving = new Set(p.columns.map((c) => c.id));
+      setColumnFilters((prev) => {
+        const n = { ...prev };
+        for (const key of Object.keys(n)) if (!surviving.has(key)) delete n[key];
+        return n;
+      });
+    }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     setSaved(true);
     saveTimerRef.current = setTimeout(() => setSaved(false), 2000);
@@ -492,9 +520,16 @@ export function QuantityListPanel() {
   const handleFilterToggle = useCallback((colId: string, value: string) => {
     setColumnFilters((prev) => {
       const all = results ? Array.from(new Set(results.map((r) => r.data[colId] ?? ""))) : [];
-      const cur = prev[colId] ?? new Set(all);
+      // undefined means "all allowed"; start from full set when first toggling
+      const cur: Set<string> = prev[colId] ?? new Set(all);
       const next = new Set(cur);
       next.has(value) ? next.delete(value) : next.add(value);
+      // if back to full set, treat as "no filter"
+      if (all.length > 0 && all.every((v) => next.has(v))) {
+        const n = { ...prev };
+        delete n[colId];
+        return n;
+      }
       return { ...prev, [colId]: next };
     });
   }, [results]);
@@ -513,7 +548,7 @@ export function QuantityListPanel() {
     return results.filter((row) =>
       activeList.columns.every((col) => {
         const f = columnFilters[col.id];
-        return !f || f.size === 0 || f.has(row.data[col.id] ?? "");
+        return f === undefined || f.has(row.data[col.id] ?? "");
       })
     );
   }, [results, activeList, columnFilters]);
