@@ -509,9 +509,9 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       const key = `${modelId}:${obj.userData.expressId}`;
       if (state.basketMode === "isolate" && state.selectionBasket.size > 0) {
-        obj.visible = state.selectionBasket.has(key);
+        obj.visible = state.selectionBasket.has(key) && !state.hiddenElements.has(key);
       } else if (state.isolatedElements !== null) {
-        obj.visible = state.isolatedElements.has(key);
+        obj.visible = state.isolatedElements.has(key) && !state.hiddenElements.has(key);
       } else {
         obj.visible = !state.hiddenElements.has(key);
       }
