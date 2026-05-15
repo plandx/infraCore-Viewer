@@ -54,7 +54,23 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   const [view, setView] = useState<View>("spatial");
   const [visibleSnapshot, setVisibleSnapshot] = useState<VisibleEntry[] | null>(null);
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
+  const [inputValue, setInputValue] = useState("");
   const [search, setSearch] = useState("");
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleSearch = useCallback((val: string) => {
+    setInputValue(val);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (val === "") {
+      setSearch("");
+    } else {
+      searchDebounceRef.current = setTimeout(() => setSearch(val), 150);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+  }, []);
 
   // Multi-selection
   const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set());
@@ -286,7 +302,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   if (arr.length === 0) {
     return (
       <div className="flex flex-col h-full">
-        <Header view={view} onView={handleSetView} search={search} onSearch={setSearch} />
+        <Header view={view} onView={handleSetView} search={inputValue} onSearch={handleSearch} />
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground p-6 text-center">
           <div className="w-14 h-14 rounded-xl border-2 border-dashed border-border flex items-center justify-center">
             <Layers size={22} className="opacity-30" />
@@ -302,7 +318,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
 
   return (
     <div className="flex flex-col h-full">
-      <Header view={view} onView={setView} search={search} onSearch={setSearch} />
+      <Header view={view} onView={setView} search={inputValue} onSearch={handleSearch} />
 
       {(hasIsolation || hasHidden) && (
         <div className="shrink-0 flex items-center gap-1.5 px-2 py-1 bg-primary/10 border-b border-primary/20 text-[11px]">
