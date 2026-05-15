@@ -227,61 +227,66 @@ export async function loadIFCFile(
   return { entry, newWorldOrigin };
 }
 
+// ── Persistent per-file model cache ──────────────────────────────────────────
+// Keeps an open web-ifc model handle for each File so repeated property
+// lookups (element clicks) don't re-read and re-parse the file each time.
+
+interface CachedModel { modelId: number; api: WebIFC.IfcAPI }
+const propModelCache = new Map<File, CachedModel>();
+
+async function getOrOpenPropModel(file: File): Promise<CachedModel> {
+  const hit = propModelCache.get(file);
+  if (hit) return hit;
+  const buffer = await file.arrayBuffer();
+  const data = new Uint8Array(buffer);
+  const api = await getIfcApi();
+  const modelId = api.OpenModel(data, { COORDINATE_TO_ORIGIN: false });
+  const entry: CachedModel = { modelId, api };
+  propModelCache.set(file, entry);
+  return entry;
+}
+
+export function evictPropModelCache(file: File) {
+  const entry = propModelCache.get(file);
+  if (entry) { try { entry.api.CloseModel(entry.modelId); } catch { /* ignore */ } }
+  propModelCache.delete(file);
+}
+
 export async function loadIFCProperties(
   file: File,
   expressId: number
 ): Promise<{ properties: Record<string, unknown>; psets: PropertySet[] }> {
-  const buffer = await file.arrayBuffer();
-  const data = new Uint8Array(buffer);
-  const api = await getIfcApi();
-  const modelId = api.OpenModel(data, {
-    COORDINATE_TO_ORIGIN: false,
-  });
+  const { api, modelId } = await getOrOpenPropModel(file);
 
   const props: Record<string, unknown> = {};
   const psets: PropertySet[] = [];
 
-  try {
-    const itemProps = await api.properties.getItemProperties(
-      modelId,
-      expressId,
-      false
-    );
-    if (itemProps) {
-      Object.entries(itemProps as Record<string, unknown>).forEach(
-        ([k, v]) => {
-          if (k !== "expressID") props[k] = v;
-        }
-      );
-    }
+  const itemProps = await api.properties.getItemProperties(modelId, expressId, false);
+  if (itemProps) {
+    Object.entries(itemProps as Record<string, unknown>).forEach(([k, v]) => {
+      if (k !== "expressID") props[k] = v;
+    });
+  }
 
-    const instancePsets = await api.properties.getPropertySets(modelId, expressId, true, false);
-    const typePsets = await api.properties.getPropertySets(modelId, expressId, true, true).catch(() => []);
-    const rawPsets = [...instancePsets, ...typePsets];
+  const instancePsets = await api.properties.getPropertySets(modelId, expressId, true, false);
+  const typePsets = await api.properties.getPropertySets(modelId, expressId, true, true).catch(() => []);
+  const rawPsets = [...instancePsets, ...typePsets];
 
-    for (const pset of rawPsets) {
-      const psetName = String(pset?.Name?.value ?? "PropertySet");
-      const psetProps: PropertySet["properties"] = [];
-
-      const hasProp = pset?.HasProperties;
-      if (Array.isArray(hasProp)) {
-        for (const prop of hasProp) {
-          if (!prop) continue;
-          psetProps.push({
-            name: String(prop?.Name?.value ?? ""),
-            value:
-              prop?.NominalValue?.value ??
-              prop?.Value?.value ??
-              null,
-            type: String(prop?.type ?? ""),
-          });
-        }
+  for (const pset of rawPsets) {
+    const psetName = String(pset?.Name?.value ?? "PropertySet");
+    const psetProps: PropertySet["properties"] = [];
+    const hasProp = pset?.HasProperties;
+    if (Array.isArray(hasProp)) {
+      for (const prop of hasProp) {
+        if (!prop) continue;
+        psetProps.push({
+          name: String(prop?.Name?.value ?? ""),
+          value: prop?.NominalValue?.value ?? prop?.Value?.value ?? null,
+          type: String(prop?.type ?? ""),
+        });
       }
-
-      psets.push({ name: psetName, properties: psetProps });
     }
-  } finally {
-    api.CloseModel(modelId);
+    psets.push({ name: psetName, properties: psetProps });
   }
 
   return { properties: props, psets };

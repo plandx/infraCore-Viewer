@@ -20,7 +20,7 @@ import { ModelInfoPanel } from "./components/ModelInfoPanel";
 
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
-import { loadIFCFile, loadIFCProperties } from "./utils/ifcLoader";
+import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifcLoader";
 import { SYNC_CHANNEL, serializeState, openSecondaryWindow } from "./utils/windowSync";
 import type { SyncMsg } from "./utils/windowSync";
 import type { IFCModelEntry } from "./types/ifc";
@@ -238,7 +238,11 @@ function MainApp() {
     }
   }, [addModel, updateModel, setWorldOrigin]);
 
-  const handleRemove = useCallback((id: string) => removeModel(id), [removeModel]);
+  const handleRemove = useCallback((id: string) => {
+    const model = useModelStore.getState().models.get(id);
+    if (model?.file) evictPropModelCache(model.file);
+    removeModel(id);
+  }, [removeModel]);
 
   const handleFitTo = useCallback((id: string) => {
     const model = useModelStore.getState().models.get(id);
