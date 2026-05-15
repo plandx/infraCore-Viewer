@@ -319,9 +319,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     const sceneBox = new THREE.Box3();
     useModelStore.getState().models.forEach((m) => { if (!m.boundingBox.isEmpty()) sceneBox.union(m.boundingBox); });
     const span      = sceneBox.isEmpty() ? 50 : sceneBox.getSize(new THREE.Vector3()).length();
-    const planeSize = Math.max(span * 0.45, 8);
-    const handleR   = Math.max(span * 0.006, 0.15);
-    const arrowLen  = Math.max(span * 0.06, 1.0);
+    // Plane size: proportional to scene but hard-capped so 20 km models don't produce km-wide discs
+    const planeSize = Math.min(Math.max(span * 0.45, 8), 80);
+    // Handle: fixed 1 m diameter regardless of model scale
+    const handleR   = 0.5;
+    const arrowLen  = Math.min(Math.max(span * 0.06, 1.0), 8);
     const half      = planeSize / 2;
 
     // Separate planes into box groups and solo planes
