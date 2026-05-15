@@ -496,7 +496,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     scene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
-      if (!obj.userData.expressId) return; // skip non-element meshes (highlight clones etc.)
+      if (!obj.userData.expressId) return;
 
       let modelId = "";
       let node: THREE.Object3D | null = obj;
@@ -518,7 +518,10 @@ export function ViewportContainer({ onElementClick }: Props) {
         obj.visible = !state.hiddenElements.has(key);
       }
     });
-  }, [hiddenElements, isolatedElements, models, selectionBasket, basketMode]);
+  // selectionBasket only matters when basketMode === "isolate"; basketMode covers both
+  }, [hiddenElements, isolatedElements, models, basketMode,
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      basketMode === "isolate" ? selectionBasket : null]);
 
   // ── Color group override ──────────────────────────────────────────────────
   useEffect(() => {
@@ -634,9 +637,11 @@ export function ViewportContainer({ onElementClick }: Props) {
   }, [selectionBasket, basketMode, models]);
 
   useEffect(() => {
+    // Remove old outline objects — only dispose the material, not the geometry.
+    // EdgesGeometry is cached on obj.userData._basketEdgesGeo so it is computed
+    // at most once per mesh for the lifetime of the model.
     basketOutlinesRef.current.forEach((line) => {
       line.parent?.remove(line);
-      line.geometry.dispose();
       (line.material as THREE.Material).dispose();
     });
     basketOutlinesRef.current = [];
@@ -660,7 +665,11 @@ export function ViewportContainer({ onElementClick }: Props) {
       const key = `${modelId}:${obj.userData.expressId}`;
       if (!selectionBasket.has(key)) return;
 
-      const edgesGeo = new THREE.EdgesGeometry(obj.geometry, 15);
+      // Compute once, reuse on every subsequent basket update
+      if (!obj.userData._basketEdgesGeo) {
+        obj.userData._basketEdgesGeo = new THREE.EdgesGeometry(obj.geometry, 15);
+      }
+      const edgesGeo = obj.userData._basketEdgesGeo as THREE.EdgesGeometry;
       const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthTest: false });
       const lines = new THREE.LineSegments(edgesGeo, lineMat);
       lines.userData.isBasketOutline = true;
@@ -672,7 +681,6 @@ export function ViewportContainer({ onElementClick }: Props) {
     return () => {
       basketOutlinesRef.current.forEach((line) => {
         line.parent?.remove(line);
-        line.geometry.dispose();
         (line.material as THREE.Material).dispose();
       });
       basketOutlinesRef.current = [];
