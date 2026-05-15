@@ -16,6 +16,7 @@ import { SmartViewsPanel } from "./components/SmartViewsPanel";
 import { QuantityListPanel } from "./components/QuantityListPanel";
 import { SelectionBasket } from "./components/SelectionBasket";
 import { BasketEditor } from "./components/BasketEditor";
+import { ModelInfoPanel } from "./components/ModelInfoPanel";
 
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
@@ -400,8 +401,11 @@ function MainApp() {
           <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
           <Panel defaultSize={22} minSize={14} collapsible>
-            <div className="h-full overflow-hidden border-l border-border panel-container">
-              <PropertiesPanel />
+            <div className="h-full overflow-hidden border-l border-border panel-container flex flex-col">
+              <ModelInfoPanel />
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <PropertiesPanel />
+              </div>
             </div>
           </Panel>
 

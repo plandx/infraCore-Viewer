@@ -112,6 +112,14 @@ export interface ElementNode {
   name: string;
 }
 
+export interface IFCHeader {
+  schema: string;
+  authors: string[];
+  organizations: string[];
+  preprocessor: string;
+  timestamp: string;
+}
+
 export interface IFCModelEntry {
   id: string;
   name: string;
@@ -130,6 +138,7 @@ export interface IFCModelEntry {
   elementsByType: Record<string, ElementNode[]>;
   loadedAt: Date;
   size: number;
+  header?: IFCHeader;
   status: "loading" | "loaded" | "error";
   error?: string;
 }

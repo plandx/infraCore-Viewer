@@ -59,6 +59,39 @@ export function getIfcApi(): Promise<WebIFC.IfcAPI> {
 
 export type LoadProgress = { phase: string; progress: number };
 
+const FILE_NAME   = 1390159747;
+const FILE_SCHEMA = 1109904537;
+
+function extractIFCHeader(api: WebIFC.IfcAPI, modelId: number): import("../types/ifc").IFCHeader {
+  const empty: import("../types/ifc").IFCHeader = { schema: "", authors: [], organizations: [], preprocessor: "", timestamp: "" };
+  try {
+    const fn = api.GetHeaderLine(modelId, FILE_NAME);
+    const fs = api.GetHeaderLine(modelId, FILE_SCHEMA);
+    const args = fn?.arguments ?? [];
+    const strVal = (v: unknown): string => {
+      if (!v) return "";
+      if (typeof v === "string") return v;
+      if (typeof v === "object" && v !== null && "value" in v) return String((v as { value: unknown }).value);
+      return "";
+    };
+    const arrVal = (v: unknown): string[] => {
+      if (!Array.isArray(v)) return [];
+      return v.map(strVal).filter(Boolean);
+    };
+    const schemaArgs = fs?.arguments?.[0];
+    const schema = Array.isArray(schemaArgs) ? strVal(schemaArgs[0]) : strVal(schemaArgs);
+    return {
+      schema,
+      timestamp: strVal(args[1]),
+      authors: arrVal(args[2]),
+      organizations: arrVal(args[3]),
+      preprocessor: strVal(args[4]),
+    };
+  } catch {
+    return empty;
+  }
+}
+
 export async function loadIFCFile(
   file: File,
   modelIndex: number,
@@ -167,6 +200,9 @@ export async function loadIFCFile(
   const { spatialTree, elementsByType } = await extractStructure(api, modelId);
 
   onProgress({ phase: "Abschließen", progress: 95 });
+
+  const header = extractIFCHeader(api, modelId);
+
   api.CloseModel(modelId);
   onProgress({ phase: "Fertig", progress: 100 });
 
@@ -185,6 +221,7 @@ export async function loadIFCFile(
     loadedAt: new Date(),
     size: file.size,
     status: "loaded",
+    header,
   };
 
   return { entry, newWorldOrigin };
