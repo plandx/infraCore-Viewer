@@ -4,7 +4,7 @@ import {
   MousePointer2, Ruler, Scissors, Eye, EyeOff,
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
-  X, List, Layers, AppWindow, Table2,
+  X, List, Layers, AppWindow, Table2, ExternalLink,
 } from "lucide-react";
 import { openSecondaryWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -224,40 +224,44 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
         <div className="w-px h-5 bg-border mx-1" />
 
         {/* SQL Panel */}
-        <button
-          className={cn("toolbar-button", sqlPanelOpen && "active text-primary")}
+        <PopoutPanelButton
+          active={sqlPanelOpen}
           title="SQL-Abfrage [Q]"
+          panel="sql"
           onClick={() => setSqlPanelOpen(!sqlPanelOpen)}
         >
           <Database size={16} />
-        </button>
+        </PopoutPanelButton>
 
         {/* Lens Rules Panel */}
-        <button
-          className={cn("toolbar-button", listPanelOpen && "active text-primary")}
+        <PopoutPanelButton
+          active={listPanelOpen}
           title="Lens Rules [L]"
+          panel="lists"
           onClick={() => setListPanelOpen(!listPanelOpen)}
         >
           <List size={16} />
-        </button>
+        </PopoutPanelButton>
 
         {/* SmartViews Panel */}
-        <button
-          className={cn("toolbar-button", smartViewsPanelOpen && "active text-primary")}
+        <PopoutPanelButton
+          active={smartViewsPanelOpen}
           title="SmartViews [V]"
+          panel="smartviews"
           onClick={() => setSmartViewsPanelOpen(!smartViewsPanelOpen)}
         >
           <Layers size={16} />
-        </button>
+        </PopoutPanelButton>
 
         {/* QTO / Lists Panel */}
-        <button
-          className={cn("toolbar-button", qtoPanelOpen && "active text-primary")}
+        <PopoutPanelButton
+          active={qtoPanelOpen}
           title="Listen / Mengen (T)"
+          panel="qto"
           onClick={() => setQTOPanelOpen(!qtoPanelOpen)}
         >
           <Table2 size={16} />
-        </button>
+        </PopoutPanelButton>
 
         <div className="flex-1" />
 
@@ -344,6 +348,35 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
       {/* Info modal */}
       {infoOpen && <InfoModal onClose={() => setInfoOpen(false)} />}
     </>
+  );
+}
+
+// ── Panel button with pop-out ─────────────────────────────────────────────────
+
+function PopoutPanelButton({ children, active, title, panel, onClick }: {
+  children: React.ReactNode;
+  active: boolean;
+  title: string;
+  panel: PanelType;
+  onClick: () => void;
+}) {
+  return (
+    <div className="relative group/popout">
+      <button
+        className={cn("toolbar-button", active && "active text-primary")}
+        title={title}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+      <button
+        className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-card border border-border flex items-center justify-center opacity-0 group-hover/popout:opacity-100 hover:!opacity-100 hover:bg-primary hover:border-primary hover:text-primary-foreground text-muted-foreground transition-all z-10"
+        title={`${PANEL_META[panel].label} in neuem Fenster öffnen`}
+        onClick={(e) => { e.stopPropagation(); openSecondaryWindow(panel); }}
+      >
+        <ExternalLink size={8} />
+      </button>
+    </div>
   );
 }
 
