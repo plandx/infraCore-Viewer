@@ -76,6 +76,17 @@ export interface SyncModel {
   spatialTree: SpatialNode | null;
 }
 
+export interface SectionPlane {
+  id: string;
+  name: string;
+  /** Unit normal pointing toward the visible side */
+  normal: [number, number, number];
+  /** A world-space point on the plane */
+  point: [number, number, number];
+  enabled: boolean;
+  color: string;
+}
+
 export interface SyncState {
   models: SyncModel[];
   selectedElement: SelectedElement | null;
@@ -88,6 +99,7 @@ export interface SyncState {
   loadedPropKeys: string[];
   selectionBasket: string[];    // "modelId:expressId"
   basketMode: BasketMode | null;
+  sectionPlanes: SectionPlane[];
 }
 
 export interface Measurement {
@@ -197,11 +209,6 @@ export interface ViewerSettings {
   shadows: boolean;
   fog: boolean;
   logDepthBuffer: boolean;
-  clipPlanes: boolean;
-  /** Unit normal of the clip plane (world space) */
-  clipNormal: [number, number, number];
-  /** A point on the clip plane (world space, used as visual center) */
-  clipPoint: [number, number, number];
   theme: "light" | "dark";
   showSpaces: boolean;
   orthographic: boolean;

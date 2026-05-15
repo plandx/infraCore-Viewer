@@ -41,6 +41,7 @@ export function serializeState(store: {
   loadedPropKeys: string[];
   selectionBasket: Set<string>;
   basketMode: unknown;
+  sectionPlanes: unknown;
 }): SyncState {
   const models: SyncState["models"] = [];
   store.models.forEach((m) => {
@@ -65,6 +66,7 @@ export function serializeState(store: {
     loadedPropKeys: store.loadedPropKeys,
     selectionBasket: Array.from(store.selectionBasket),
     basketMode: store.basketMode as BasketMode | null,
+    sectionPlanes: store.sectionPlanes as SyncState["sectionPlanes"],
   };
 }
 

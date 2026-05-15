@@ -22,7 +22,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
   const theme = useModelStore((s) => s.settings.theme);
-  const clipPlanes = useModelStore((s) => s.settings.clipPlanes);
+  const sectionActive = useModelStore((s) => s.sectionPlanes.length > 0 || s.activeTool === "section");
   const orthographic = useModelStore((s) => s.settings.orthographic);
   const showSpaces = useModelStore((s) => s.settings.showSpaces);
   const grid = useModelStore((s) => s.settings.grid);
@@ -180,16 +180,15 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           )}
         </button>
         <button
-          className={cn("toolbar-button", (clipPlanes || activeTool === "section") && "active text-primary")}
+          className={cn("toolbar-button", sectionActive && "active text-primary")}
           title="Schnittebene [C] · Fläche anklicken zum Positionieren"
           onClick={() => {
-            if (activeTool === "section" || clipPlanes) {
-              // Exit: turn off clip and return to select
-              updateSettings({ clipPlanes: false });
-              setActiveTool("select");
+            const st = useModelStore.getState();
+            if (st.activeTool === "section" || st.sectionPlanes.length > 0) {
+              st.clearSectionPlanes();
+              st.setActiveTool("select");
             } else {
-              // Activate: just switch tool, plane appears on first face click
-              setActiveTool("section");
+              st.setActiveTool("section");
             }
           }}
         >

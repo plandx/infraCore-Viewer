@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as THREE from "three";
 import type {
   IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement,
-  ColorGroup, ColorGroupEntry, SmartView, SmartTier, FlatElementProps, SyncState, BasketMode, PropOverride, QTOList,
+  ColorGroup, ColorGroupEntry, SmartView, SmartTier, FlatElementProps, SyncState, BasketMode, PropOverride, QTOList, SectionPlane,
 } from "../types/ifc";
 import { evaluateTier, PALETTE } from "../utils/smartViewUtils";
 
@@ -96,6 +96,13 @@ interface ModelStore {
   applyPropertyEdits: (edits: Array<{ modelId: string; expressId: number; key: string; value: string; ifcType?: number }>) => void;
   clearPropertyOverrides: () => void;
 
+  // Section planes
+  sectionPlanes: SectionPlane[];
+  addSectionPlane: (plane: SectionPlane) => void;
+  updateSectionPlane: (id: string, patch: Partial<SectionPlane>) => void;
+  removeSectionPlane: (id: string) => void;
+  clearSectionPlanes: () => void;
+
   /** Apply a serialised state snapshot from the main window (secondary windows only). */
   applyRemoteState: (state: SyncState) => void;
 }
@@ -134,6 +141,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   basketMode: null,
   basketAutoAdd: false,
   propertyOverrides: new Map(),
+  sectionPlanes: [],
   settings: {
     background: "#1a1b26",
     grid: true,
@@ -142,9 +150,6 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     shadows: false,
     fog: false,
     logDepthBuffer: true,
-    clipPlanes: false,
-    clipNormal: [0, -1, 0],
-    clipPoint: [0, 0, 0],
     theme: "dark",
     showSpaces: false,
     orthographic: false,
@@ -474,6 +479,21 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   clearPropertyOverrides: () => set({ propertyOverrides: new Map() }),
 
+  // ── Section planes ─────────────────────────────────────────────────────────
+
+  addSectionPlane: (plane) =>
+    set((state) => ({ sectionPlanes: [...state.sectionPlanes, plane] })),
+
+  updateSectionPlane: (id, patch) =>
+    set((state) => ({
+      sectionPlanes: state.sectionPlanes.map((p) => p.id === id ? { ...p, ...patch } : p),
+    })),
+
+  removeSectionPlane: (id) =>
+    set((state) => ({ sectionPlanes: state.sectionPlanes.filter((p) => p.id !== id) })),
+
+  clearSectionPlanes: () => set({ sectionPlanes: [] }),
+
   // ── Remote state sync (secondary windows) ──────────────────────────────────
 
   applyRemoteState: (state) =>
@@ -511,6 +531,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
         loadedPropKeys: state.loadedPropKeys,
         selectionBasket: new Set(state.selectionBasket),
         basketMode: state.basketMode,
+        sectionPlanes: state.sectionPlanes ?? [],
       };
     }),
 }));

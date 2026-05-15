@@ -161,8 +161,8 @@ function MainApp() {
           break;
         case "c": {
           const st = useModelStore.getState();
-          if (st.activeTool === "section" || st.settings.clipPlanes) {
-            st.updateSettings({ clipPlanes: false });
+          if (st.activeTool === "section" || st.sectionPlanes.length > 0) {
+            st.clearSectionPlanes();
             setActiveTool("select");
           } else {
             setActiveTool("section");

@@ -1,0 +1,227 @@
+import { useMemo } from "react";
+import * as THREE from "three";
+import { X, FlipHorizontal2, Eye, EyeOff, Camera, Trash2, Box } from "lucide-react";
+import { v4 as uuidv4 } from "uuid";
+import { useModelStore } from "../store/modelStore";
+import { useShallow } from "zustand/react/shallow";
+import type { SectionPlane } from "../types/ifc";
+import { cn } from "../lib/utils";
+
+const SECTION_COLORS = ["#7aa2f7", "#f7768e", "#9ece6a", "#e0af68", "#bb9af7", "#2ac3de"];
+
+function getSceneBox(models: Map<string, { boundingBox: THREE.Box3 }>): THREE.Box3 {
+  const box = new THREE.Box3();
+  models.forEach((m) => { if (!m.boundingBox.isEmpty()) box.union(m.boundingBox); });
+  return box;
+}
+
+function nextColor(planes: SectionPlane[]): string {
+  return SECTION_COLORS[planes.length % SECTION_COLORS.length];
+}
+
+export const SECTION_COLORS_EXPORT = SECTION_COLORS;
+
+export function SectionPanel() {
+  const models = useModelStore((s) => s.models);
+  const sectionPlanes = useModelStore((s) => s.sectionPlanes);
+  const activeTool = useModelStore((s) => s.activeTool);
+  const { addSectionPlane, updateSectionPlane, removeSectionPlane, clearSectionPlanes } =
+    useModelStore(useShallow((s) => ({
+      addSectionPlane: s.addSectionPlane,
+      updateSectionPlane: s.updateSectionPlane,
+      removeSectionPlane: s.removeSectionPlane,
+      clearSectionPlanes: s.clearSectionPlanes,
+    })));
+
+  const { sceneCenter, sceneRadius } = useMemo(() => {
+    const box = getSceneBox(models);
+    const center = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
+    const radius = box.isEmpty() ? 50 : box.getSize(new THREE.Vector3()).length() / 2;
+    return { sceneCenter: center, sceneRadius: Math.max(radius, 5) };
+  }, [models]);
+
+  const isActive = sectionPlanes.length > 0 || activeTool === "section";
+  if (!isActive) return null;
+
+  const addAxisPreset = (normal: [number, number, number], label: string) => {
+    const planes = useModelStore.getState().sectionPlanes;
+    addSectionPlane({
+      id: uuidv4(),
+      name: `Schnitt ${label}`,
+      normal,
+      point: [sceneCenter.x, sceneCenter.y, sceneCenter.z],
+      enabled: true,
+      color: nextColor(planes),
+    });
+  };
+
+  const addBoxSection = () => {
+    const box = getSceneBox(models);
+    if (box.isEmpty()) box.set(new THREE.Vector3(-10, -10, -10), new THREE.Vector3(10, 10, 10));
+    const mn = box.min, mx = box.max;
+    const cx = (mn.x + mx.x) / 2, cy = (mn.y + mx.y) / 2, cz = (mn.z + mx.z) / 2;
+    clearSectionPlanes();
+    const boxPlanes: SectionPlane[] = [
+      { id: uuidv4(), name: "Box +X", normal: [1, 0, 0],  point: [mx.x, cy, cz], enabled: true, color: "#f7768e" },
+      { id: uuidv4(), name: "Box −X", normal: [-1, 0, 0], point: [mn.x, cy, cz], enabled: true, color: "#f7768e" },
+      { id: uuidv4(), name: "Box +Y", normal: [0, 1, 0],  point: [cx, mx.y, cz], enabled: true, color: "#9ece6a" },
+      { id: uuidv4(), name: "Box −Y", normal: [0, -1, 0], point: [cx, mn.y, cz], enabled: true, color: "#9ece6a" },
+      { id: uuidv4(), name: "Box +Z", normal: [0, 0, 1],  point: [cx, cy, mx.z], enabled: true, color: "#7aa2f7" },
+      { id: uuidv4(), name: "Box −Z", normal: [0, 0, -1], point: [cx, cy, mn.z], enabled: true, color: "#7aa2f7" },
+    ];
+    boxPlanes.forEach((p) => addSectionPlane(p));
+  };
+
+  const getOffset = (plane: SectionPlane): number => {
+    const P = new THREE.Vector3(...plane.point);
+    const N = new THREE.Vector3(...plane.normal);
+    return P.clone().sub(sceneCenter).dot(N);
+  };
+
+  const setOffset = (plane: SectionPlane, offset: number) => {
+    const N = new THREE.Vector3(...plane.normal);
+    const newP = sceneCenter.clone().addScaledVector(N, offset);
+    updateSectionPlane(plane.id, { point: [newP.x, newP.y, newP.z] });
+  };
+
+  const flipPlane = (plane: SectionPlane) => {
+    const N: [number, number, number] = [-plane.normal[0], -plane.normal[1], -plane.normal[2]];
+    updateSectionPlane(plane.id, { normal: N });
+  };
+
+  const alignCamera = (plane: SectionPlane) => {
+    window.dispatchEvent(new CustomEvent("viewer:alignToPlane", {
+      detail: { normal: plane.normal, point: plane.point },
+    }));
+  };
+
+  const sliderRange = sceneRadius * 1.5;
+
+  return (
+    <div
+      className="absolute top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto select-none"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <div className="bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl overflow-hidden min-w-[460px] max-w-[640px]">
+        {/* Top bar */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-border">
+          <span className="text-[11px] font-semibold text-foreground pr-2 border-r border-border mr-1">
+            Schnitt
+          </span>
+
+          {/* Axis presets */}
+          {([ ["+X",[1,0,0]], ["−X",[-1,0,0]], ["+Y",[0,1,0]], ["−Y",[0,-1,0]], ["+Z",[0,0,1]], ["−Z",[0,0,-1]] ] as [string,[number,number,number]][]).map(([lbl, n]) => (
+            <button
+              key={lbl}
+              onClick={() => addAxisPreset(n as [number,number,number], lbl)}
+              className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-muted/60 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors"
+              title={`Schnittebene ${lbl}-Achse hinzufügen`}
+            >
+              {lbl}
+            </button>
+          ))}
+
+          <div className="w-px h-3.5 bg-border mx-0.5" />
+
+          <button
+            onClick={addBoxSection}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted/60 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors"
+            title="Box-Schnitt aus Modell-BoundingBox erstellen"
+          >
+            <Box size={10} />
+            <span>Box</span>
+          </button>
+
+          <div className="flex-1" />
+
+          {sectionPlanes.length > 0 && (
+            <button
+              onClick={() => { clearSectionPlanes(); useModelStore.getState().setActiveTool("select"); }}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+              title="Alle Schnittebenen entfernen"
+            >
+              <Trash2 size={10} />
+              <span>Alle</span>
+            </button>
+          )}
+        </div>
+
+        {/* Hint when in section tool mode and no planes yet */}
+        {activeTool === "section" && sectionPlanes.length === 0 && (
+          <div className="px-3 py-2 text-[11px] text-muted-foreground text-center">
+            Fläche im 3D-Viewer anklicken · oder Achse wählen
+          </div>
+        )}
+
+        {/* Plane list */}
+        {sectionPlanes.length > 0 && (
+          <div className="max-h-52 overflow-y-auto divide-y divide-border/40">
+            {sectionPlanes.map((plane) => {
+              const offset = getOffset(plane);
+              return (
+                <div key={plane.id} className={cn("flex items-center gap-2 px-2.5 py-1.5", !plane.enabled && "opacity-50")}>
+                  {/* Color dot */}
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20"
+                    style={{ backgroundColor: plane.color }}
+                  />
+
+                  {/* Name */}
+                  <span className="text-[11px] text-foreground w-20 shrink-0 truncate">{plane.name}</span>
+
+                  {/* Offset slider */}
+                  <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                    <span className="text-[9px] text-muted-foreground/60 w-10 text-right shrink-0">
+                      {offset.toFixed(1)}m
+                    </span>
+                    <input
+                      type="range"
+                      min={-sliderRange}
+                      max={sliderRange}
+                      step={sliderRange / 200}
+                      value={offset}
+                      onChange={(e) => setOffset(plane, parseFloat(e.target.value))}
+                      className="flex-1 h-1 accent-primary cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      onClick={() => flipPlane(plane)}
+                      className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+                      title="Normale umkehren"
+                    >
+                      <FlipHorizontal2 size={11} />
+                    </button>
+                    <button
+                      onClick={() => alignCamera(plane)}
+                      className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+                      title="Kamera zur Schnittebene ausrichten"
+                    >
+                      <Camera size={11} />
+                    </button>
+                    <button
+                      onClick={() => updateSectionPlane(plane.id, { enabled: !plane.enabled })}
+                      className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+                      title={plane.enabled ? "Ebene deaktivieren" : "Ebene aktivieren"}
+                    >
+                      {plane.enabled ? <Eye size={11} /> : <EyeOff size={11} />}
+                    </button>
+                    <button
+                      onClick={() => removeSectionPlane(plane.id)}
+                      className="p-1 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
+                      title="Schnittebene löschen"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
