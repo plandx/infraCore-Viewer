@@ -131,12 +131,11 @@ function MainApp() {
 
       // Always handle Escape
       if (e.key === "Escape") {
+        setSelected(null);
         if (activeTool === "measure") {
           window.dispatchEvent(new Event("viewer:clearMeasure"));
           clearMeasurements();
           setActiveTool("select");
-        } else {
-          setSelected(null);
         }
         return;
       }
