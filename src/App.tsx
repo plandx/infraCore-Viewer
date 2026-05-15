@@ -251,6 +251,9 @@ function MainApp() {
 
     setSelected({ modelId, expressId, properties: {}, psets: [] });
 
+    const st = useModelStore.getState();
+    if (st.basketAutoAdd) st.addToBasket(modelId, expressId);
+
     try {
       const { properties, psets } = await loadIFCProperties(model.file, expressId);
       setSelected({ modelId, expressId, properties, psets });

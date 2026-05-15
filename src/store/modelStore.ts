@@ -88,6 +88,8 @@ interface ModelStore {
   removeFromBasket: (modelId: string, expressId: number) => void;
   clearBasket: () => void;
   setBasketMode: (mode: BasketMode | null) => void;
+  basketAutoAdd: boolean;
+  setBasketAutoAdd: (v: boolean) => void;
 
   // In-session property overrides (not synced across windows)
   propertyOverrides: Map<string, Map<number, Record<string, PropOverride>>>;
@@ -130,6 +132,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   loadedPropKeys: [],
   selectionBasket: new Set<string>(),
   basketMode: null,
+  basketAutoAdd: false,
   propertyOverrides: new Map(),
   settings: {
     background: "#1a1b26",
@@ -446,6 +449,8 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   clearBasket: () => set({ selectionBasket: new Set() }),
 
   setBasketMode: (mode) => set({ basketMode: mode }),
+
+  setBasketAutoAdd: (v) => set({ basketAutoAdd: v }),
 
   // ── Property overrides ──────────────────────────────────────────────────────
 

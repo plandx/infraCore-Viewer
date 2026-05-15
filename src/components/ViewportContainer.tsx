@@ -86,6 +86,8 @@ export function ViewportContainer({ onElementClick }: Props) {
   // Basket material overrides: stores original material per mesh for restore
   const basketMatsRef = useRef<Map<THREE.Mesh, THREE.Material | THREE.Material[]>>(new Map());
 
+  const basketOutlinesRef = useRef<THREE.LineSegments[]>([]);
+
   // ── Init scene ───────────────────────────────────────────────────────────
   useEffect(() => {
     const mount = mountRef.current;
@@ -630,6 +632,53 @@ export function ViewportContainer({ onElementClick }: Props) {
       createdMats.forEach((m) => m.dispose());
     };
   }, [selectionBasket, basketMode, models]);
+
+  // ── Yellow outlines on basket elements ───────────────────────────────────
+  useEffect(() => {
+    basketOutlinesRef.current.forEach((line) => {
+      line.parent?.remove(line);
+      line.geometry.dispose();
+      (line.material as THREE.Material).dispose();
+    });
+    basketOutlinesRef.current = [];
+
+    const scene = sceneRef.current;
+    if (!scene || selectionBasket.size === 0) return;
+
+    scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isBasketOutline) return;
+      if (obj.userData.expressId == null) return;
+
+      let modelId = "";
+      let node: THREE.Object3D | null = obj;
+      while (node) {
+        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
+        node = node.parent;
+      }
+      if (!modelId) return;
+
+      const key = `${modelId}:${obj.userData.expressId}`;
+      if (!selectionBasket.has(key)) return;
+
+      const edgesGeo = new THREE.EdgesGeometry(obj.geometry, 15);
+      const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthTest: false });
+      const lines = new THREE.LineSegments(edgesGeo, lineMat);
+      lines.userData.isBasketOutline = true;
+      lines.renderOrder = 998;
+      obj.add(lines);
+      basketOutlinesRef.current.push(lines);
+    });
+
+    return () => {
+      basketOutlinesRef.current.forEach((line) => {
+        line.parent?.remove(line);
+        line.geometry.dispose();
+        (line.material as THREE.Material).dispose();
+      });
+      basketOutlinesRef.current = [];
+    };
+  }, [selectionBasket, models]);
 
   // ── Highlight selected element ────────────────────────────────────────────
   useEffect(() => {

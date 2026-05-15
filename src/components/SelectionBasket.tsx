@@ -1,4 +1,4 @@
-import { Archive, Plus, Minus, X, Sparkles, Ghost, ScanEye, Table2 } from "lucide-react";
+import { Archive, Plus, Minus, X, Sparkles, Ghost, ScanEye, Table2, MousePointerClick } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import type { BasketMode } from "../types/ifc";
@@ -12,6 +12,9 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
   const removeFromBasket = useModelStore((s) => s.removeFromBasket);
   const clearBasket = useModelStore((s) => s.clearBasket);
   const setBasketMode = useModelStore((s) => s.setBasketMode);
+
+  const basketAutoAdd = useModelStore((s) => s.basketAutoAdd);
+  const setBasketAutoAdd = useModelStore((s) => s.setBasketAutoAdd);
 
   const count = selectionBasket.size;
   const key = selectedElement ? `${selectedElement.modelId}:${selectedElement.expressId}` : null;
@@ -39,6 +42,22 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
           {count}
         </span>
       )}
+
+      <div className="w-px h-4 bg-border mx-0.5" />
+
+      <button
+        onClick={() => setBasketAutoAdd(!basketAutoAdd)}
+        title={basketAutoAdd ? "Auto-Hinzufügen aktiv (klicken zum Deaktivieren)" : "Auto-Hinzufügen: jeder Klick fügt zum Korb hinzu"}
+        className={cn(
+          "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors",
+          basketAutoAdd
+            ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+            : "hover:bg-muted/60 text-muted-foreground"
+        )}
+      >
+        <MousePointerClick size={11} />
+        <span>Auto</span>
+      </button>
 
       <div className="w-px h-4 bg-border mx-0.5" />
 

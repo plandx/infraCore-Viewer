@@ -10,6 +10,7 @@ import { LensRulesPanel } from "./LensRulesPanel";
 import { SmartViewsPanel } from "./SmartViewsPanel";
 import { SQLPanel } from "./SQLPanel";
 import { QuantityListPanel } from "./QuantityListPanel";
+import { BasketListPanel } from "./BasketListPanel";
 
 // ── sync hook for secondary windows ──────────────────────────────────────────
 // Bidirectional: receives state from main, broadcasts own state changes back.
@@ -84,7 +85,7 @@ export function SecondaryWindow({ panel }: { panel: string }) {
   const panelType = panel as PanelType;
 
   useEffect(() => {
-    const name = { hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage", qto: "Listen / Mengen" }[panelType] ?? panel;
+    const name = { hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage", qto: "Listen / Mengen", basket: "Auswahlkorb" }[panelType] ?? panel;
     document.title = `${name} — infraCore`;
   }, [panelType, panel]);
 
@@ -97,7 +98,7 @@ export function SecondaryWindow({ panel }: { panel: string }) {
           <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
         </svg>
         <span className="font-bold text-sm text-foreground">
-          {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage", qto: "Listen / Mengen" }[panelType] ?? panel}
+          {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage", qto: "Listen / Mengen", basket: "Auswahlkorb" }[panelType] ?? panel}
         </span>
         <div className="flex-1" />
         <SyncIndicator />
@@ -117,7 +118,10 @@ export function SecondaryWindow({ panel }: { panel: string }) {
         {panelType === "smartviews" && <SmartViewsPanel />}
         {panelType === "sql" && <SQLPanel />}
         {panelType === "qto" && <QuantityListPanel />}
-        {!["hierarchy", "properties", "lists", "smartviews", "sql", "qto"].includes(panelType) && (
+        {panelType === "basket" && (
+          <BasketListPanel onSelectElement={handleElementClick} />
+        )}
+        {!["hierarchy", "properties", "lists", "smartviews", "sql", "qto", "basket"].includes(panelType) && (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             Unbekanntes Panel: {panel}
           </div>
