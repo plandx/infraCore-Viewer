@@ -4,7 +4,7 @@ import {
   MousePointer2, Ruler, Scissors, Eye, EyeOff,
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
-  X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2,
+  X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -19,9 +19,10 @@ interface Props {
   onOpenFiles: (files: File[]) => void;
   onFitAll: () => void;
   loading: boolean;
+  onOpenBatch: () => void;
 }
 
-export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
+export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
   const theme = useModelStore((s) => s.settings.theme);
@@ -370,6 +371,16 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
         >
           <BarChart2 size={14} />
           <span>5D</span>
+        </button>
+
+        {/* Batch changes */}
+        <button
+          onClick={onOpenBatch}
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-muted hover:bg-primary/20 hover:text-primary transition-colors"
+          title="Batch-Änderungen"
+        >
+          <Sliders size={14} />
+          <span>Batch</span>
         </button>
 
         <div className="flex-1" />

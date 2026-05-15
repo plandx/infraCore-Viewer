@@ -18,6 +18,7 @@ import { SelectionBasket } from "./components/SelectionBasket";
 import { BasketEditor } from "./components/BasketEditor";
 import { ModelInfoPanel } from "./components/ModelInfoPanel";
 import { useBillingStore } from "./billing/billingStore";
+import { BatchPanel } from "./batch/BatchPanel";
 
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
@@ -106,6 +107,7 @@ interface LoadState { phase: string; progress: number; fileName: string }
 function MainApp() {
   const [loadStates, setLoadStates]           = useState<Map<string, LoadState>>(new Map());
   const [basketEditorOpen, setBasketEditorOpen] = useState(false);
+  const [batchPanelOpen, setBatchPanelOpen]   = useState(false);
   const {
     addModel, removeModel, updateModel, setWorldOrigin, setSelected,
     models, settings, activeTool, setActiveTool, sqlPanelOpen, setSqlPanelOpen,
@@ -328,6 +330,7 @@ function MainApp() {
         onOpenFiles={handleFiles}
         onFitAll={() => window.dispatchEvent(new Event("viewer:fitAll"))}
         loading={activeLoads > 0}
+        onOpenBatch={() => setBatchPanelOpen(true)}
       />
 
       {/* Loading bars */}
@@ -473,6 +476,10 @@ function MainApp() {
 
       {basketEditorOpen && (
         <BasketEditor onClose={() => setBasketEditorOpen(false)} />
+      )}
+
+      {batchPanelOpen && (
+        <BatchPanel onClose={() => setBatchPanelOpen(false)} />
       )}
     </div>
   );
