@@ -17,6 +17,7 @@ import { QuantityListPanel } from "./components/QuantityListPanel";
 import { SelectionBasket } from "./components/SelectionBasket";
 import { BasketEditor } from "./components/BasketEditor";
 import { ModelInfoPanel } from "./components/ModelInfoPanel";
+import { useBillingStore } from "./billing/billingStore";
 
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
@@ -297,6 +298,11 @@ function MainApp() {
     bc.addEventListener("message", (ev) => {
       const msg = ev.data as import("./billing/types").BillingMsg;
       if (msg.t === "ready") sendElements();
+      if (msg.t === "isolateTracked") {
+        const entries = useBillingStore.getState().entries;
+        const list = Object.values(entries).map((e) => ({ modelId: e.modelId, expressId: e.expressId }));
+        if (list.length > 0) useModelStore.getState().isolateEntries(list);
+      }
     });
 
     const unsub = useModelStore.subscribe((s, prev) => {

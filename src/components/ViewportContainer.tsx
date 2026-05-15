@@ -10,7 +10,9 @@ import { v4 as uuidv4 } from "uuid";
 import { SectionModule } from "../section";
 import { cn } from "../lib/utils";
 import { BillingVisualizer } from "../billing/BillingVisualizer";
-import { useBillingStore } from "../billing/billingStore";
+import { useBillingStore, BILLING_CHANNEL } from "../billing/billingStore";
+import { openBillingWindow } from "../utils/windowSync";
+import type { BillingMsg } from "../billing/types";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -53,6 +55,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
     x: number; y: number; modelId: string; expressId: number;
+    elementName: string; ifcType: string;
     faceNormal?: [number, number, number]; hitPoint?: [number, number, number];
   } | null>(null);
 
@@ -1101,11 +1104,28 @@ export function ViewportContainer({ onElementClick }: Props) {
     const hit = raycastPoint(e);
     if (!hit) { setContextMenu(null); return; }
     const containerRect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    // Look up element name/type from loaded models
+    let elementName = `#${hit.expressId}`;
+    let ifcType = "";
+    const model = useModelStore.getState().models.get(hit.modelId);
+    if (model) {
+      outer: for (const [type, els] of Object.entries(model.elementsByType)) {
+        for (const el of els as Array<{ expressId: number; name: string }>) {
+          if (el.expressId === hit.expressId) {
+            elementName = el.name || elementName;
+            ifcType = type;
+            break outer;
+          }
+        }
+      }
+    }
     setContextMenu({
       x: e.clientX - containerRect.left,
       y: e.clientY - containerRect.top,
       modelId: hit.modelId,
       expressId: hit.expressId,
+      elementName,
+      ifcType,
       faceNormal: hit.faceNormal ? [hit.faceNormal.x, hit.faceNormal.y, hit.faceNormal.z] : undefined,
       hitPoint: [hit.point.x, hit.point.y, hit.point.z],
     });
@@ -1226,6 +1246,24 @@ export function ViewportContainer({ onElementClick }: Props) {
           }}
           onSelectClass={() => { ctxSelectClass(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
           onSelectStorey={() => { ctxSelectStorey(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
+          inBilling={!!useBillingStore.getState().entries[`${contextMenu.modelId}:${contextMenu.expressId}`]}
+          onAdd5D={() => {
+            const key = `${contextMenu.modelId}:${contextMenu.expressId}`;
+            useBillingStore.getState().addEntry({
+              key, guid: "", expressId: contextMenu.expressId, modelId: contextMenu.modelId,
+              elementName: contextMenu.elementName, ifcType: contextMenu.ifcType,
+            });
+            openBillingWindow();
+            // Tell billing window to select this entry (slight delay for window to open)
+            setTimeout(() => {
+              try {
+                const bc = new BroadcastChannel(BILLING_CHANNEL);
+                bc.postMessage({ t: "selectEntry", key } satisfies BillingMsg);
+                bc.close();
+              } catch { /* ignore */ }
+            }, 600);
+            setContextMenu(null);
+          }}
           faceNormal={contextMenu.faceNormal}
           hitPoint={contextMenu.hitPoint}
           onSectionFromFace={contextMenu.faceNormal ? () => {
@@ -1261,16 +1299,16 @@ function isWorldVisible(obj: THREE.Object3D): boolean {
 // ── Context menu component ────────────────────────────────────────────────────
 
 function ContextMenu({
-  x, y, expressId, inBasket, faceNormal,
+  x, y, expressId, inBasket, inBilling, faceNormal,
   onClose, onHide, onIsolate, onShowAll,
-  onFit, onBasketToggle, onSelectClass, onSelectStorey, onSectionFromFace,
+  onFit, onBasketToggle, onSelectClass, onSelectStorey, onSectionFromFace, onAdd5D,
 }: {
-  x: number; y: number; modelId: string; expressId: number; inBasket: boolean;
+  x: number; y: number; modelId: string; expressId: number; inBasket: boolean; inBilling: boolean;
   faceNormal?: [number, number, number]; hitPoint?: [number, number, number];
   onClose: () => void; onHide: () => void; onIsolate: () => void;
   onShowAll: () => void; onFit: () => void;
   onBasketToggle: () => void; onSelectClass: () => void; onSelectStorey: () => void;
-  onSectionFromFace?: () => void;
+  onSectionFromFace?: () => void; onAdd5D: () => void;
 }) {
   useEffect(() => {
     const handler = () => onClose();
@@ -1302,6 +1340,12 @@ function ContextMenu({
       <div className="border-t border-border my-1" />
       <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onBasketToggle}>
         {inBasket ? "Aus Auswahlkorb entfernen" : "Zum Auswahlkorb hinzufügen"}
+      </button>
+      <button
+        className={`w-full text-left px-3 py-1.5 hover:bg-muted/60 ${inBilling ? "text-primary font-medium" : "text-foreground"}`}
+        onClick={onAdd5D}
+      >
+        {inBilling ? "5D-Eintrag öffnen" : "In 5D aufnehmen"}
       </button>
       <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onSelectClass}>
         Alle Elemente dieser Klasse wählen

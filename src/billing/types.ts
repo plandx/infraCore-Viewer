@@ -44,4 +44,6 @@ export type BillingMsg =
   | { t: "ready" }
   | { t: "elements"; list: ElementInfo[] }
   | { t: "moduleActive"; active: boolean }
-  | { t: "dataSync"; entries: BillingEntry[] };
+  | { t: "dataSync"; entries: BillingEntry[] }
+  | { t: "isolateTracked" }
+  | { t: "selectEntry"; key: string };

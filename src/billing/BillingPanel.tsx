@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink } from "lucide-react";
+import { Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink, ScanEye } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore, BILLING_CHANNEL } from "./billingStore";
 import type { ElementInfo, BillingExport, BillingMsg } from "./types";
@@ -45,6 +45,7 @@ export function BillingPanel({ elements }: Props) {
     bc.addEventListener("message", (ev) => {
       const msg = ev.data as BillingMsg;
       if (msg.t === "moduleActive") setVizActive(msg.active);
+      if (msg.t === "selectEntry") setSelectedKey(msg.key);
     });
 
     bc.postMessage({ t: "ready" } satisfies BillingMsg);
@@ -134,6 +135,16 @@ export function BillingPanel({ elements }: Props) {
         <BarChart2 size={16} className="text-primary shrink-0" />
         <span className="font-semibold text-sm">5D-Abrechnung</span>
         <div className="flex-1" />
+        {Object.keys(entries).length > 0 && (
+          <button
+            onClick={() => bcRef.current?.postMessage({ t: "isolateTracked" } satisfies BillingMsg)}
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-muted hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors"
+            title="Nur erfasste Objekte im Viewer isolieren"
+          >
+            <ScanEye size={12} />
+            <span>Isolieren</span>
+          </button>
+        )}
         <button
           onClick={handleToggleViz}
           className={cn(
