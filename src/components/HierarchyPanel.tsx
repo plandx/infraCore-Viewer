@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import {
   ChevronRight, ChevronDown, Eye, EyeOff,
   Trash2, Focus, Layers, LayoutList, Search, X,
@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
+import { useShallow } from "zustand/react/shallow";
 import { formatBytes } from "../utils/coordinateUtils";
 import type { IFCModelEntry, SpatialNode, ElementNode } from "../types/ifc";
 
@@ -27,19 +28,29 @@ interface Props {
 
 export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverride, onShowAllOverride, onIsolateOverride }: Props) {
   const models = useModelStore((s) => s.models);
-  const updateModel = useModelStore((s) => s.updateModel);
   const selectedElement = useModelStore((s) => s.selectedElement);
   const hiddenElements = useModelStore((s) => s.hiddenElements);
   const isolatedElements = useModelStore((s) => s.isolatedElements);
-  const hideElement_ = useModelStore((s) => s.hideElement);
-  const hideElements_ = useModelStore((s) => s.hideElements);
-  const showElement = useModelStore((s) => s.showElement);
-  const showElements = useModelStore((s) => s.showElements);
-  const isolateElement_ = useModelStore((s) => s.isolateElement);
-  const isolateElements_ = useModelStore((s) => s.isolateElements);
-  const showAll_ = useModelStore((s) => s.showAll);
-  const setBasket = useModelStore((s) => s.setBasket);
   const selectionBasket = useModelStore((s) => s.selectionBasket);
+
+  // Actions — stable Zustand refs, grouped to reduce subscription count
+  const {
+    updateModel,
+    hideElement: hideElement_, hideElements: hideElements_,
+    showElement, showElements,
+    isolateElement: isolateElement_, isolateElements: isolateElements_,
+    showAll: showAll_, setBasket,
+  } = useModelStore(useShallow((s) => ({
+    updateModel: s.updateModel,
+    hideElement: s.hideElement,
+    hideElements: s.hideElements,
+    showElement: s.showElement,
+    showElements: s.showElements,
+    isolateElement: s.isolateElement,
+    isolateElements: s.isolateElements,
+    showAll: s.showAll,
+    setBasket: s.setBasket,
+  })));
 
   const hideElement = onHideOverride ?? hideElement_;
   const isolateElement = onIsolateOverride ?? isolateElement_;
@@ -90,6 +101,33 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   const pathCacheRef = useRef<Map<string, number[]>>(new Map());
 
   const arr = useMemo(() => Array.from(models.values()), [models]);
+
+  // Stable per-model callbacks — only recomputed when the model set changes or actions change.
+  // During normal interaction (clicks, hide/show), `arr` is stable → callbacks stay stable,
+  // making React.memo on SpatialTreeNode / TypeGroup actually effective.
+  const spatialCallbackMap = useMemo(() => {
+    const map = new Map<string, { onHide: (eid: number) => void; onShow: (eid: number) => void; onIsolate: (eid: number) => void }>();
+    arr.forEach((model) => {
+      map.set(model.id, {
+        onHide: (eid) => { const ids = model.spatialTree ? collectSubtreeIds(model.spatialTree, eid) : [eid]; hideElements(model.id, ids); },
+        onShow: (eid) => { const ids = model.spatialTree ? collectSubtreeIds(model.spatialTree, eid) : [eid]; showElements(model.id, ids); },
+        onIsolate: (eid) => { const ids = model.spatialTree ? collectSubtreeIds(model.spatialTree, eid) : [eid]; isolateElements(model.id, ids); },
+      });
+    });
+    return map;
+  }, [arr, hideElements, showElements, isolateElements]);
+
+  const typeCallbackMap = useMemo(() => {
+    const map = new Map<string, { onHide: (eid: number) => void; onShow: (eid: number) => void; onIsolate: (eid: number) => void }>();
+    arr.forEach((model) => {
+      map.set(model.id, {
+        onHide: (eid) => hideElement(model.id, eid),
+        onShow: (eid) => showElement(model.id, eid),
+        onIsolate: (eid) => isolateElement(model.id, eid),
+      });
+    });
+    return map;
+  }, [arr, hideElement, showElement, isolateElement]);
 
   // Evict path cache entries for removed models
   useEffect(() => {
@@ -209,10 +247,18 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     return list;
   }, [arr, view, expandedModels, expandedSpatial, search]);
 
-  // Click handler with Shift-support
+  // Refs so handleItemClick stays stable across anchorKey/flatVisibleKeys changes
+  const anchorKeyRef = useRef(anchorKey);
+  anchorKeyRef.current = anchorKey;
+  const flatVisibleKeysRef = useRef(flatVisibleKeys);
+  flatVisibleKeysRef.current = flatVisibleKeys;
+
+  // Click handler with Shift-support — stable reference (deps only change on onSelectElement change)
   // childKeys: all leaf element keys beneath a parent node — triggers group selection
   const handleItemClick = useCallback((modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => {
     const key = `${modelId}:${expressId}`;
+    const ak = anchorKeyRef.current;
+    const fvk = flatVisibleKeysRef.current;
 
     // Clicking a parent node: select all children
     if (childKeys && childKeys.length > 0 && !e.shiftKey) {
@@ -223,12 +269,12 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
 
     if (e.shiftKey) {
       e.preventDefault();
-      if (anchorKey && anchorKey !== key && flatVisibleKeys.length > 0) {
-        const aIdx = flatVisibleKeys.indexOf(anchorKey);
-        const bIdx = flatVisibleKeys.indexOf(key);
+      if (ak && ak !== key && fvk.length > 0) {
+        const aIdx = fvk.indexOf(ak);
+        const bIdx = fvk.indexOf(key);
         if (aIdx !== -1 && bIdx !== -1) {
           const [lo, hi] = aIdx < bIdx ? [aIdx, bIdx] : [bIdx, aIdx];
-          setMultiSelected(new Set(flatVisibleKeys.slice(lo, hi + 1)));
+          setMultiSelected(new Set(fvk.slice(lo, hi + 1)));
           return;
         }
       }
@@ -237,7 +283,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
         next.has(key) ? next.delete(key) : next.add(key);
         return next;
       });
-      if (!anchorKey) setAnchorKey(key);
+      if (!ak) setAnchorKey(key);
     } else {
       // Mark as our own click before calling onSelectElement
       lastPanelClickRef.current = key;
@@ -245,7 +291,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
       setAnchorKey(key);
       onSelectElement(modelId, expressId);
     }
-  }, [anchorKey, flatVisibleKeys, onSelectElement]);
+  }, [onSelectElement]);
 
   // Multi-selection actions
   const parseKeys = (keys: Set<string>) =>
@@ -307,14 +353,14 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     if (v === "visible") captureVisibleSnapshot();
   }, [captureVisibleSnapshot]);
 
-  const toggleModelExpand = (id: string) =>
-    setExpandedModels((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleModelExpand = useCallback((id: string) =>
+    setExpandedModels((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
 
-  const toggleSpatialNode = (key: string) =>
-    setExpandedSpatial((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const toggleSpatialNode = useCallback((key: string) =>
+    setExpandedSpatial((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; }), []);
 
-  const toggleTypeGroup = (key: string) =>
-    setExpandedTypeGroups((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const toggleTypeGroup = useCallback((key: string) =>
+    setExpandedTypeGroups((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; }), []);
 
   if (arr.length === 0) {
     return (
@@ -391,45 +437,36 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
                 </div>
               </div>
 
-              {isExpanded && (
-                <div className="pl-3">
-                  {view === "spatial"
-                    ? <SpatialView
-                        model={model} search={search}
-                        multiSelected={multiSelected} activeKey={activeKey}
-                        expandedSpatial={expandedSpatial}
-                        onToggleExpand={toggleSpatialNode}
-                        hiddenElements={hiddenElements} isolatedElements={isolatedElements}
-                        onItemClick={handleItemClick}
-                        onHide={(eid) => {
-                          const ids = model.spatialTree ? collectSubtreeIds(model.spatialTree, eid) : [eid];
-                          hideElements(model.id, ids);
-                        }}
-                        onShow={(eid) => {
-                          const ids = model.spatialTree ? collectSubtreeIds(model.spatialTree, eid) : [eid];
-                          showElements(model.id, ids);
-                        }}
-                        onIsolate={(eid) => {
-                          const ids = model.spatialTree ? collectSubtreeIds(model.spatialTree, eid) : [eid];
-                          isolateElements(model.id, ids);
-                        }}
-                        onShowAll={showAll}
-                      />
-                    : <TypeView
-                        model={model} search={search}
-                        multiSelected={multiSelected} activeKey={activeKey}
-                        expandedTypeGroups={expandedTypeGroups}
-                        onToggleTypeGroup={toggleTypeGroup}
-                        hiddenElements={hiddenElements} isolatedElements={isolatedElements}
-                        onItemClick={handleItemClick}
-                        onHide={(eid) => hideElement(model.id, eid)}
-                        onShow={(eid) => showElement(model.id, eid)}
-                        onIsolate={(eid) => isolateElement(model.id, eid)}
-                        onShowAll={showAll}
-                      />
-                  }
-                </div>
-              )}
+              {isExpanded && (() => {
+                const sCbs = spatialCallbackMap.get(model.id)!;
+                const tCbs = typeCallbackMap.get(model.id)!;
+                return (
+                  <div className="pl-3">
+                    {view === "spatial"
+                      ? <SpatialView
+                          model={model} search={search}
+                          multiSelected={multiSelected} activeKey={activeKey}
+                          expandedSpatial={expandedSpatial}
+                          onToggleExpand={toggleSpatialNode}
+                          hiddenElements={hiddenElements} isolatedElements={isolatedElements}
+                          onItemClick={handleItemClick}
+                          onHide={sCbs.onHide} onShow={sCbs.onShow}
+                          onIsolate={sCbs.onIsolate} onShowAll={showAll}
+                        />
+                      : <TypeView
+                          model={model} search={search}
+                          multiSelected={multiSelected} activeKey={activeKey}
+                          expandedTypeGroups={expandedTypeGroups}
+                          onToggleTypeGroup={toggleTypeGroup}
+                          hiddenElements={hiddenElements} isolatedElements={isolatedElements}
+                          onItemClick={handleItemClick}
+                          onHide={tCbs.onHide} onShow={tCbs.onShow}
+                          onIsolate={tCbs.onIsolate} onShowAll={showAll}
+                        />
+                    }
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
@@ -542,13 +579,47 @@ function filterSpatialNode(node: SpatialNode, q: string): SpatialNode | null {
   return { ...node, children: filteredChildren };
 }
 
-function SpatialTreeNode({ node, depth, modelId, multiSelected, activeKey, expandedSpatial, onToggleExpand, onItemClick, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: {
+type SpatialTreeNodeProps = {
   node: SpatialNode; depth: number; modelId: string;
   multiSelected: Set<string>; activeKey: string | null;
   expandedSpatial: Set<string>; onToggleExpand: (key: string) => void;
   onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
   forceOpen?: boolean;
-} & VisibilityProps) {
+} & VisibilityProps;
+
+function spatialNodeAreEqual(prev: SpatialTreeNodeProps, next: SpatialTreeNodeProps): boolean {
+  // Structural / callback changes always trigger re-render
+  if (prev.node !== next.node || prev.depth !== next.depth || prev.modelId !== next.modelId ||
+      prev.forceOpen !== next.forceOpen || prev.expandedSpatial !== next.expandedSpatial ||
+      prev.onToggleExpand !== next.onToggleExpand || prev.onItemClick !== next.onItemClick ||
+      prev.onHide !== next.onHide || prev.onShow !== next.onShow ||
+      prev.onIsolate !== next.onIsolate || prev.onShowAll !== next.onShowAll) return false;
+
+  const key = `${next.modelId}:${next.node.expressId}`;
+
+  // activeKey: only re-render if this node's selection state actually changes
+  if (prev.activeKey !== next.activeKey &&
+      (prev.activeKey === key || next.activeKey === key)) return false;
+
+  // multiSelected: only re-render if this key's membership changed
+  if (prev.multiSelected !== next.multiSelected &&
+      prev.multiSelected.has(key) !== next.multiSelected.has(key)) return false;
+
+  // hiddenElements: only re-render if this element's hide state changed
+  if (prev.hiddenElements !== next.hiddenElements &&
+      prev.hiddenElements.has(key) !== next.hiddenElements.has(key)) return false;
+
+  // isolatedElements: only re-render if isolation mode or this element's isolation state changed
+  if (prev.isolatedElements !== next.isolatedElements) {
+    const prevIso = prev.isolatedElements === null ? null : prev.isolatedElements.has(key);
+    const nextIso = next.isolatedElements === null ? null : next.isolatedElements.has(key);
+    if (prevIso !== nextIso) return false;
+  }
+
+  return true;
+}
+
+const SpatialTreeNode = memo(function SpatialTreeNode({ node, depth, modelId, multiSelected, activeKey, expandedSpatial, onToggleExpand, onItemClick, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: SpatialTreeNodeProps) {
   const hasChildren = node.children.length > 0;
   const key = `${modelId}:${node.expressId}`;
   const isOpen = forceOpen || expandedSpatial.has(key);
@@ -621,7 +692,7 @@ function SpatialTreeNode({ node, depth, modelId, multiSelected, activeKey, expan
       )}
     </div>
   );
-}
+}, spatialNodeAreEqual);
 
 // ── By-Type View ──────────────────────────────────────────────────────────────
 
@@ -633,13 +704,14 @@ function TypeView({ model, search, multiSelected, activeKey, expandedTypeGroups,
 } & VisibilityProps) {
   const groups = useMemo(() => {
     const raw = Object.entries(model.elementsByType);
-    if (!search) return raw;
-    const q = search.toLowerCase();
-    return raw
-      .map(([type, els]): [string, ElementNode[]] => [
-        type, els.filter((el) => el.name.toLowerCase().includes(q) || type.toLowerCase().includes(q)),
-      ])
-      .filter(([, els]) => els.length > 0);
+    const filtered = search
+      ? raw
+          .map(([type, els]): [string, ElementNode[]] => [
+            type, els.filter((el) => el.name.toLowerCase().includes(search.toLowerCase()) || type.toLowerCase().includes(search.toLowerCase())),
+          ])
+          .filter(([, els]) => els.length > 0)
+      : raw;
+    return filtered.sort(([a], [b]) => a.localeCompare(b));
   }, [model.elementsByType, search]);
 
   if (groups.length === 0) {
@@ -650,7 +722,7 @@ function TypeView({ model, search, multiSelected, activeKey, expandedTypeGroups,
 
   return (
     <div>
-      {groups.sort(([a], [b]) => a.localeCompare(b)).map(([typeName, elements]) => (
+      {groups.map(([typeName, elements]) => (
         <TypeGroup
           key={typeName} typeName={typeName} elements={elements}
           modelId={model.id}
@@ -663,13 +735,51 @@ function TypeView({ model, search, multiSelected, activeKey, expandedTypeGroups,
   );
 }
 
-function TypeGroup({ typeName, elements, modelId, multiSelected, activeKey, expandedTypeGroups, onToggleTypeGroup, onItemClick, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: {
+type TypeGroupProps = {
   typeName: string; elements: ElementNode[]; modelId: string;
   multiSelected: Set<string>; activeKey: string | null;
   expandedTypeGroups: Set<string>; onToggleTypeGroup: (key: string) => void;
   onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
   forceOpen?: boolean;
-} & VisibilityProps) {
+} & VisibilityProps;
+
+function typeGroupAreEqual(prev: TypeGroupProps, next: TypeGroupProps): boolean {
+  if (prev.typeName !== next.typeName || prev.elements !== next.elements ||
+      prev.modelId !== next.modelId || prev.forceOpen !== next.forceOpen ||
+      prev.onToggleTypeGroup !== next.onToggleTypeGroup || prev.onItemClick !== next.onItemClick ||
+      prev.onHide !== next.onHide || prev.onShow !== next.onShow ||
+      prev.onIsolate !== next.onIsolate || prev.onShowAll !== next.onShowAll) return false;
+
+  const groupKey = `${next.modelId}:${next.typeName}`;
+
+  // expandedTypeGroups: only re-render if THIS group's open state changed
+  if (prev.expandedTypeGroups !== next.expandedTypeGroups &&
+      prev.expandedTypeGroups.has(groupKey) !== next.expandedTypeGroups.has(groupKey)) return false;
+
+  // For set-based props, check if any element in THIS group is affected
+  const myKeys = next.elements.map((el) => `${next.modelId}:${el.expressId}`);
+
+  if (prev.activeKey !== next.activeKey) {
+    if (myKeys.some((k) => k === prev.activeKey || k === next.activeKey)) return false;
+  }
+  if (prev.multiSelected !== next.multiSelected) {
+    if (myKeys.some((k) => prev.multiSelected.has(k) !== next.multiSelected.has(k))) return false;
+  }
+  if (prev.hiddenElements !== next.hiddenElements) {
+    if (myKeys.some((k) => prev.hiddenElements.has(k) !== next.hiddenElements.has(k))) return false;
+  }
+  if (prev.isolatedElements !== next.isolatedElements) {
+    const prevNull = prev.isolatedElements === null;
+    const nextNull = next.isolatedElements === null;
+    if (prevNull !== nextNull) return false;
+    if (!prevNull && !nextNull &&
+        myKeys.some((k) => prev.isolatedElements!.has(k) !== next.isolatedElements!.has(k))) return false;
+  }
+
+  return true;
+}
+
+const TypeGroup = memo(function TypeGroup({ typeName, elements, modelId, multiSelected, activeKey, expandedTypeGroups, onToggleTypeGroup, onItemClick, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: TypeGroupProps) {
   const groupKey = `${modelId}:${typeName}`;
   const isOpen = forceOpen || expandedTypeGroups.has(groupKey);
 
@@ -733,7 +843,7 @@ function TypeGroup({ typeName, elements, modelId, multiSelected, activeKey, expa
       )}
     </div>
   );
-}
+}, typeGroupAreEqual);
 
 // ── Header ────────────────────────────────────────────────────────────────────
 

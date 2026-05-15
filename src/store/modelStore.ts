@@ -181,29 +181,37 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   hideElement: (modelId, expressId) =>
     set((state) => {
+      const key = `${modelId}:${expressId}`;
+      if (state.hiddenElements.has(key)) return state;
       const next = new Set(state.hiddenElements);
-      next.add(`${modelId}:${expressId}`);
+      next.add(key);
       return { hiddenElements: next };
     }),
 
   hideElements: (modelId, expressIds) =>
     set((state) => {
+      const toAdd = expressIds.filter((eid) => !state.hiddenElements.has(`${modelId}:${eid}`));
+      if (toAdd.length === 0) return state;
       const next = new Set(state.hiddenElements);
-      for (const eid of expressIds) next.add(`${modelId}:${eid}`);
+      for (const eid of toAdd) next.add(`${modelId}:${eid}`);
       return { hiddenElements: next };
     }),
 
   showElement: (modelId, expressId) =>
     set((state) => {
+      const key = `${modelId}:${expressId}`;
+      if (!state.hiddenElements.has(key)) return state;
       const next = new Set(state.hiddenElements);
-      next.delete(`${modelId}:${expressId}`);
+      next.delete(key);
       return { hiddenElements: next };
     }),
 
   showElements: (modelId, expressIds) =>
     set((state) => {
+      const toRemove = expressIds.filter((eid) => state.hiddenElements.has(`${modelId}:${eid}`));
+      if (toRemove.length === 0) return state;
       const next = new Set(state.hiddenElements);
-      for (const eid of expressIds) next.delete(`${modelId}:${eid}`);
+      for (const eid of toRemove) next.delete(`${modelId}:${eid}`);
       return { hiddenElements: next };
     }),
 
