@@ -186,6 +186,8 @@ export class SectionModule {
       .map(p => {
         const N  = new THREE.Vector3(...p.normal);
         const Pt = new THREE.Vector3(...p.point);
+        // Box normals point outward; negate so the interior is kept, not the exterior
+        if (p.boxId) return new THREE.Plane(N.clone().negate(), N.dot(Pt));
         return new THREE.Plane(N, -N.dot(Pt));
       });
   }
@@ -360,6 +362,7 @@ export class SectionModule {
       pg.group.position.copy(P);
       pg.group.quaternion.copy(quat);
       pg.handle.position.copy(P);
+      pg.handle.updateMatrixWorld(true);
 
       // Update colours
       pg.group.traverse(o => {
@@ -411,8 +414,10 @@ export class SectionModule {
 
     bg.faceMesh.position.set(cx, cy, cz);
     bg.faceMesh.scale.set(w, h, d);
+    bg.faceMesh.updateMatrixWorld(true);
     bg.edgeMesh.position.set(cx, cy, cz);
     bg.edgeMesh.scale.set(w, h, d);
+    bg.edgeMesh.updateMatrixWorld(true);
 
     const centers: Record<string, [number, number, number]> = {};
     if (pxP) centers[pxP.id] = [px, cy, cz];
@@ -424,7 +429,10 @@ export class SectionModule {
 
     for (const h of bg.handles) {
       const c = centers[h.userData.planeId as string];
-      if (c) h.position.set(c[0], c[1], c[2]);
+      if (c) {
+        h.position.set(c[0], c[1], c[2]);
+        h.updateMatrixWorld(true);
+      }
     }
   }
 
@@ -663,9 +671,13 @@ export class SectionModule {
     this.renderer.clippingPlanes = this.planes
       .filter(p => p.enabled)
       .map(p => {
-        if (p.id === planeId) return new THREE.Plane(normal, -normal.dot(newP));
-        const n = new THREE.Vector3(...p.normal);
+        if (p.id === planeId) {
+          if (p.boxId) return new THREE.Plane(normal.clone().negate(), normal.dot(newP));
+          return new THREE.Plane(normal, -normal.dot(newP));
+        }
+        const n  = new THREE.Vector3(...p.normal);
         const pt = new THREE.Vector3(...p.point);
+        if (p.boxId) return new THREE.Plane(n.clone().negate(), n.dot(pt));
         return new THREE.Plane(n, -n.dot(pt));
       });
 

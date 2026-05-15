@@ -249,29 +249,6 @@ export function SectionPanel() {
                         <X size={10} />
                       </button>
                     </div>
-                    {/* Individual face rows */}
-                    {bPlanes.map((plane) => {
-                      const offset = getOffset(plane);
-                      return (
-                        <div key={plane.id} className={cn("flex items-center gap-2 px-2.5 py-1 pl-6", !plane.enabled && "opacity-40")}>
-                          <span className="text-[10px] text-muted-foreground w-12 shrink-0 font-mono">{plane.name.replace("Box ", "")}</span>
-                          <div className="flex-1 flex items-center gap-1.5 min-w-0">
-                            <span className="text-[9px] text-muted-foreground/60 w-10 text-right shrink-0">
-                              {offset.toFixed(1)}m
-                            </span>
-                            <input
-                              type="range"
-                              min={-sliderRange}
-                              max={sliderRange}
-                              step={sliderRange / 200}
-                              value={offset}
-                              onChange={(e) => setOffset(plane, parseFloat(e.target.value))}
-                              className="flex-1 h-1 accent-primary cursor-pointer"
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
                   </div>
                 );
               })}
