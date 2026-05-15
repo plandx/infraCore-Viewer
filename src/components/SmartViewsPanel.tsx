@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import {
-  RefreshCw, ChevronDown, ChevronUp, Search, Plus, Pencil, Trash2, X, Check, Layers, Play,
+  RefreshCw, ChevronDown, ChevronUp, Search, Plus, Pencil, Trash2, X, Check, Layers, Play, Copy,
 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "../lib/utils";
@@ -235,6 +235,17 @@ function TierEditor({
                   onChange={(e) => updRule(rule.id, { value: e.target.value })}
                 />
               )}
+              <button
+                className="p-0.5 text-muted-foreground/60 hover:text-foreground shrink-0"
+                title="Regel duplizieren"
+                onClick={() => {
+                  const idx = tier.rules.findIndex((r) => r.id === rule.id);
+                  const copy = { ...rule, id: uuidv4() };
+                  const next = [...tier.rules];
+                  next.splice(idx + 1, 0, copy);
+                  onChange({ rules: next });
+                }}
+              ><Copy size={11} /></button>
               <button className="p-0.5 text-muted-foreground/60 hover:text-destructive shrink-0"
                 onClick={() => onChange({ rules: tier.rules.filter((r) => r.id !== rule.id) })}
               ><X size={11} /></button>
