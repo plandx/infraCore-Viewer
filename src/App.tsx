@@ -282,7 +282,8 @@ function MainApp() {
         for (const [ifcType, elements] of Object.entries(m.elementsByType)) {
           for (const el of elements as Array<{ expressId: number; name: string }>) {
             list.push({
-              key: `${modelId}:${el.expressId}`,
+              // Stable key: filename:expressId — survives across sessions
+              key: `${m.name}:${el.expressId}`,
               guid: "",
               expressId: el.expressId,
               modelId,
@@ -300,7 +301,16 @@ function MainApp() {
       if (msg.t === "ready") sendElements();
       if (msg.t === "isolateTracked") {
         const entries = useBillingStore.getState().entries;
-        const list = Object.values(entries).map((e) => ({ modelId: e.modelId, expressId: e.expressId }));
+        const models = useModelStore.getState().models;
+        // Remap stable filename-based keys to current session modelIds
+        const list: { modelId: string; expressId: number }[] = [];
+        for (const e of Object.values(entries)) {
+          const [filename, expStr] = e.key.split(":");
+          const expressId = parseInt(expStr, 10);
+          let modelId = "";
+          models.forEach((m, id) => { if (m.name === filename) modelId = id; });
+          if (modelId) list.push({ modelId, expressId });
+        }
         if (list.length > 0) useModelStore.getState().isolateEntries(list);
       }
     });

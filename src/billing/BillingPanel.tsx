@@ -29,6 +29,7 @@ export function BillingPanel({ elements }: Props) {
   const [docDocId, setDocDocId] = useState("");
   const [docTitle, setDocTitle] = useState("");
   const [docUrl, setDocUrl] = useState("");
+  const [importError, setImportError] = useState("");
 
   const bcRef = useRef<BroadcastChannel | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -78,8 +79,13 @@ export function BillingPanel({ elements }: Props) {
         const data = JSON.parse(ev.target?.result as string) as BillingExport;
         if (data.version === 1 && Array.isArray(data.entries)) {
           importData(data);
+          setImportError("");
+        } else {
+          setImportError("Ungültiges Format – keine gültige 5D-Export-Datei.");
         }
-      } catch { /* ignore */ }
+      } catch {
+        setImportError("Datei konnte nicht gelesen werden.");
+      }
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -176,6 +182,13 @@ export function BillingPanel({ elements }: Props) {
           <span>Export</span>
         </button>
       </div>
+
+      {importError && (
+        <div className="px-4 py-2 text-xs text-red-400 bg-red-400/10 border-b border-red-400/20 flex items-center justify-between gap-2">
+          <span>{importError}</span>
+          <button onClick={() => setImportError("")} className="shrink-0 text-red-400/60 hover:text-red-400">✕</button>
+        </div>
+      )}
 
       {/* Body */}
       <div className="flex flex-1 min-h-0">

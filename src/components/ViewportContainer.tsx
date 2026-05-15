@@ -293,6 +293,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     scene.updateMatrixWorld(true);
     const meshMap = new Map<string, THREE.Mesh[]>();
+    const sessionModels = useModelStore.getState().models;
     scene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
       if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBillingOverlay) return;
@@ -303,7 +304,9 @@ export function ViewportContainer({ onElementClick }: Props) {
         node = node.parent;
       }
       if (!modelId) return;
-      const key = `${modelId}:${obj.userData.expressId}`;
+      // Use stable filename:expressId key to match persisted billing entries
+      const filename = sessionModels.get(modelId)?.name ?? modelId;
+      const key = `${filename}:${obj.userData.expressId}`;
       const list = meshMap.get(key) ?? [];
       list.push(obj);
       meshMap.set(key, list);
@@ -1247,9 +1250,10 @@ export function ViewportContainer({ onElementClick }: Props) {
           }}
           onSelectClass={() => { ctxSelectClass(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
           onSelectStorey={() => { ctxSelectStorey(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
-          inBilling={!!useBillingStore.getState().entries[`${contextMenu.modelId}:${contextMenu.expressId}`]}
+          inBilling={!!useBillingStore.getState().entries[`${useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId}:${contextMenu.expressId}`]}
           onAdd5D={() => {
-            const key = `${contextMenu.modelId}:${contextMenu.expressId}`;
+            const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
+            const key = `${filename}:${contextMenu.expressId}`;
             useBillingStore.getState().addEntry({
               key, guid: "", expressId: contextMenu.expressId, modelId: contextMenu.modelId,
               elementName: contextMenu.elementName, ifcType: contextMenu.ifcType,
