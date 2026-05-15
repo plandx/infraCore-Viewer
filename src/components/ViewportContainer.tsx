@@ -13,6 +13,7 @@ import { BillingVisualizer } from "../billing/BillingVisualizer";
 import { useBillingStore, BILLING_CHANNEL } from "../billing/billingStore";
 import { openBillingWindow } from "../utils/windowSync";
 import type { BillingMsg } from "../billing/types";
+import { computeQuantities } from "../billing/quantityUtils";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -315,6 +316,41 @@ export function ViewportContainer({ onElementClick }: Props) {
     viz.update(billingEntries, meshMap);
     needsRenderRef.current = true;
   }, [billingEntries, billingModuleActive]);
+
+  // Handle requestQuantities from billing window
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null;
+    try { bc = new BroadcastChannel(BILLING_CHANNEL); } catch { return; }
+
+    bc.addEventListener("message", (ev) => {
+      const msg = ev.data as BillingMsg;
+      if (msg.t !== "requestQuantities") return;
+
+      const scene = sceneRef.current;
+      if (!scene) { bc?.postMessage({ t: "quantities", key: msg.key, data: null } satisfies BillingMsg); return; }
+
+      const sessionModels = useModelStore.getState().models;
+      scene.updateMatrixWorld(true);
+
+      const meshes: THREE.Mesh[] = [];
+      scene.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
+        if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBillingOverlay) return;
+        let modelId = "";
+        let node: THREE.Object3D | null = obj;
+        while (node) { if (node.userData.modelId) { modelId = node.userData.modelId as string; break; } node = node.parent; }
+        if (!modelId) return;
+        const filename = sessionModels.get(modelId)?.name ?? modelId;
+        const key = `${filename}:${obj.userData.expressId}`;
+        if (key === msg.key) meshes.push(obj);
+      });
+
+      const data = meshes.length > 0 ? computeQuantities(meshes) : null;
+      bc?.postMessage({ t: "quantities", key: msg.key, data } satisfies BillingMsg);
+    });
+
+    return () => bc?.close();
+  }, []);
 
   // Dead code below kept as tombstone start — replaced by SectionModule
 

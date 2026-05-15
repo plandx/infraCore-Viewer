@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { BillingEntry, BillingExport, BillingStage, DocumentRef } from "./types";
+import type { BillingEntry, BillingExport, BillingStage, DocumentRef, ElementQuantities } from "./types";
 
 const LS_KEY = "infracore-billing-v1";
 export const BILLING_CHANNEL = "infracore-billing";
@@ -38,6 +38,7 @@ interface BillingStore {
   importData(data: BillingExport): void;
   exportData(): BillingExport;
   setModuleActive(active: boolean): void;
+  setQuantities(key: string, q: ElementQuantities): void;
   _applySync(entries: Record<string, BillingEntry>): void;
 }
 
@@ -116,6 +117,12 @@ export const useBillingStore = create<BillingStore>((set, get) => {
     setModuleActive(active) {
       bc?.postMessage({ t: "moduleActive", active });
       set({ moduleActive: active });
+    },
+
+    setQuantities(key, q) {
+      const entry = get().entries[key]; if (!entry) return;
+      const next = { ...get().entries, [key]: { ...entry, quantities: q } };
+      persist(next); broadcast(next); set({ entries: next });
     },
 
     _applySync(entries) {

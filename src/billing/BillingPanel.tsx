@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink, ScanEye } from "lucide-react";
+import { Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink, ScanEye, Calculator, Save } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore, BILLING_CHANNEL } from "./billingStore";
-import type { ElementInfo, BillingExport, BillingMsg } from "./types";
+import type { ElementInfo, BillingExport, BillingMsg, ElementQuantities } from "./types";
 
 interface Props {
   elements: ElementInfo[];
@@ -14,7 +14,7 @@ export function BillingPanel({ elements }: Props) {
     addEntry, removeEntry,
     addStage, removeStage,
     addDocument, removeDocument,
-    importData, exportData,
+    importData, exportData, setQuantities,
   } = useBillingStore();
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -30,6 +30,8 @@ export function BillingPanel({ elements }: Props) {
   const [docTitle, setDocTitle] = useState("");
   const [docUrl, setDocUrl] = useState("");
   const [importError, setImportError] = useState("");
+  const [pendingQKey, setPendingQKey] = useState<string | null>(null);
+  const [liveQuantities, setLiveQuantities] = useState<ElementQuantities | null>(null);
 
   const bcRef = useRef<BroadcastChannel | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -46,7 +48,11 @@ export function BillingPanel({ elements }: Props) {
     bc.addEventListener("message", (ev) => {
       const msg = ev.data as BillingMsg;
       if (msg.t === "moduleActive") setVizActive(msg.active);
-      if (msg.t === "selectEntry") setSelectedKey(msg.key);
+      if (msg.t === "selectEntry") { setSelectedKey(msg.key); setLiveQuantities(null); }
+      if (msg.t === "quantities") {
+        setPendingQKey(null);
+        setLiveQuantities(msg.data);
+      }
     });
 
     bc.postMessage({ t: "ready" } satisfies BillingMsg);
@@ -99,6 +105,18 @@ export function BillingPanel({ elements }: Props) {
 
   const selectedEntry = selectedKey ? entries[selectedKey] : null;
 
+  const handleSelectKey = (key: string) => {
+    setSelectedKey(key);
+    setLiveQuantities(null);
+    setPendingQKey(null);
+  };
+
+  const handleRequestQuantities = (key: string) => {
+    setPendingQKey(key);
+    setLiveQuantities(null);
+    bcRef.current?.postMessage({ t: "requestQuantities", key } satisfies BillingMsg);
+  };
+
   const handleAddEntry = (el: ElementInfo) => {
     addEntry({
       key: el.key,
@@ -108,7 +126,7 @@ export function BillingPanel({ elements }: Props) {
       elementName: el.name,
       ifcType: el.ifcType,
     });
-    setSelectedKey(el.key);
+    handleSelectKey(el.key);
   };
 
   const handleAddStage = () => {
@@ -221,7 +239,7 @@ export function BillingPanel({ elements }: Props) {
                 return (
                   <div
                     key={el.key}
-                    onClick={() => setSelectedKey(el.key)}
+                    onClick={() => handleSelectKey(el.key)}
                     className={cn(
                       "group flex flex-col gap-1 px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-muted/40 transition-colors",
                       isSelected && "bg-primary/10 border-l-2 border-l-primary"
@@ -324,6 +342,69 @@ export function BillingPanel({ elements }: Props) {
                     <Trash2 size={13} />
                   </button>
                 </div>
+              </div>
+
+              {/* Quantities section */}
+              <div className="px-5 py-4 border-b border-border">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mengen</span>
+                  <button
+                    onClick={() => handleRequestQuantities(selectedKey)}
+                    disabled={pendingQKey === selectedKey}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-muted hover:bg-primary/20 hover:text-primary text-muted-foreground border border-border transition-colors disabled:opacity-40"
+                    title="Volumen, Oberfläche und Abmessungen aus Geometrie berechnen"
+                  >
+                    <Calculator size={10} />
+                    {pendingQKey === selectedKey ? "Berechne…" : "Berechnen"}
+                  </button>
+                  {(liveQuantities ?? selectedEntry.quantities) && (
+                    <button
+                      onClick={() => {
+                        const q = liveQuantities ?? selectedEntry.quantities;
+                        if (q) setQuantities(selectedKey, q);
+                        setLiveQuantities(null);
+                      }}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 transition-colors"
+                      title="Berechnete Mengen am Eintrag speichern"
+                    >
+                      <Save size={10} />
+                      Speichern
+                    </button>
+                  )}
+                </div>
+
+                {(() => {
+                  const q = liveQuantities ?? selectedEntry.quantities ?? null;
+                  if (!q) return (
+                    <p className="text-xs text-muted-foreground">
+                      Noch keine Mengen berechnet. Klicke „Berechnen" um Volumen, Oberfläche und Abmessungen aus der Geometrie zu ermitteln.
+                    </p>
+                  );
+                  const fmt = (n: number, decimals = 3) => n.toFixed(decimals).replace(".", ",");
+                  const isLive = liveQuantities !== null;
+                  return (
+                    <div className={cn("rounded-md border p-3 text-xs", isLive ? "border-primary/40 bg-primary/5" : "border-border bg-muted/30")}>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                        <div className="text-muted-foreground">Volumen</div>
+                        <div className="font-mono text-right font-medium">{fmt(q.volume)} m³</div>
+                        <div className="text-muted-foreground">Oberfläche</div>
+                        <div className="font-mono text-right font-medium">{fmt(q.surfaceArea)} m²</div>
+                        <div className="col-span-2 border-t border-border/50 mt-0.5 pt-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/60 font-semibold">
+                          Bounding Box
+                        </div>
+                        <div className="text-muted-foreground">Breite (X)</div>
+                        <div className="font-mono text-right">{fmt(q.bboxX)} m</div>
+                        <div className="text-muted-foreground">Höhe (Y)</div>
+                        <div className="font-mono text-right">{fmt(q.bboxY)} m</div>
+                        <div className="text-muted-foreground">Tiefe (Z)</div>
+                        <div className="font-mono text-right">{fmt(q.bboxZ)} m</div>
+                      </div>
+                      <div className="mt-2 text-[10px] text-muted-foreground/50">
+                        {isLive ? "Neu berechnet · noch nicht gespeichert" : `Gespeichert ${new Date(q.computedAt).toLocaleDateString("de-DE")}`}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Stages section */}

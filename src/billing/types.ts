@@ -13,6 +13,15 @@ export interface DocumentRef {
   url: string;
 }
 
+export interface ElementQuantities {
+  volume: number;       // m³
+  surfaceArea: number;  // m²
+  bboxX: number;        // m
+  bboxY: number;        // m
+  bboxZ: number;        // m
+  computedAt: string;
+}
+
 export interface BillingEntry {
   key: string;
   guid: string;
@@ -22,6 +31,7 @@ export interface BillingEntry {
   ifcType: string;
   stages: BillingStage[];
   documents: DocumentRef[];
+  quantities?: ElementQuantities;
   createdAt: string;
 }
 
@@ -46,4 +56,6 @@ export type BillingMsg =
   | { t: "moduleActive"; active: boolean }
   | { t: "dataSync"; entries: BillingEntry[] }
   | { t: "isolateTracked" }
-  | { t: "selectEntry"; key: string };
+  | { t: "selectEntry"; key: string }
+  | { t: "requestQuantities"; key: string }
+  | { t: "quantities"; key: string; data: ElementQuantities | null };
