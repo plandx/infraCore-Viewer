@@ -4,7 +4,7 @@ import {
   MousePointer2, Ruler, Scissors, Eye, EyeOff,
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
-  X, List, Layers, AppWindow, Table2, ExternalLink,
+  X, List, Glasses, AppWindow, Table2, ExternalLink,
 } from "lucide-react";
 import { openSecondaryWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -249,7 +249,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading }: Props) {
           panel="smartviews"
           onClick={() => setSmartViewsPanelOpen(!smartViewsPanelOpen)}
         >
-          <Layers size={16} />
+          <Glasses size={16} />
         </PopoutPanelButton>
 
         {/* QTO / Lists Panel */}

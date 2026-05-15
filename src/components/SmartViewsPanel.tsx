@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import {
-  RefreshCw, ChevronDown, ChevronUp, Search, Plus, Pencil, Trash2, X, Check, Layers, Play, Copy,
+  RefreshCw, ChevronDown, ChevronUp, Search, Plus, Pencil, Trash2, X, Check, Glasses, Play, Copy,
 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "../lib/utils";
@@ -187,7 +187,7 @@ function TierEditor({
   return (
     <div className="border border-border rounded-md bg-card/20 overflow-hidden">
       <div className="flex items-center gap-1.5 px-2 py-1.5 bg-card/40 border-b border-border">
-        <Layers size={11} className="text-muted-foreground shrink-0" />
+        <Glasses size={11} className="text-muted-foreground shrink-0" />
         <input
           className="flex-1 bg-transparent text-xs font-medium text-foreground focus:outline-none placeholder:text-muted-foreground min-w-0"
           placeholder={`Ebene ${index + 1}`}
