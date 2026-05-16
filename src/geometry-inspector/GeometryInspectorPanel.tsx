@@ -253,6 +253,7 @@ export function GeometryInspectorPanel({
     }
 
     setSaved(true);
+    onClearSelection();
     setTimeout(() => setSaved(false), 2000);
   };
 
@@ -279,6 +280,15 @@ export function GeometryInspectorPanel({
           <p className="text-xs font-semibold truncate">{elementName}</p>
           <p className="text-[10px] text-muted-foreground">Geometrie-Inspektor</p>
         </div>
+        {onOpen5D && billingKey && (
+          <button
+            onClick={onOpen5D}
+            title="Im 5D-Fenster öffnen"
+            className="p-1 rounded hover:bg-muted/60 text-primary hover:text-primary transition-colors"
+          >
+            <ExternalLink size={12} />
+          </button>
+        )}
         <button onClick={onClose} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
           <X size={13} />
         </button>
