@@ -2,13 +2,16 @@ import * as THREE from "three";
 import type { InspFace, InspEdge, PickMode } from "./types";
 import { analyzeMeshes } from "./GeometryAnalyzer";
 
-const C_FACE_DEFAULT = 0x4488ff;
-const C_FACE_HOVER   = 0x66aaff;
-const C_FACE_SELECT  = 0x22cc88;
-const C_EDGE_DEFAULT = 0xccddff;
-const C_EDGE_HOVER   = 0x88ccff;
-const C_EDGE_SELECT  = 0x44ff88;
-const FACE_OFFSET    = 0.001; // 1 mm outward to avoid z-fighting
+const C_FACE_DEFAULT = 0x22aa55;  // subtle green
+const C_FACE_HOVER   = 0x33ee77;  // bright green
+const C_FACE_SELECT  = 0x00ff66;  // vivid green
+
+const C_EDGE_DEFAULT = 0xcc2222;  // red
+const C_EDGE_HOVER   = 0xff5555;  // bright red
+const C_EDGE_SELECT  = 0xff8800;  // orange-red (clearly different from hover)
+
+const FACE_OFFSET  = 0.001; // 1 mm outward to avoid z-fighting
+const EDGE_RADIUS  = 0.02;  // 2 cm cylinder radius — thicker than normal edge lines
 
 export class FaceEdgePicker {
   faces: InspFace[] = [];
@@ -21,15 +24,14 @@ export class FaceEdgePicker {
 
   private scene: THREE.Scene;
   private raycaster = new THREE.Raycaster();
-  private faceMeshes: THREE.Mesh[]         = [];
-  private edgeLines:  THREE.LineSegments[] = [];
-  private edgePickMeshes: THREE.Mesh[]     = []; // invisible boxes for reliable edge picking
+  private faceMeshes: THREE.Mesh[] = [];
+  private edgeMeshes: THREE.Mesh[] = []; // visible cylinders — both visual and raycasted
+
   private onChange: (faces: Set<number>, edges: Set<number>) => void;
 
   constructor(scene: THREE.Scene, onChange: (faces: Set<number>, edges: Set<number>) => void) {
     this.scene    = scene;
     this.onChange = onChange;
-    this.raycaster.params.Line = { threshold: 0.03 };
   }
 
   load(meshes: THREE.Mesh[]): void {
@@ -42,7 +44,6 @@ export class FaceEdgePicker {
     for (const face of faces) {
       const verts = faceVertArrays[face.id];
       const n = new THREE.Vector3(...face.normal);
-      // offset each vertex by 1 mm along face normal
       const offsetVerts = verts.slice();
       for (let i = 0; i < offsetVerts.length; i += 3) {
         offsetVerts[i]   += n.x * FACE_OFFSET;
@@ -52,7 +53,7 @@ export class FaceEdgePicker {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(offsetVerts, 3));
       const mat = new THREE.MeshBasicMaterial({
-        color: C_FACE_DEFAULT, transparent: true, opacity: 0.12,
+        color: C_FACE_DEFAULT, transparent: true, opacity: 0.15,
         depthTest: false, depthWrite: false, side: THREE.DoubleSide,
       });
       const mesh = new THREE.Mesh(geo, mat);
@@ -62,33 +63,31 @@ export class FaceEdgePicker {
       this.faceMeshes.push(mesh);
     }
 
-    // ── Edge visuals + invisible pick boxes ────────────────────────────────────
+    // ── Edge cylinders — visible AND raycasted ─────────────────────────────────
+    // Using CylinderGeometry instead of LineSegments + invisible boxes.
+    // LineBasicMaterial.linewidth > 1 is not supported in WebGL; invisible boxes
+    // are skipped by the raycaster (visible=false). Cylinders solve both problems.
     for (const edge of edges) {
       const s = new THREE.Vector3(...edge.start);
       const e = new THREE.Vector3(...edge.end);
-
-      // Visual line
-      const lineGeo = new THREE.BufferGeometry();
-      lineGeo.setAttribute("position", new THREE.Float32BufferAttribute([s.x, s.y, s.z, e.x, e.y, e.z], 3));
-      const lineMat = new THREE.LineBasicMaterial({ color: C_EDGE_DEFAULT, depthTest: false });
-      const line = new THREE.LineSegments(lineGeo, lineMat);
-      line.renderOrder = 11;
-      line.userData.inspEdgeId = edge.id;
-      this.scene.add(line);
-      this.edgeLines.push(line);
-
-      // Invisible pick box (thin box aligned along edge)
       const dir = e.clone().sub(s);
-      const mid = s.clone().add(e).multiplyScalar(0.5);
       const len = dir.length();
-      const boxGeo = new THREE.BoxGeometry(0.025, len, 0.025);
-      const boxMat = new THREE.MeshBasicMaterial({ visible: false });
-      const box = new THREE.Mesh(boxGeo, boxMat);
-      box.position.copy(mid);
-      box.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-      box.userData.inspEdgeId = edge.id;
-      this.scene.add(box);
-      this.edgePickMeshes.push(box);
+      if (len < 1e-4) continue;
+
+      const mid = s.clone().add(e).multiplyScalar(0.5);
+
+      // CylinderGeometry is oriented along Y by default — same as BoxGeometry was
+      const geo = new THREE.CylinderGeometry(EDGE_RADIUS, EDGE_RADIUS, len, 8, 1, false);
+      const mat = new THREE.MeshBasicMaterial({
+        color: C_EDGE_DEFAULT, depthTest: false, depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(mid);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+      mesh.renderOrder = 11;
+      mesh.userData.inspEdgeId = edge.id;
+      this.scene.add(mesh);
+      this.edgeMeshes.push(mesh);
     }
   }
 
@@ -98,7 +97,7 @@ export class FaceEdgePicker {
     const faceHit = this.raycaster.intersectObjects(this.faceMeshes);
     const newFace = faceHit.length > 0 ? (faceHit[0].object.userData.inspFaceId as number) : -1;
 
-    const edgeHit = this.raycaster.intersectObjects(this.edgePickMeshes);
+    const edgeHit = this.raycaster.intersectObjects(this.edgeMeshes);
     const newEdge = edgeHit.length > 0 ? (edgeHit[0].object.userData.inspEdgeId as number) : -1;
 
     if (newFace !== this.hoveredFaceId || newEdge !== this.hoveredEdgeId) {
@@ -128,7 +127,7 @@ export class FaceEdgePicker {
         }
       }
     } else {
-      const hits = this.raycaster.intersectObjects(this.edgePickMeshes);
+      const hits = this.raycaster.intersectObjects(this.edgeMeshes);
       if (hits.length === 0) {
         if (!ctrl) this.selectedEdgeIds.clear();
       } else {
@@ -153,18 +152,18 @@ export class FaceEdgePicker {
       const id  = m.userData.inspFaceId as number;
       const mat = m.material as THREE.MeshBasicMaterial;
       if (this.selectedFaceIds.has(id)) {
-        mat.color.setHex(C_FACE_SELECT); mat.opacity = 0.65;
+        mat.color.setHex(C_FACE_SELECT); mat.opacity = 0.70;
       } else if (id === this.hoveredFaceId) {
-        mat.color.setHex(C_FACE_HOVER);  mat.opacity = 0.40;
+        mat.color.setHex(C_FACE_HOVER);  mat.opacity = 0.45;
       } else {
-        mat.color.setHex(C_FACE_DEFAULT); mat.opacity = 0.12;
+        mat.color.setHex(C_FACE_DEFAULT); mat.opacity = 0.15;
       }
       mat.needsUpdate = true;
     }
-    for (const l of this.edgeLines) {
-      const id  = l.userData.inspEdgeId as number;
-      const mat = l.material as THREE.LineBasicMaterial;
-      if (this.selectedEdgeIds.has(id))  mat.color.setHex(C_EDGE_SELECT);
+    for (const m of this.edgeMeshes) {
+      const id  = m.userData.inspEdgeId as number;
+      const mat = m.material as THREE.MeshBasicMaterial;
+      if (this.selectedEdgeIds.has(id))   mat.color.setHex(C_EDGE_SELECT);
       else if (id === this.hoveredEdgeId) mat.color.setHex(C_EDGE_HOVER);
       else                                mat.color.setHex(C_EDGE_DEFAULT);
       mat.needsUpdate = true;
@@ -172,10 +171,9 @@ export class FaceEdgePicker {
   }
 
   dispose(): void {
-    for (const m of this.faceMeshes)    { this.scene.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
-    for (const l of this.edgeLines)     { this.scene.remove(l); l.geometry.dispose(); (l.material as THREE.Material).dispose(); }
-    for (const b of this.edgePickMeshes){ this.scene.remove(b); b.geometry.dispose(); (b.material as THREE.Material).dispose(); }
-    this.faceMeshes = []; this.edgeLines = []; this.edgePickMeshes = [];
+    for (const m of this.faceMeshes) { this.scene.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+    for (const m of this.edgeMeshes) { this.scene.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+    this.faceMeshes = []; this.edgeMeshes = [];
     this.faces = []; this.edges = [];
     this.selectedFaceIds.clear(); this.selectedEdgeIds.clear();
     this.hoveredFaceId = -1; this.hoveredEdgeId = -1;

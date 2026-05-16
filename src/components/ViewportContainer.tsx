@@ -1405,11 +1405,11 @@ export function ViewportContainer({ onElementClick }: Props) {
             "absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded text-[9px] font-mono whitespace-nowrap border select-none shadow",
             lbl.type === "face"
               ? lbl.selected
-                ? "bg-[#22cc88] text-black border-[#22cc88] font-semibold"
-                : "bg-[#3366ff]/80 text-white border-[#3366ff]/60"
+                ? "bg-[#00ff66] text-black border-[#00ff66] font-semibold"
+                : "bg-[#22aa55]/85 text-white border-[#22aa55]/60"
               : lbl.selected
-                ? "bg-[#44ff88] text-black border-[#44ff88] font-semibold"
-                : "bg-[#334455]/80 text-white border-[#334455]/60"
+                ? "bg-[#ff8800] text-black border-[#ff8800] font-semibold"
+                : "bg-[#cc2222]/85 text-white border-[#cc2222]/60"
           )}
           style={{ left: lbl.x, top: lbl.y }}
         >
