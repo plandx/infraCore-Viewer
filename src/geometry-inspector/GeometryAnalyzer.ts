@@ -115,9 +115,14 @@ export function analyzeMeshes(meshes: THREE.Mesh[]): AnalysisResult {
   });
 
   // ── Collect boundary/inter-face edges ─────────────────────────────────────
-  // rawAllEdges: one entry per unique edge (deduplicated), used for both
-  // individual edge list and per-face boundary grouping.
-  const rawAllEdges: (Seg & { faceA: number; faceB: number | null })[] = [];
+  // When multiple meshes are passed (e.g. one IFC element = several THREE.Mesh)
+  // the same physical edge can appear with 3+ adjacent triangles in edgeMap.
+  // Checking only triIndices[0] vs [1] may wrongly classify inter-face edges as
+  // interior if the first two happen to belong to the same face.
+  // Fix: collect ALL unique face IDs at each edge; treat the edge as a boundary
+  // edge for every face that appears there, as long as more than one face is present
+  // (or it is a mesh-boundary edge with only one adjacent triangle).
+  const rawAllEdges: Seg[] = [];
   const faceBoundarySegs: Map<number, Seg[]> = new Map();
   for (let fid = 0; fid < faces.length; fid++) faceBoundarySegs.set(fid, []);
 
@@ -125,21 +130,15 @@ export function analyzeMeshes(meshes: THREE.Mesh[]): AnalysisResult {
     const { triIndices, va, vb } = entry;
     if (va.distanceTo(vb) < 5e-4) continue;
 
-    if (triIndices.length === 1) {
-      const fid = triToFace[triIndices[0]];
+    const faceIds = new Set(triIndices.map(ti => triToFace[ti]));
+
+    if (triIndices.length === 1 || faceIds.size > 1) {
+      // Mesh-boundary edge OR edge shared by two or more distinct faces
       const seg: Seg = { a: va, b: vb };
-      faceBoundarySegs.get(fid)!.push(seg);
-      rawAllEdges.push({ a: va, b: vb, faceA: fid, faceB: null });
-    } else if (triIndices.length >= 2) {
-      const fid0 = triToFace[triIndices[0]];
-      const fid1 = triToFace[triIndices[1]];
-      if (fid0 !== fid1) {
-        const seg: Seg = { a: va, b: vb };
-        faceBoundarySegs.get(fid0)!.push(seg);
-        faceBoundarySegs.get(fid1)!.push(seg);
-        rawAllEdges.push({ a: va, b: vb, faceA: fid0, faceB: fid1 });
-      }
+      for (const fid of faceIds) faceBoundarySegs.get(fid)!.push(seg);
+      rawAllEdges.push(seg);
     }
+    // If all adjacent triangles belong to the same face → interior edge → skip
   }
 
   // ── Per-face boundaries ───────────────────────────────────────────────────
@@ -159,7 +158,7 @@ export function analyzeMeshes(meshes: THREE.Mesh[]): AnalysisResult {
   });
 
   // ── Individual edges (deduplicated, collinear-merged) ─────────────────────
-  const mergedIndividual = mergeCollinear(rawAllEdges.map(e => ({ a: e.a, b: e.b })));
+  const mergedIndividual = mergeCollinear(rawAllEdges);
   const edges: InspEdge[] = mergedIndividual.map(({ a, b }, id) => ({
     id,
     length: a.distanceTo(b),
