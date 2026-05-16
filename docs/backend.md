@@ -1,7 +1,7 @@
 # Backend / Utilities
 
 > Es gibt keinen Server. „Backend" bezeichnet hier die clientseitigen Utility-Schichten:
-> IFC-Parser (WASM), IFC-Writer, SQL-Engine und Hilfs-Funktionen.
+> IFC-Parser (WASM), IFC-Writer, SQL-Engine, Geometrie-Analyse und Hilfs-Funktionen.
 
 ---
 
@@ -9,7 +9,7 @@
 
 **Pfad:** `src/utils/ifcLoader.ts`
 
-Kernsück: wrапpt `web-ifc 0.0.77` (WASM).
+Kernstück: wrапpt `web-ifc 0.0.77` (WASM).
 
 ### `loadIFCFile(file, modelIndex, currentOrigin, onProgress)`
 
@@ -42,7 +42,7 @@ Batch-Laden für alle Elemente (einmal Datei öffnen, alle lesen):
 - Keys: direkte Attribute + `"PsetName.PropName"` Namespaced-Keys
 - Kurz-Aliases: erster Pset gewinnt bei Kollision
 - Lädt ebenfalls instanz- und typ-level Psets (sequentiell)
-- Wird von `PropertyLoader` in `ListPanel` genutzt
+- Wird von `BatchPanel` für datalist-Autocomplete und von `QuantityListPanel` (`PropertyLoader`) genutzt
 
 **Wichtig:** `FlatElementProps = Record<string, unknown>` ist in `types/ifc.ts` definiert.
 
@@ -167,6 +167,147 @@ Unterstützt: `SELECT`, `WHERE`, `GROUP BY`, `ORDER BY [DESC]`, `LIMIT`, `COUNT(
 ### `SAMPLE_QUERIES`
 
 Array vordefinierter Beispiel-Abfragen für das SQL-Panel.
+
+---
+
+## quantityUtils.ts
+
+**Pfad:** `src/billing/quantityUtils.ts`
+
+Berechnet geometrische Kennzahlen aus Three.js-Meshes für das 5D-Modul.
+
+### `computeQuantities(meshes: THREE.Mesh[]): ElementQuantities`
+
+Nimmt alle Meshes eines IFC-Elements entgegen und berechnet:
+
+| Kenngröße | Algorithmus |
+|---|---|
+| **Volumen (m³)** | Divergenz-Theorem: `Σ a·(b×c) / 6` über alle Dreiecke in World-Space |
+| **Oberfläche (m²)** | `Σ |ab × ac| / 2` (Kreuzprodukt-Fläche) pro Dreieck |
+| **Bounding Box X/Y/Z (m)** | `THREE.Box3.setFromObject()` auf allen Meshes |
+
+Alle Berechnungen in **World-Space** (`vertex.applyMatrix4(mesh.matrixWorld)`).
+
+```typescript
+interface ElementQuantities {
+  volume:      number;  // m³
+  surfaceArea: number;  // m²
+  bboxX:       number;  // m (Breite)
+  bboxY:       number;  // m (Höhe)
+  bboxZ:       number;  // m (Tiefe)
+  computedAt:  string;  // ISO 8601 Timestamp
+}
+```
+
+---
+
+## GeometryAnalyzer.ts
+
+**Pfad:** `src/geometry-inspector/GeometryAnalyzer.ts`
+
+Analysiert Three.js-Geometrie eines isolierten IFC-Elements in logische Flächen und Kanten.
+
+### Konstanten
+
+| Konstante | Wert | Bedeutung |
+|---|---|---|
+| `COPLANAR_DOT` | `cos(10°) ≈ 0.985` | Maximale Normalenabweichung zweier koplanarer Dreiecke |
+| `HARD_EDGE_DOT` | `cos(25°) ≈ 0.906` | Diederwinkel-Schwelle für harte Kanten |
+| `PREC` | `4000` | Quantisierungsfaktor für Vertex-Hashing |
+
+### `analyze(meshes: THREE.Mesh[]): AnalyzeResult`
+
+Vollständige Pipeline:
+
+1. **Dreiecks-Sammlung**: Alle Vertices in World-Space transformieren; Dreiecke mit Normalen und Kanten-Map aufbauen
+2. **Kanten-Map**: `edgeMap: Map<string, { triIndices, va, vb }>` — je Kante (kanonischer Schlüssel `min:max`) alle angrenzenden Dreiecke
+3. **BFS-Flood-Fill**: Startdreieck → Nachbarn via `edgeMap` → spread wenn `n0 · n1 >= COPLANAR_DOT` → `triToFace Int32Array` befüllt
+4. **Flächen-Stats**: Gewichteter Normalendurchschnitt, flächengewichteter Mittelpunkt, Gesamtfläche
+5. **Hard-Edge-Extraktion**:
+   - Randkanten (nur ein Dreieck) → immer hard edge
+   - Innenkanten zwischen verschiedenen Face-Gruppen → hard edge wenn `n0 · n1 <= HARD_EDGE_DOT`
+6. **Kollineare Kantenverschmelzung** (`mergeCollinear()`): iterativ — Valenz-2-Vertices wo `d0 · d1 < -0.999` (entgegengesetzte Richtungen = kollinear) → Kanten zusammenführen; wiederholen bis keine Änderung
+
+Gibt zurück:
+```typescript
+interface AnalyzeResult {
+  faces:          InspFace[];          // Erkannte logische Flächen
+  edges:          InspEdge[];          // Harte Kanten nach Verschmelzung
+  faceVertArrays: Float32Array[];      // Vertex-Daten je Fläche (für Overlay-Geometrie)
+}
+```
+
+### Typen
+
+```typescript
+export interface InspFace {
+  id:     number;
+  area:   number;              // m²
+  normal: [number, number, number];
+  center: [number, number, number];
+}
+
+export interface InspEdge {
+  id:     number;
+  length: number;              // m
+  start:  [number, number, number];
+  end:    [number, number, number];
+}
+
+export type PickMode = "face" | "edge";
+
+export interface InspectionSession {
+  modelId:     string;
+  expressId:   number;
+  elementName: string;
+  billingKey:  string | null;
+}
+```
+
+---
+
+## FaceEdgePicker.ts
+
+**Pfad:** `src/geometry-inspector/FaceEdgePicker.ts`
+
+Three.js-Interaktionsschicht des Geometrie-Inspektors. Erstellt visuelle Overlays und verarbeitet Maus-Events.
+
+### Farb-Konstanten
+
+| Konstante | Hex | Verwendung |
+|---|---|---|
+| `C_FACE_HOVER` | `0x4488ff` | Fläche unter Maus (blau) |
+| `C_FACE_SELECT` | `0x22cc88` | Ausgewählte Fläche (grün) |
+| `C_EDGE_DEFAULT` | `0xaaaaaa` | Nicht-aktive Kante (grau) |
+| `C_EDGE_HOVER` | `0x88ccff` | Kante unter Maus (hellblau) |
+| `C_EDGE_SELECT` | `0x44ff88` | Ausgewählte Kante (hellgrün) |
+
+`FACE_OFFSET = 0.001` m — Flächen-Overlays werden 1mm entlang der Flächennormalen versetzt (Z-Fighting vermeiden).
+
+### `load(meshes: THREE.Mesh[])`
+
+Baut alle Overlay-Objekte auf:
+- **Flächen**: `MeshBasicMaterial(transparent, DoubleSide, renderOrder=10)` je Fläche; Geometrie aus `faceVertArrays` + 1mm Normalversatz
+- **Kanten**: `LineSegments(renderOrder=11)` für sichtbare Linien
+- **Pick-Boxen**: `BoxGeometry(0.025, length, 0.025)` je Kante, ausgerichtet entlang der Kante, unsichtbar (`visible=false`) — für zuverlässiges Raycasting gegen dünne Linien
+
+### `onMouseMove(ndc: THREE.Vector2, camera: THREE.Camera)`
+
+Raycast gegen Flächen-Meshes + Edge-Pick-Boxen, aktualisiert Hover-Zustand, ruft `updateColors()`.
+
+### `onClick(ndc, camera, ctrl: boolean, mode: PickMode)`
+
+- `mode="face"`: trifft Flächen-Mesh → bei `ctrl`: toggle; ohne `ctrl`: ersetze Auswahl
+- `mode="edge"`: trifft Edge-Pick-Box → gleiche Logik
+- Gibt `{ selectedFaceIds: Set<number>, selectedEdgeIds: Set<number> }` über Callbacks zurück
+
+### `updateColors()`
+
+Aktualisiert Opacity + Color aller Flächen-Materialien und Kanten-Linien-Materialien nach aktuellem Hover/Auswahl-Zustand.
+
+### `dispose()`
+
+Entfernt alle Overlay-Objekte aus der Szene, disposes Geometrien + Materialien.
 
 ---
 

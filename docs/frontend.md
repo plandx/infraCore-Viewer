@@ -33,19 +33,33 @@ Haupt-UI des Billing-Fensters.
 Props:
 ```typescript
 interface Props {
-  elements: ElementInfo[]; // Elementliste vom Main-Fenster
+  elements: ElementInfo[];
 }
 ```
 
 Aufbau:
 - **Header**: Titel, Visualisierungs-Toggle, Import-JSON-Button, Export-JSON-Button
-- **Linke Spalte** (272px): Suchfeld + scrollbare Elementliste. Jede Zeile zeigt Status-Dot (nicht erfasst/in Bearbeitung/fertig), Elementname, IFC-Typ-Chip, Fortschrittsbalken. Hover zeigt "Hinzufügen"-Button für nicht erfasste Elemente.
-- **Rechte Spalte**: Detailansicht des gewählten Elements mit:
+- **Linke Spalte** (272px): Suchfeld + scrollbare Elementliste. Jede Zeile zeigt Status-Dot (nicht erfasst/in Bearbeitung/fertig), Elementname, IFC-Typ-Chip, Fortschrittsbalken. Hover zeigt „Hinzufügen"-Button für nicht erfasste Elemente. Klick auf eine Zeile löst auch `{ t: "selectEntry", key }` via BroadcastChannel aus (hebt Element im Viewport hervor).
+- **Rechte Spalte**: Detailansicht des gewählten Elements:
   - Elementkopf: Name, Typ, GUID, ExpressId
+  - **5D-Untermenü** (Kontextmenü): erscheint beim Hover über eine Elementzeile; Optionen: Grad 0–100 % in 10%-Schritten mit Farbcodierung (grau → orange → grün); „5D hinzufügen"; „Zum Viewer isolieren"
   - Tabelle der Abrechnungsstände (Nr, Bezeichnung, Datum, Grad%, Delta, Löschen-Button)
   - Formular für neuen Stand (Bezeichnung, Datum, Grad%, Notiz)
+  - **Mengen-Sektion**:
+    - **„Auto"**-Button (Calculator-Icon): sendet `{ t: "requestQuantities", key }` → ViewportContainer berechnet Volumen/BBox automatisch → antwortet mit `{ t: "quantities", key, data }`
+    - **„Messen"**-Button (Ruler-Icon): sendet `{ t: "startInspection", key, elementName }` → aktiviert Geometrie-Inspektor im Viewer
+    - Anzeige berechneter/manuell gespeicherter Mengen: Volumen (m³), Oberfläche (m²), Bounding Box X/Y/Z (m)
+    - **„Speichern"**-Button: persistiert `liveQuantities` via `billingStore.setQuantities()`
   - Dokumentenliste mit Links
   - Formular für neues Dokument (Dok.-Nr., Titel, URL)
+
+#### 5D-Untermenü-Verhalten
+
+- Erscheint 120ms nach Hover (kein sofortiges Schließen beim Überqueren des Gaps zwischen Trigger und Flyout)
+- `useLayoutEffect` misst gerenderte Submenu-Größe via `getBoundingClientRect()` und berechnet:
+  - Horizontale Position: links oder rechts vom Trigger je nach verfügbarem Platz
+  - Vertikale Verschiebung: nach oben wenn Submenu über Viewport-Unterkante ragt
+- Bleibt immer innerhalb der Viewer-Container-Grenzen
 
 ---
 
@@ -80,8 +94,8 @@ Zeigt alle geladenen Modelle in drei Ansichten:
 Props:
 ```typescript
 interface Props {
-  onFitTo: (id: string) => void;         // Kamera auf Modell
-  onRemove: (id: string) => void;        // Modell entfernen
+  onFitTo: (id: string) => void;
+  onRemove: (id: string) => void;
   onSelectElement: (modelId: string, expressId: number) => void;
   onHideOverride?: (modelId: string, expressId: number) => void;
   onShowAllOverride?: () => void;
@@ -94,18 +108,16 @@ Interne Features:
 - Sichtbarkeits-Toggle pro Element (Auge-Icon)
 - Ausblenden / Isolieren via Kontext-Buttons
 - Farb-/Opazitäts-Regler pro Modell
-- **Mehrfachauswahl**: Shift+Klick fügt Elemente zur Auswahl hinzu; Shift+Klick auf zweites Element = Bereichsauswahl (alle sichtbaren Einträge zwischen Anker und Ziel in DFS-Reihenfolge)
-- **Aktionsleiste** (erscheint bei ≥2 Auswahl): Alle ausblenden / Alle isolieren / **+Korb** (hinzufügen) / **=Korb** (Korb ersetzen) / Auswahl aufheben
-- **Elternelement-Klick**: Klick auf einen nicht-blättrigen Knoten (mit Kindern) wählt **alle enthaltenen Blatt-Elemente** aus (rekursiv gesammelt via `collectSpatialElementKeys`)
-- **Doppelklick-Zoom**: Doppelklick auf ein Element → `viewer:zoomToElement`-Event → Kamera zoomt auf das Element; bei Elternknoten werden alle Kind-Element-IDs gesammelt und die kombinierte Bounding Box verwendet
-- Expand-State des Spatial-Baums ist nach oben gehoben, Default-offen: Tiefe 0 und 1
-- **Externe Selektion** (Viewport-Klick, SQL, etc.) wird automatisch hervorgehoben: `activeKey` = `selectedElement`-Key wenn keine Mehrfachauswahl aktiv; zugehörige Knoten werden aufgeklappt und per `scrollIntoView` ins Bild gebracht (60 ms Verzögerung)
-- `lastPanelClickRef` verhindert, dass eigene Panel-Klicks als externe Änderung interpretiert werden
-- Alle Zeilen tragen `data-mid` / `data-eid` Attribute für querySelector-basiertes Scroll-Targeting
+- **Mehrfachauswahl**: Shift+Klick fügt Elemente zur Auswahl hinzu; Shift+Klick auf zweites Element = Bereichsauswahl
+- **Aktionsleiste** (erscheint bei ≥2 Auswahl): Alle ausblenden / Alle isolieren / **+Korb** / **=Korb** / Auswahl aufheben
+- **Elternelement-Klick**: wählt alle enthaltenen Blatt-Elemente rekursiv
+- **Doppelklick-Zoom**: Kamera zoomt auf Element via `viewer:zoomToElement`
+- **Externe Selektion** wird automatisch hervorgehoben und gescrollt (60ms Verzögerung)
+- Namensänderungen durch Batch-Regeln (`key === "Name"`) werden sofort sichtbar — `applyPropertyEdits` patcht `elementsByType` + `spatialTree` im Store
 
 ### `collectSpatialElementKeys(node, modelId)`
 
-Interne Hilfsfunktion: Sammelt rekursiv alle Blatt-Knoten (Knoten ohne Kinder) eines Spatial-Baums als `"modelId:expressId"`-Keys. Blatt = `children.length === 0`.
+Interne Hilfsfunktion: Sammelt rekursiv alle Blatt-Knoten eines Spatial-Baums als `"modelId:expressId"`-Keys.
 
 ---
 
@@ -122,6 +134,19 @@ interface Props {
 }
 ```
 
+Enthält zusätzlich zur normalen Viewer-Logik die Inspektions-Zustandsverwaltung:
+
+| State | Typ | Bedeutung |
+|---|---|---|
+| `inspSession` | `InspectionSession \| null` | Aktive Inspektions-Session |
+| `inspPickMode` | `PickMode` | `"face"` oder `"edge"` |
+| `inspFaces` | `InspFace[]` | Alle erkannten Flächen |
+| `inspEdges` | `InspEdge[]` | Alle erkannten Kanten |
+| `inspSelFaces` | `Set<number>` | Ausgewählte Flächen-IDs |
+| `inspSelEdges` | `Set<number>` | Ausgewählte Kanten-IDs |
+
+`pickerRef: React.MutableRefObject<FaceEdgePicker | null>` — aktiver Picker, null wenn kein Inspektor offen.
+
 ---
 
 ## PropertiesPanel
@@ -137,21 +162,17 @@ Zeigt Eigenschaften des selektierten Elements (`selectedElement` aus Store). Vie
 
 ### Inline-Bearbeitung
 
-Jede Eigenschaftszeile hat einen Bearbeiten-Button (Stift-Icon, erscheint bei Hover):
-- Öffnet ein Inline-Eingabefeld mit Wert + Typ-Dropdown
+Jede Eigenschaftszeile hat einen Bearbeiten-Button:
+- Öffnet Inline-Eingabefeld mit Wert + Typ-Dropdown
 - **Typ-Dropdown**: STRING(1), REAL(14), INTEGER(16), BOOLEAN(18), TEXT(3), IDENTIFIER(2)
-- Der erkannte IFC-Typ wird automatisch vorbelegt (aus `r.type` oder Wrapped-Value)
-- Bestätigen mit `Enter` oder Haken-Button → `applyPropertyEdits()` im Store
-- Abbrechen mit `Escape` oder X-Button
-- Geänderte Werte werden amber hervorgehoben mit Stift-Icon und durchgestrichenem Originalwert
+- Bestätigen mit `Enter` → `applyPropertyEdits()` im Store
+- Geänderte Werte werden amber hervorgehoben
 
 ### Overrides-Banner
 
 Erscheint wenn das aktuell selektierte Element Overrides hat:
 - Zeigt Anzahl der geänderten Eigenschaften
-- **IFC Export**-Button: exportiert das gesamte Modell mit allen Overrides als `.ifc`-Datei
-  - Ruft `writeIFCWithOverrides()` + `downloadFile()` auf
-  - Spinner während Export läuft
+- **IFC Export**-Button: exportiert das Modell mit allen Overrides
 
 ---
 
@@ -161,11 +182,10 @@ Erscheint wenn das aktuell selektierte Element Overrides hat:
 **Shortcut:** `L` · **Sekundärfenster:** `"lists"`
 
 Gruppenbasierte Farb- und Isolier-Ansicht:
-- GroupBy-Selektor: IFC-Typ / Geschoss / Modell / Eigenschaft (beliebig)
+- GroupBy-Selektor: IFC-Typ / Geschoss / Modell / Eigenschaft
 - Farb-Swatches pro Gruppe (native Color-Picker)
 - Sichtbarkeits-Toggle pro Gruppe
-- Klick auf Gruppe → Isolieren; erneuter Klick oder `Esc` → Reset
-- Buttons: **Einfärben** (→ `setColorGroups`), **Reset**, **CSV-Export**
+- Buttons: **Einfärben**, **Reset**, **CSV-Export**
 
 ---
 
@@ -174,27 +194,7 @@ Gruppenbasierte Farb- und Isolier-Ansicht:
 **Datei:** `src/components/SmartViewsPanel.tsx`
 **Shortcut:** `V` · **Sekundärfenster:** `"smartviews"`
 
-Regelbasierte mehrstufige Ansichten:
-- Liste gespeicherter SmartViews mit Aktivieren / Bearbeiten / Löschen
-- Jede SmartView zeigt kompakte Ebenen-Badges (Name, Aktion, Farbe oder Auto-Farbe-Schlüssel)
-- Aktive SmartView zeigt **Farblegende** (max-h-32) mit Farb-Swatch + Label + Anzahl
-- Inline-Editor (`SmartViewEditor`):
-  - Name-Eingabe
-  - Scrollbare Liste von `TierEditor`-Karten (max-h-[60vh])
-  - „Ebene hinzufügen"-Button (gestrichelt)
-  - Speichern disabled wenn Name leer oder keine Ebenen
-- **TierEditor** (pro Ebene):
-  - Header mit Name-Eingabe + Auf/Ab-Pfeil + Löschen-Button
-  - Regel-Zeilen: `[Eigenschaft][Bedingung][Wert][×]`
-  - AND / OR Logik (nur bei ≥2 Regeln sichtbar)
-  - **Aktions-Dropdown** (`<select>` mit `<optgroup>`):
-    - Sichtbarkeit: Hinzufügen / Entfernen / Andere entfernen
-    - Farbe: Farbig einstellen / Auto-Farbe / Hinzufügen + Einfärben / Hinzufügen + Auto-Farbe
-    - Transparenz: Durchsichtig / Undurchsichtig / Hinzufügen + Durchsichtig
-  - Bei Farb-Aktionen: Farb-Swatch + Hidden Color Input
-  - Bei Transparenz-Aktionen: zusätzlich Opacity-Slider (0–100%)
-  - Bei Auto-Farbe-Aktionen: „Nach:"-Label + PropKeyPicker für `colorByKey`
-- Doppelklick-Hinweis wenn SmartView staged
+Regelbasierte mehrstufige Ansichten mit Inline-Editor (`SmartViewEditor`) und `TierEditor` pro Ebene. Vollständige Aktions-Typen: add, remove, removeOthers, color, transparent, opaque, autoColor und Kombinationen.
 
 ---
 
@@ -203,53 +203,19 @@ Regelbasierte mehrstufige Ansichten:
 **Datei:** `src/components/QuantityListPanel.tsx`
 **Shortcut:** `T` · **Sekundärfenster:** `"qto"`
 
-Quantity Take-Off: Benutzer definieren benannte Listen mit Filterregeln und konfigurierbaren Spalten. Ausführen einer Liste filtert alle geladenen IFC-Elemente; Ergebnisse können als XLSX exportiert werden. Listen werden in `localStorage` persistiert.
-
-### Layout
-
-Zweispaltig:
-- **Linke Spalte** (w-44): Liste gespeicherter Listen mit Neu-Button
-- **Rechte Spalte**: Editor + Ergebnisstabelle
+Quantity Take-Off: Benutzer definieren benannte Listen mit Filterregeln und konfigurierbaren Spalten.
 
 ### Sub-Komponenten
 
-**`PropKeyInput`** — Autocomplete-Eingabefeld für Eigenschafts-Schlüssel:
-- Vorschläge: `_type`, `_name`, `_model` + alle `loadedPropKeys`
-- Max 60 Treffer, Monospace-Font
+**`PropKeyInput`** — Autocomplete-Eingabefeld für Eigenschafts-Schlüssel.
 
-**`FilterSection`** — Filterdefinition:
-- Jede Filterzeile: `[Eigenschaft][Bedingung][Wert][×]`
-- AND / OR Logik-Toggle (nur sichtbar wenn ≥2 Filter)
-- Werteingabe entfällt bei Bedingungen ohne Wert (exists, is_true, …)
+**`FilterSection`** — Filterdefinition mit AND/OR-Logik.
 
-**`ColumnSection`** — Spaltenkonfiguration:
-- Jede Spalte: `[Eigenschaft][Spaltenname][↑↓][×]`
-- Automatische Beschriftung aus BUILTIN_LABELS wenn Schlüssel gewählt
+**`ColumnSection`** — Spaltenkonfiguration.
 
-**`PropertyLoader`** — Eingebettet im Editor; lädt alle IFC-Eigenschaften aller geladenen Modelle und zeigt Fortschritt in %. Aktiviert volle Eigenschaftsunterstützung im Filter- und Spalten-Picker (`loadedPropKeys`).
+**`PropertyLoader`** — Lädt alle IFC-Eigenschaften aller geladenen Modelle via `loadAllElementProperties`, zeigt Fortschritt in %. Schreibt Ergebnis in `loadedPropKeys` Store-Feld.
 
-**`ResultsTable`** — Ergebnisanzeige:
-- Sticky Header mit **Excel-artigen Spaltenfiltern**: Pro Spalte Dropdown mit Checkbox-Liste aller vorkommenden Werte; `(Alle)` mit Indeterminate-Zustand; Suchfeld im Dropdown
-- Zeigt max. `MAX_VISIBLE = 500` Zeilen (gelber Hinweis wenn mehr)
-- Info-Leiste zeigt Anzahl gefilterter Zeilen + Reset-Link wenn Filter aktiv
-- Spaltenfilter werden beim erneuten Ausführen zurückgesetzt
-- XLSX-Export enthält alle gefilterten Zeilen
-
-### Datenfluss
-
-```
-handleRun()
-  → iteriert models (status === "loaded")
-  → baut FlatElementProps pro Element
-  → evaluateRule() für jeden Filter
-  → AND/OR-Logik über Filter-Treffer
-  → Ergebnis-Rows mit col.id → Wert-Map
-  → setResults(rows)
-```
-
-### XLSX-Export
-
-Nutzt `xlsx`-Paket (`XLSX.utils.aoa_to_sheet`, `XLSX.writeFile`). Spaltenbreite 22 Zeichen je Spalte. Sheet-Name = Listenname (max 31 Zeichen, Excel-Limit).
+**`ResultsTable`** — Sticky-Header, Excel-artige Spaltenfilter (Checkbox-Dropdown), max. 500 Zeilen, XLSX-Export.
 
 ---
 
@@ -257,12 +223,7 @@ Nutzt `xlsx`-Paket (`XLSX.utils.aoa_to_sheet`, `XLSX.writeFile`). Spaltenbreite 
 
 **Datei:** `src/components/SQLPanel.tsx`
 
-Mini-SQL-Interface über `alasql`:
-- Textarea für SQL-Eingabe (`Ctrl+Enter` = Ausführen)
-- Beispiel-Queries Dropdown
-- Ergebnis-Tabelle mit Scroll
-- Ausführungszeit-Anzeige
-- Basis-Tabelle: `elements` mit Spalten `modelId, modelName, expressId, type, name`
+Mini-SQL-Interface: Textarea, Beispiel-Queries, Ergebnis-Tabelle, Ausführungszeit-Anzeige.
 
 ---
 
@@ -272,26 +233,11 @@ Mini-SQL-Interface über `alasql`:
 
 Floating-Bar oben-links im Viewport (`absolute top-3 left-3 z-30`).
 
-Props:
-```typescript
-{ onOpenEditor?: () => void }
-```
+Operatoren: Auto-Hinzufügen-Toggle, `=` Korb setzen, `+` hinzufügen, `−` entfernen, `×` leeren, Bearbeiten-Button.
 
-Operatoren:
-- **Auto** — Auto-Hinzufügen-Toggle (MousePointerClick-Icon, amber wenn aktiv): jeder Viewport-Klick fügt das geklickte Element automatisch zum Korb hinzu
-- `=` — Korb = aktuell selektiertes Element
-- `+` — Element hinzufügen (disabled wenn bereits drin)
-- `−` — Element entfernen (disabled wenn nicht drin)
-- `×` — Korb leeren + Modus deaktivieren
-- **Bearbeiten** — öffnet `BasketEditor` (Table2-Icon, nur sichtbar wenn Korb > 0)
-- **Auto** (`MousePointerClick`-Icon) — Auto-Hinzufügen-Toggle (`basketAutoAdd`): amber hervorgehoben wenn aktiv; jeder Viewport-Klick fügt dann automatisch hinzu
+Darstellungsmodi (bei Korb > 0): **HV** (Hervorheben), **Geist** (Ghost), **ISO** (Isolieren).
 
-Darstellungsmodi (nur sichtbar wenn Korb > 0):
-- **HV** (Hervorheben) — amber Material-Override auf Korb-Elementen
-- **Geist** — Nicht-Korb-Elemente auf 10% Opacity
-- **ISO** (Isolieren) — Nicht-Korb-Elemente ausgeblendet
-
-Alle Korb-Elemente erhalten im Viewport gelbe Kanten-Outlines (EdgesGeometry, `0xfbbf24`, `depthTest: false`, `renderOrder: 998`) unabhängig vom aktiven Darstellungsmodus.
+Alle Korb-Elemente erhalten gelbe Kanten-Outlines (`EdgesGeometry`, `0xfbbf24`, `depthTest: false`, `renderOrder: 998`).
 
 ---
 
@@ -300,42 +246,7 @@ Alle Korb-Elemente erhalten im Viewport gelbe Kanten-Outlines (EdgesGeometry, `0
 **Datei:** `src/components/BasketListPanel.tsx`
 **Sekundärfenster:** `"basket"` (380 × 600 px)
 
-Zeigt alle Elemente im Auswahlkorb als scrollbare Liste.
-
-Props:
-```typescript
-{ onSelectElement?: (modelId: string, expressId: number) => void }
-```
-
-Pro Zeile:
-- Farb-Dot (Modellfarbe)
-- Name (oder IFC-Typ als Fallback) + Typ · Modellname
-- **Zoom**-Button (`Focus`-Icon) — dispatcht `viewer:zoomToElement`-Event
-- **Entfernen**-Button (`X`-Icon) — `removeFromBasket()`
-
-Header: Elementanzahl + „Alle entfernen"-Button (leert Korb + setzt Modus zurück).
-
-Leer-Zustand: Hinweistext wenn Korb leer.
-
----
-
-## BasketListPanel
-
-**Datei:** `src/components/BasketListPanel.tsx`
-
-Listenansicht aller Elemente im Auswahlkorb. Verfügbar als Sekundärfenster (`"basket"`).
-
-Props:
-```typescript
-{ onSelectElement?: (modelId: string, expressId: number) => void }
-```
-
-Features:
-- Header mit Elementanzahl und „Alle entfernen"-Button
-- Scrollbare Liste: pro Element Modell-Farbe, Name (oder Typ), Typ · Modellname
-- Hover-Aktionen: Zoom auf Element (`viewer:zoomToElement`-Event), Aus Korb entfernen
-- Aktuell selektiertes Element hervorgehoben (`bg-primary/10`)
-- Leerzustand mit Hinweis-Text
+Scrollbare Liste aller Korb-Elemente. Pro Zeile: Modellfarbe, Name + Typ · Modellname, Zoom-Button, Entfernen-Button.
 
 ---
 
@@ -343,24 +254,7 @@ Features:
 
 **Datei:** `src/components/BasketEditor.tsx`
 
-Modales Fenster für XLSX-Export und -Import der Korb-Eigenschaften.
-
-Props:
-```typescript
-{ onClose: () => void }
-```
-
-Workflow:
-1. **Als XLSX exportieren** → erzeugt Datei `auswahlkorb_eigenschaften.xlsx`
-   - Erste Spalte `🔑 GlobalId` (Schlüssel, nicht ändern)
-   - Danach: Name, Typ, Modell, alle direkten IFC-Attribute, alle Pset-Eigenschaften
-   - Erste Zeile + erste Spalte eingefroren (Freeze-Panes)
-2. **User bearbeitet** die Datei in Excel / LibreOffice
-3. **XLSX importieren** → parst die Datei, matched Zeilen per `GlobalId`
-   - Nur geänderte Werte werden als `propertyOverrides` im Store gespeichert
-   - Ergebnis-Banner zeigt: Elemente aktualisiert / übersprungen / nicht gefunden
-
-Vorschau-Tabelle (read-only): zeigt aktuelle Werte mit sticky Info-Spalten.
+Modales Fenster für XLSX-Export und -Import der Korb-Eigenschaften. Export mit `GlobalId`-Schlüsselspalte, Import matched per `GlobalId` und schreibt `propertyOverrides`.
 
 ---
 
@@ -368,42 +262,7 @@ Vorschau-Tabelle (read-only): zeigt aktuelle Werte mit sticky Info-Spalten.
 
 **Datei:** `src/components/SectionPanel.tsx`
 
-Floating-Overlay für das Schnittebenen-System (erscheint wenn `sectionPlanes.length > 0 || activeTool === "section"`). Kommuniziert mit dem **SectionModule** (`src/section/`) über den Zustand-Store und Window-Events.
-
-- **Achsen-Presets**: +X −X +Y −Y +Z −Z — fügen eine Schnittebene mit der entsprechenden Normalen mittig durch die Szene hinzu
-- **Box-Schnitt**: Erzeugt 6 Ebenen als Box um ausgewähltes Element (Fallback: Szenen-BBox); alle teilen eine `boxId`
-- **Sichtbarkeits-Toggle**: dispatcht `viewer:sectionVisualsHidden` → SectionModule blendet Gizmos aus; Clipping bleibt aktiv
-- **Pro-Ebene-Zeile**: Farb-Dot, Name, Offset-Slider, Flip-Button, Kamera-Ausrichten, Sichtbarkeits-Toggle, Löschen
-- **Offset-Slider**: `offset = dot(P − sceneCenter, N)` → `P = sceneCenter + offset * N`
-- **Kamera-Ausrichten**: dispatcht `viewer:alignToPlane` → SectionModule positioniert Kamera auf `P − N*dist`
-- **Alle löschen**: `clearSectionPlanes()` + `setActiveTool("select")`
-- Lazy: liefert `null` wenn kein Schnitt aktiv
-
-### SectionModule (`src/section/`)
-
-Eigenständiges Paket — vollständig vom Viewer-Core getrennt. Für Details siehe `docs/viewer.md` → Schnittebenen-System.
-
----
-
-## LandingOverlay
-
-**Datei:** `src/components/LandingOverlay.tsx`
-
-Leerer-Zustand-Overlay über dem Viewport: Drag-and-Drop-Zone + „Datei öffnen"-Button.
-Verschwindet sobald Modelle geladen sind.
-
----
-
-## StatusBar
-
-**Datei:** `src/components/StatusBar.tsx`
-
-Unterste Zeile:
-- Anzahl geladener Modelle
-- Gesamt-Dreiecke (berechnet aus Mesh-Geometrien)
-- JS-Heap-Speicher (Chrome API)
-- FPS-Zähler (farbcodiert: grün ≥ 50, gelb 30–49, rot < 30)
-- Version
+Floating-Overlay für das Schnittebenen-System. Achsen-Presets, Box-Schnitt, Offset-Slider, Flip-Button, Kamera-Ausrichten je Ebene.
 
 ---
 
@@ -419,44 +278,111 @@ interface Props { onClose: () => void; }
 ```
 
 Aufbau (zwei Spalten):
-- **Linke Spalte** (256px): Regelliste + „Neue Regel"-Button. Jede Zeile zeigt Regelbezeichnung, Typ-Chip und Aktions-Buttons (Duplizieren, Löschen).
-- **Rechte Spalte**: Regeleditor mit:
-  - **Bezeichnung**: Freitextfeld für den Regelnamen
-  - **Filter**: Art der Zielauswahl (`TargetFilter`)
-  - **Operationen**: Liste von `BatchOperation`-Einträgen (Typ-Dropdown + typ-spezifische Felder)
-  - **Vorschau-Button**: Führt `executeRule()` aus, zeigt erste 50 Änderungen in Tabelle (Element, Schlüssel, Alt → Neu)
-  - **Anwenden-Button**: Führt `collectEdits()` aus, ruft `applyPropertyEdits()` auf
+- **Linke Spalte** (256px): Regelliste + „Neue Regel"-Button
+- **Rechte Spalte**: Regeleditor mit Bezeichnung, Filter, Operationen, Vorschau-Button, Anwenden-Button
+
+#### „Properties laden"-Button
+
+Lädt alle Property-Keys und IFC-Typen aus allen geladenen IFC-Dateien:
+- Ruft `loadAllElementProperties(m.file, expressIds, progressCb)` für jedes Modell auf
+- Zeigt Fortschritt: „Lade… 42%"
+- Nach Abschluss: „312 Properties" (Anzahl einzigartiger Keys)
+- Schreibt Ergebnis in `batchStore` (`setLoadedProperties`)
+
+#### datalist-Autocomplete
+
+Zwei `<datalist>`-Elemente werden im BatchPanel-Root gerendert:
+- `id="batch-prop-keys"` — alle geladenen Property-Keys (inkl. Pset-Schlüssel)
+- `id="batch-ifc-types"` — alle vorkommenden IFC-Typen
+
+Alle Property-Key-Eingabefelder referenzieren `list="batch-prop-keys"`, IFC-Typ-Inputs `list="batch-ifc-types"`. Autocomplete funktioniert nativ ohne zusätzliche Bibliothek.
 
 ### Filterarten (`TargetFilter`)
 
 | `kind` | Beschreibung |
 |---|---|
 | `all` | Alle geladenen Elemente |
-| `ifcType` | Nur Elemente eines bestimmten IFC-Typs (z.B. `IfcWall`) |
-| `propCondition` | Eigenschaft erfüllt eine Bedingung (`eq`, `neq`, `contains`, `regex`, `empty`, `notEmpty`) |
+| `ifcType` | Nur Elemente eines bestimmten IFC-Typs |
+| `propCondition` | Eigenschaft erfüllt Bedingung (`eq`, `neq`, `contains`, `regex`, `empty`, `notEmpty`) |
 | `basket` | Nur Elemente im Auswahlkorb |
 
 ### Operationsarten (`BatchOperation`)
 
 | `type` | Beschreibung |
 |---|---|
-| `set_property` | Setzt eine Eigenschaft auf einen festen Wert (mit IFC-Werttyp) |
-| `template` | Berechnet Wert aus Template-String mit `{Schlüssel}`-Platzhaltern |
-| `copy_property` | Kopiert Wert von einer Eigenschaft zu einer anderen |
-| `find_replace` | Suchen & Ersetzen (optional Regex) in einer Eigenschaft |
+| `set_property` | Setzt Eigenschaft auf festen Wert (mit IFC-Werttyp) |
+| `template` | Wert aus Template-String mit `{Schlüssel}`-Platzhaltern |
+| `copy_property` | Kopiert Wert von einer Eigenschaft zur anderen |
+| `find_replace` | Suchen & Ersetzen (optional Regex) |
 | `name_to_prop` | Schreibt Elementname in eine Eigenschaft |
 | `prop_to_name` | Setzt Elementname aus einer Eigenschaft |
+
+### Namensänderungen und HierarchyPanel
+
+Wenn `key === "Name"` in `applyPropertyEdits()`:
+1. `models.elementsByType[type][i].name` wird gepatcht (neue Map-Referenz)
+2. `spatialTree` wird rekursiv durchlaufen und alle Knoten mit passender expressId erhalten den neuen Namen
+3. Zustand-Store-Subscription löst sofortiges Re-Render von HierarchyPanel aus → Änderung sofort sichtbar
 
 ### BatchExecutor (`src/batch/BatchExecutor.ts`)
 
 Pure Funktionen ohne React-Abhängigkeit:
-- `buildElementRows(models, propMap)` → `ElementRow[]` — alle Elemente aller Modelle flach
-- `executeRule(rule, rows, basketKeys, maxChanges?)` → `PreviewResult` — Vorschau (max. 50)
-- `collectEdits(rule, rows, basketKeys)` → Flat-Liste aller Änderungen für `applyPropertyEdits`
+- `buildElementRows(models, propMap)` → `ElementRow[]`
+- `executeRule(rule, rows, basketKeys, maxChanges?)` → `PreviewResult`
+- `collectEdits(rule, rows, basketKeys)` → Flat-Liste für `applyPropertyEdits`
 
 ### batchStore (`src/batch/batchStore.ts`)
 
-In-Memory-Zustand-Store (kein localStorage, kein BroadcastChannel). Felder: `rules[]`, `selectedRuleId`, `previewResult`, `isPreviewing`, `isApplying`. Aktionen: `addRule`, `duplicateRule`, `removeRule`, `updateRule`, `selectRule`, `setPreviewResult`, `setIsPreviewing`, `setIsApplying`.
+In-Memory-Zustand-Store (kein localStorage, kein BroadcastChannel). Felder: `rules[]`, `selectedRuleId`, `previewResult`, `isPreviewing`, `isApplying`, `loadedProperties`, `loadedPropKeys`, `loadedIfcTypes`. Aktionen: `addRule`, `duplicateRule`, `removeRule`, `updateRule`, `selectRule`, `setPreviewResult`, `setIsPreviewing`, `setIsApplying`, `setLoadedProperties`.
+
+---
+
+## Geometrie-Inspektor (Geometry Inspector Modul)
+
+### GeometryInspectorPanel (`src/geometry-inspector/GeometryInspectorPanel.tsx`)
+
+Floating-Overlay über dem Viewport (`absolute top-4 right-4 z-40 w-72`). Erscheint wenn eine Inspektions-Session aktiv ist.
+
+Props:
+```typescript
+interface Props {
+  elementName:      string;
+  billingKey:       string | null;
+  faces:            InspFace[];
+  edges:            InspEdge[];
+  selectedFaceIds:  Set<number>;
+  selectedEdgeIds:  Set<number>;
+  pickMode:         PickMode;
+  onPickModeChange: (m: PickMode) => void;
+  onClose:          () => void;
+}
+```
+
+Aufbau:
+- **Header**: Elementname, „Geometrie-Inspektor"-Label, Schließen-Button
+- **Mode-Tabs**: Flächen (Anzahl) / Kanten (Anzahl)
+- **Hinweis**: „Klick = wählen · Strg + Klick = Mehrfachauswahl"
+- **Liste**: Alle Flächen/Kanten mit Fläche (m²) / Länge (m); Ausgewählte hervorgehoben (grüne Border-Markierung)
+- **Zusammenfassung**: Gesamtfläche (grün, `#22cc88`) + einzelne Kantenlängen (hellgrün, `#44ff88`)
+- **„In 5D-Eintrag speichern"**-Button (nur wenn `billingKey` vorhanden und etwas ausgewählt):
+  - `surfaceArea` = Summe ausgewählter Flächen
+  - `bboxX/Y/Z` = Länge der ersten 3 ausgewählten Kanten
+  - `volume` = vorhandener Wert aus Store (wird nicht überschrieben)
+  - 2s grüne Bestätigungs-Anzeige nach Speichern
+
+### Aktivierungs-Flow
+
+1. User klickt „Messen" in `BillingPanel`
+2. `{ t: "startInspection", key, elementName }` via BroadcastChannel `"infracore-billing"`
+3. `ViewportContainer` BC-Listener:
+   - Sammelt alle Meshes mit `userData.expressId === expressId` und passendem Modell
+   - `isolateEntries([{ modelId, expressId }])` → Element allein sichtbar
+   - `GeometryAnalyzer.analyze(meshes)` → faces, edges, faceVertArrays
+   - `pickerRef.current = new FaceEdgePicker(scene); picker.load(meshes)`
+   - `setInspSession({ modelId, expressId, elementName, billingKey: key })`
+4. `GeometryInspectorPanel` erscheint
+5. Maus-Events (`handleMouseMove`, `handleClick`) werden an `pickerRef.current` weitergeleitet
+6. `onClose`: `picker.dispose()`, `showAll()`, `setInspSession(null)`
 
 ---
 
@@ -464,10 +390,8 @@ In-Memory-Zustand-Store (kein localStorage, kein BroadcastChannel). Felder: `rul
 
 **Datei:** `src/components/SecondaryWindow.tsx`
 
-Wrapper für Sekundär-Fenster. Nutzt `useSecondarySync()` für bidirektionalen Sync.
-
-Rendert je nach `panel`-Parameter:
-- `hierarchy` → `<HierarchyPanel>` (onFitTo = no-op, keine Overrides)
+Wrapper für Sekundär-Fenster. Rendert je nach `panel`-Parameter:
+- `hierarchy` → `<HierarchyPanel>`
 - `properties` → `<PropertiesPanel>`
 - `lists` → `<LensRulesPanel>`
 - `smartviews` → `<SmartViewsPanel>`
@@ -475,4 +399,18 @@ Rendert je nach `panel`-Parameter:
 - `qto` → `<QuantityListPanel>`
 - `basket` → `<BasketListPanel>` mit `onSelectElement=handleElementClick`
 
-Enthält `SyncIndicator` (Verbindungs-Status-Punkt in der Titelleiste).
+---
+
+## LandingOverlay
+
+**Datei:** `src/components/LandingOverlay.tsx`
+
+Drag-and-Drop-Zone + „Datei öffnen"-Button. Verschwindet sobald Modelle geladen sind.
+
+---
+
+## StatusBar
+
+**Datei:** `src/components/StatusBar.tsx`
+
+Unterste Zeile: Anzahl Modelle, Gesamt-Dreiecke, JS-Heap, FPS-Zähler (farbcodiert), Version.

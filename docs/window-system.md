@@ -30,6 +30,8 @@ Sekundär:   http://localhost:5173/?secondary&panel=hierarchy
                                               panel=properties
                                               panel=lists
                                               panel=sql
+                                              panel=qto
+                                              panel=basket
 Billing:    http://localhost:5173/?billing
 ```
 
@@ -63,28 +65,24 @@ type SyncMsg =
 
 ## Echo-Loop-Prävention
 
-Zustand-Subscriptions feuern **synchron** während `set()`. Ohne Schutz würde jedes empfangene Update sofort zurückgesendet werden.
-
-**Lösung: `applyingRef`-Flag**
+Zustand-Subscriptions feuern **synchron** während `set()`.
 
 ```typescript
 const applyingRef = useRef(false);
 
 ch.onmessage = (e) => {
   if (e.data.t === "state") {
-    applyingRef.current = true;     // Flag setzen
-    applyRemoteState(e.data.s);     // set() → Subscription feuert → sieht Flag → skip
-    applyingRef.current = false;    // sofort zurücksetzen (synchron!)
+    applyingRef.current = true;
+    applyRemoteState(e.data.s);    // set() → Subscription feuert → sieht Flag → skip
+    applyingRef.current = false;   // sofort zurücksetzen (synchron!)
   }
 };
 
 useModelStore.subscribe(() => {
-  if (applyingRef.current) return;  // Echo überspringen
+  if (applyingRef.current) return;
   // ... debounce + senden
 });
 ```
-
-Das funktioniert weil Zustand-Subscriptions **synchron** innerhalb von `set()` ausgeführt werden — der Flag ist also noch gesetzt wenn die Subscription feuert.
 
 ---
 
@@ -92,32 +90,30 @@ Das funktioniert weil Zustand-Subscriptions **synchron** innerhalb von `set()` a
 
 **Datei:** `src/utils/windowSync.ts` — `serializeState(store)`
 
-Erstellt einen structured-clone-sicheren Snapshot:
-
 ```typescript
 interface SyncState {
-  models: SyncModel[];           // Nur geladene Modelle (status === "loaded")
+  models: SyncModel[];
   selectedElement: SelectedElement | null;
   settings: ViewerSettings;
-  hiddenElements: string[];      // Set<string> → Array
+  hiddenElements: string[];       // Set<string> → Array
   isolatedElements: string[] | null;
   colorGroups: ColorGroup[] | null;
   smartViews: SmartView[];
   activeSmartViewId: string | null;
   loadedPropKeys: string[];
-  selectionBasket: string[];     // Set<string> → Array
+  selectionBasket: string[];      // Set<string> → Array
   basketMode: BasketMode | null;
 }
 ```
 
-**Nicht serialisiert:** `propertyOverrides` — Eigenschafts-Editierungen sind bewusst session-lokal und werden nicht zwischen Fenstern synchronisiert.
+**Nicht serialisiert:** `propertyOverrides` — Eigenschafts-Editierungen sind session-lokal.
 
 ### SyncModel (kein Three.js!)
 ```typescript
 interface SyncModel {
   id: string;
   name: string;
-  file: File;       // File ist structured-clone-fähig → kann über BroadcastChannel!
+  file: File;       // File ist structured-clone-fähig
   visible: boolean;
   color: string;
   opacity: number;
@@ -127,25 +123,13 @@ interface SyncModel {
 }
 ```
 
-**`File`-Objekte** können per BroadcastChannel übertragen werden (structured clone). So können Sekundär-Fenster `loadIFCProperties()` selbst aufrufen.
-
-Three.js-Objekte (`mesh`, `boundingBox`, `originOffset`) werden **nicht** serialisiert — `applyRemoteState` behält die vorhandenen Werte.
-
----
-
-## `applyRemoteState` im Store
-
-Wendet `SyncState` auf den lokalen Store an:
-- Baut `models`-Map neu auf, **behält vorhandene** `mesh`, `boundingBox`, `originOffset`
-- Neue Modelle erhalten leere Three.js-Objekte (`new THREE.Group()` etc.)
-- Überschreibt: `selectedElement`, `settings`, `hiddenElements`, `isolatedElements`, `colorGroups`, `smartViews`, `activeSmartViewId`, `loadedPropKeys`, `selectionBasket`, `basketMode`
+Three.js-Objekte (`mesh`, `boundingBox`, `originOffset`) werden **nicht** serialisiert — `applyRemoteState` behält vorhandene Werte.
 
 ---
 
 ## Sekundär-Fenster öffnen
 
 ```typescript
-// src/utils/windowSync.ts
 export const PANEL_META: Record<PanelType, { label: string; w: number; h: number }> = {
   hierarchy:  { label: "Hierarchiebaum",      w: 380, h: 700 },
   properties: { label: "Eigenschaften",       w: 420, h: 600 },
@@ -153,14 +137,7 @@ export const PANEL_META: Record<PanelType, { label: string; w: number; h: number
   sql:        { label: "SQL-Abfrage",         w: 760, h: 480 },
   basket:     { label: "Auswahlkorb",         w: 380, h: 600 },
 };
-
-export function openSecondaryWindow(panel: PanelType) {
-  const { w, h } = PANEL_META[panel];
-  window.open(`?secondary&panel=${panel}`, `infracore-${panel}`, `width=${w},height=${h},resizable=yes`);
-}
 ```
-
-Aufruf aus `MainToolbar` via Dropdown.
 
 ### Billing-Fenster öffnen
 
@@ -170,48 +147,104 @@ export function openBillingWindow() {
 }
 ```
 
-Aufruf über den "5D"-Button in der `MainToolbar`.
-
 ---
 
 ## 5D-Abrechnung Kanal
 
 **Kanal:** `"infracore-billing"` (Konstante `BILLING_CHANNEL` in `billingStore.ts`)
 
-Separater BroadcastChannel ausschließlich für das Billing-Modul:
+Separater BroadcastChannel ausschließlich für das Billing-Modul.
+
+### Vollständiges Nachrichtenprotokoll
 
 ```typescript
 type BillingMsg =
-  | { t: "ready" }                          // Billing-Fenster → Main: "Ich bin da"
-  | { t: "elements"; list: ElementInfo[] }  // Main → Billing: aktuelle Elementliste
-  | { t: "moduleActive"; active: boolean }  // Billing → Main: Visualisierung ein/aus
-  | { t: "dataSync"; entries: BillingEntry[] }; // beliebig → beliebig: Datensync
+  | { t: "ready" }
+  // Billing-Fenster → Main: "Ich bin da"
+
+  | { t: "elements"; list: ElementInfo[] }
+  // Main → Billing: aktuelle Elementliste aller geladenen Modelle
+
+  | { t: "moduleActive"; active: boolean }
+  // Billing → Main: 3D-Füllstand-Visualisierung ein/aus
+
+  | { t: "dataSync"; entries: BillingEntry[] }
+  // beliebig → beliebig: Billing-Datensynchronisation
+
+  | { t: "selectEntry"; key: string }
+  // Billing → Main: Element im Viewer hervorheben / selektieren
+
+  | { t: "isolateTracked" }
+  // Billing → Main: alle erfassten 5D-Elemente isolieren
+
+  | { t: "requestQuantities"; key: string }
+  // Billing → Main: Mengen automatisch berechnen (Divergenz-Theorem)
+
+  | { t: "quantities"; key: string; data: ElementQuantities | null }
+  // Main → Billing: berechnete Mengen als Antwort auf requestQuantities
+
+  | { t: "startInspection"; key: string; elementName: string }
+  // Billing → Main: Geometrie-Inspektor starten (Element isolieren + Picker aktivieren)
 ```
 
-### Ablauf
-1. Billing-Fenster öffnet sich, sendet `{ t: "ready" }`
-2. Main-Fenster antwortet mit `{ t: "elements", list }` — alle Elemente aller geladenen Modelle
-3. Bei Modellwechsel im Main-Fenster sendet es erneut `{ t: "elements", ... }`
-4. Beim Speichern im Billing-Store: `{ t: "dataSync", entries }` — synchronisiert LocalStorage + Store in beiden Fenstern
+### Nachrichten-Flows
 
-### Datenpersistenz
-Billing-Einträge werden in `localStorage` unter dem Key `infracore-billing-v1` gespeichert. Die Daten überleben Browser-Reload.
+#### Elementliste
+1. Billing-Fenster öffnet sich, sendet `{ t: "ready" }`
+2. Main antwortet mit `{ t: "elements", list }` aller Elemente aller Modelle
+3. Bei Modellwechsel im Main sendet es erneut `{ t: "elements", ... }`
+
+#### Datensync
+- Jede Billing-Store-Mutation → `{ t: "dataSync", entries }` → synchronisiert localStorage + Store in beiden Fenstern
+
+#### Mengenberechnung (Auto)
+1. User klickt „Auto" in BillingPanel
+2. `{ t: "requestQuantities", key }` → ViewportContainer
+3. ViewportContainer: sammelt Meshes, `computeQuantities()`, sendet `{ t: "quantities", key, data }`
+4. BillingPanel: `setLiveQuantities(data)` → Anzeige aktualisiert
+
+#### Geometrie-Inspektor (Messen)
+1. User klickt „Messen" in BillingPanel
+2. `{ t: "startInspection", key, elementName }` → ViewportContainer
+3. ViewportContainer: `isolateEntries()`, `GeometryAnalyzer.analyze()`, `FaceEdgePicker.load()`
+4. `GeometryInspectorPanel` erscheint im Viewer
+5. User wählt Flächen/Kanten, klickt „In 5D-Eintrag speichern"
+6. `billingStore.setQuantities(key, { ... })` → `{ t: "dataSync" }` → BillingPanel aktualisiert
+
+### ElementQuantities
+
+```typescript
+interface ElementQuantities {
+  volume:      number;  // m³
+  surfaceArea: number;  // m²
+  bboxX:       number;  // m
+  bboxY:       number;  // m
+  bboxZ:       number;  // m
+  computedAt:  string;  // ISO 8601
+}
+```
+
+`volume` und `bboxX/Y/Z` können aus der Auto-Berechnung stammen. `surfaceArea` kann aus dem Geometrie-Inspektor stammen (manuell ausgewählte Flächen). Beide Quellen können gemischt werden — beim Speichern aus dem Inspektor wird `volume` aus dem bestehenden Eintrag beibehalten.
+
+---
+
+## Datenpersistenz
+
+- Billing-Einträge: `localStorage["infracore-billing-v1"]` — überleben Browser-Reload
+- Billing-Keys: `filename:expressId` (stabil) statt `modelId:expressId` (UUID, ändert sich je Session)
 
 ---
 
 ## Einschränkungen
 
-- BroadcastChannel funktioniert nur **same-origin** (gleiches Protokoll + Domain + Port)
-- Sekundär-Fenster haben **kein 3D-Viewport** (kein `ViewportContainer`)
-- `viewer:fitAll`, `viewer:fitTo`, `viewer:zoomToElement` Events funktionieren nur im Main-Fenster
-- IFC-Ladefortschritt läuft nur im Main-Fenster
+- BroadcastChannel funktioniert nur **same-origin**
+- Sekundär-Fenster haben **kein 3D-Viewport**
+- `viewer:fitAll`, `viewer:fitTo`, `viewer:zoomToElement` nur im Main-Fenster
 - `propertyOverrides` wird **nicht** synchronisiert
 
 ---
 
 ## Checkliste bei neuen Store-Feldern
-
-Damit der Multi-Window-Sync funktioniert, müssen neue Felder an **vier Stellen** eingetragen werden:
 
 1. `ModelStore` Interface (`modelStore.ts`)
 2. Initialwert in `create()` (`modelStore.ts`)
@@ -219,3 +252,10 @@ Damit der Multi-Window-Sync funktioniert, müssen neue Felder an **vier Stellen*
 4. `serializeState()` (`windowSync.ts`)
 5. `applyRemoteState()` (`modelStore.ts`)
 6. `docs/state-management.md` + `docs/window-system.md` aktualisieren
+
+## Checkliste bei neuen BillingMsg-Typen
+
+1. `BillingMsg` Union in `src/billing/types.ts` erweitern
+2. Sender implementieren (BillingPanel oder ViewportContainer)
+3. Empfänger-Handler implementieren
+4. `docs/window-system.md` aktualisieren (dieses Dokument)

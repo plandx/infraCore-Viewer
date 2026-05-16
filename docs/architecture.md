@@ -12,10 +12,11 @@ Browser
 │   ├── HierarchyPanel  ←→  Zustand-Store  ←→  BroadcastChannel
 │   ├── ViewportContainer (Three.js)               ↕
 │   ├── PropertiesPanel                    Sekundär-Fenster(r)
-│   ├── ListPanel / SmartViews               ├── HierarchyPanel
+│   ├── LensRulesPanel / SmartViews          ├── HierarchyPanel
 │   ├── SQLPanel                             ├── PropertiesPanel
-│   ├── SelectionBasket                      ├── ListPanel
-│   └── StatusBar                            └── SQLPanel
+│   ├── SelectionBasket                      ├── LensRulesPanel
+│   ├── BatchPanel (Modal)                   ├── SQLPanel
+│   └── GeometryInspectorPanel (Overlay)     └── BasketListPanel
 └── web-ifc WASM (IFC-Parser)
 ```
 
@@ -37,16 +38,22 @@ Browser
 │   ├── App.tsx                ← Root: erkennt Sekundär-Fenster, rendert MainApp
 │   ├── main.tsx               ← Erkennt ?billing → BillingApp, sonst App
 │   ├── billing/               ← 5D-Abrechnungsmodul
-│   │   ├── types.ts           ← BillingEntry, BillingStage, DocumentRef, ElementInfo, BillingMsg
+│   │   ├── types.ts           ← BillingEntry, BillingStage, DocumentRef, ElementQuantities, ElementInfo, BillingMsg
 │   │   ├── billingStore.ts    ← Zustand-Store + localStorage + BroadcastChannel
 │   │   ├── BillingVisualizer.ts ← Three.js Füllstand-Overlays (MeshBasicMaterial + clip plane)
 │   │   ├── BillingPanel.tsx   ← Haupt-UI im Billing-Fenster
-│   │   └── BillingApp.tsx     ← Root-Komponente für ?billing
+│   │   ├── BillingApp.tsx     ← Root-Komponente für ?billing
+│   │   └── quantityUtils.ts   ← Volumen + Oberfläche aus Three.js-Geometrie (Divergenz-Theorem)
 │   ├── batch/                 ← Batch-Änderungsmodul
 │   │   ├── types.ts           ← IfcValueType, FilterOp, TargetFilter, BatchOperation, BatchRule, PreviewResult
 │   │   ├── batchStore.ts      ← In-Memory-Zustand-Store (keine Persistenz)
 │   │   ├── BatchExecutor.ts   ← Pure Funktionen: buildElementRows, executeRule, collectEdits
-│   │   └── BatchPanel.tsx     ← Modal-UI: Regeleditor, Vorschau, Anwenden
+│   │   └── BatchPanel.tsx     ← Modal-UI: Regeleditor, Vorschau, Anwenden; datalist-Autocomplete
+│   ├── geometry-inspector/    ← Interaktive Flächen-/Kanten-Auswahl
+│   │   ├── types.ts           ← InspFace, InspEdge, InspectionSession, PickMode
+│   │   ├── GeometryAnalyzer.ts ← BFS Flächengruppierung + Hard-Edge-Extraktion + kollineare Kantenverschmelzung
+│   │   ├── FaceEdgePicker.ts  ← Three.js Overlays + Raycasting-Interaktion
+│   │   └── GeometryInspectorPanel.tsx ← Floating React-Panel (Flächen-/Kantenliste, Speichern)
 │   ├── components/            ← Alle React-Komponenten
 │   ├── section/               ← Eigenständiges BIM-Schnitt-Paket
 │   │   ├── index.ts           ← Public API
@@ -130,6 +137,9 @@ User öffnet BatchPanel (Toolbar „Batch"-Button)
       ↓
 BatchPanel liest models + propertyOverrides aus modelStore
       ↓
+[Optional] „Properties laden"-Button → loadAllElementProperties() für alle Modelle
+  → propKeys + ifcTypes für datalist-Autocomplete in allen Eingabefeldern
+      ↓
 buildElementRows() → ElementRow[] (alle Elemente aller Modelle)
       ↓
 executeRule() → PreviewResult (max. 50 Vorschau-Änderungen)
@@ -139,8 +149,55 @@ User klickt „Anwenden"
 collectEdits() → alle Änderungen als Flat-Liste
       ↓
 applyPropertyEdits() → propertyOverrides aktualisiert
+  ├── key === "Name": patcht auch models.elementsByType[type][i].name
+  └── key === "Name": patcht auch spatialTree-Knoten rekursiv → HierarchyPanel re-rendert sofort
+```
+
+## Datenfluss Geometrie-Inspektor
+
+```
+User klickt „Messen"-Button im 5D-Panel (BillingPanel)
       ↓
-Nächster IFC-Export enthält alle Batch-Änderungen
+BroadcastChannel: { t: "startInspection", key, elementName }
+      ↓
+ViewportContainer empfängt Nachricht
+  ├── Sammelt alle Meshes des Elements (modelId:expressId)
+  ├── isolateEntries([{ modelId, expressId }]) → nur dieses Element sichtbar
+  ├── GeometryAnalyzer.analyze(meshes) → { faces, edges, faceVertArrays }
+  │     ├── BFS-Flood-Fill coplanarer Dreiecke → InspFace[]
+  │     ├── Hard-Edge-Extraktion (Diederwinkel > 25°) → InspEdge[]
+  │     └── kollineare Kantenverschmelzung (iterativ)
+  └── FaceEdgePicker.load(meshes) → Overlay-Meshes + Edge-Pick-Boxen in Szene
+        ↓
+GeometryInspectorPanel erscheint (Overlay top-right)
+      ↓
+User klickt Fläche / Kante (Ctrl = Mehrfachauswahl)
+  → FaceEdgePicker.onClick() → selectedFaceIds / selectedEdgeIds aktualisiert
+  → Panel zeigt Summe Fläche / einzelne Kantenlängen
+      ↓
+„In 5D-Eintrag speichern"
+  → billingStore.setQuantities(key, { volume, surfaceArea, bboxX, bboxY, bboxZ })
+```
+
+## Datenfluss 5D-Mengenberechnung (automatisch)
+
+```
+User klickt „Auto"-Button im 5D-Panel
+      ↓
+BroadcastChannel: { t: "requestQuantities", key }
+      ↓
+ViewportContainer empfängt Nachricht
+  ├── Sammelt Meshes des Elements
+  └── computeQuantities(meshes) [quantityUtils.ts]
+        ├── Divergenz-Theorem → Volumen (m³)
+        ├── Kreuzprodukt-Summe → Oberfläche (m²)
+        └── THREE.Box3 → Bounding Box X/Y/Z (m)
+          ↓
+BroadcastChannel: { t: "quantities", key, data: ElementQuantities }
+          ↓
+BillingPanel empfängt → zeigt liveQuantities an
+          ↓
+„Speichern" → billingStore.setQuantities(key, data)
 ```
 
 ## Kritische Abhängigkeiten
