@@ -528,12 +528,9 @@ function sampleSegment(seg: AlignmentSegment, t: number): SampledPoint {
         : null;
     return { x, y, z, tangentRad };
   }
-  return {
-    x: seg.start.x,
-    y: seg.start.y,
-    z: seg.start.z,
-    tangentRad: seg.tangentStartRad,
-  };
+  const _: never = seg;
+  void _;
+  return { x: 0, y: 0, z: null, tangentRad: 0 };
 }
 
 function findSegmentForStation(

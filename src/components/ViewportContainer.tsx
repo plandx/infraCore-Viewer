@@ -535,7 +535,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     setInspSelFaces(new Set());
     setInspSelBoundaries(new Set());
     setInspSelEdges(new Set());
-    setInspShowMesh(false);
+    setInspShowMesh(true);
     needsRenderRef.current = true;
   }, []);
 

@@ -305,9 +305,12 @@ function FileGroup({
 }
 
 export function AlignmentPanel() {
+  const panelOpen = useAlignmentStore(s => s.panelOpen);
   const files = useAlignmentStore(s => s.files);
   const selectedId = useAlignmentStore(s => s.selectedId);
   const visibleIds = useAlignmentStore(s => s.visibleIds);
+
+  if (!panelOpen) return null;
   const colors = useAlignmentStore(s => s.colors);
   const loadFile = useAlignmentStore(s => s.loadFile);
   const removeFile = useAlignmentStore(s => s.removeFile);
