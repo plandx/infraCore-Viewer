@@ -309,8 +309,6 @@ export function AlignmentPanel() {
   const files = useAlignmentStore(s => s.files);
   const selectedId = useAlignmentStore(s => s.selectedId);
   const visibleIds = useAlignmentStore(s => s.visibleIds);
-
-  if (!panelOpen) return null;
   const colors = useAlignmentStore(s => s.colors);
   const loadFile = useAlignmentStore(s => s.loadFile);
   const removeFile = useAlignmentStore(s => s.removeFile);
@@ -320,6 +318,8 @@ export function AlignmentPanel() {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  if (!panelOpen) return null;
 
   const handleFiles = useCallback(
     (fileList: FileList | null) => {
