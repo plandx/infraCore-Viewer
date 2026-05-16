@@ -5,6 +5,7 @@ import {
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
+  Target, Layers, RotateCcw,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -23,33 +24,42 @@ interface Props {
 }
 
 export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Props) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef    = useRef<HTMLInputElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
-  const theme = useModelStore((s) => s.settings.theme);
-  const sectionActive = useModelStore((s) => s.sectionPlanes.length > 0 || s.activeTool === "section");
-  const orthographic = useModelStore((s) => s.settings.orthographic);
-  const showSpaces = useModelStore((s) => s.settings.showSpaces);
-  const grid = useModelStore((s) => s.settings.grid);
-  const edges = useModelStore((s) => s.settings.edges);
-  const activeTool = useModelStore((s) => s.activeTool);
-  const updateSettings = useModelStore((s) => s.updateSettings);
-  const setActiveTool = useModelStore((s) => s.setActiveTool);
-  const setSqlPanelOpen = useModelStore((s) => s.setSqlPanelOpen);
-  const sqlPanelOpen = useModelStore((s) => s.sqlPanelOpen);
-  const setListPanelOpen = useModelStore((s) => s.setListPanelOpen);
-  const listPanelOpen = useModelStore((s) => s.listPanelOpen);
+
+  const theme             = useModelStore((s) => s.settings.theme);
+  const sectionActive     = useModelStore((s) => s.sectionPlanes.length > 0 || s.activeTool === "section");
+  const orthographic      = useModelStore((s) => s.settings.orthographic);
+  const showSpaces        = useModelStore((s) => s.settings.showSpaces);
+  const grid              = useModelStore((s) => s.settings.grid);
+  const edges             = useModelStore((s) => s.settings.edges);
+  const activeTool        = useModelStore((s) => s.activeTool);
+  const updateSettings    = useModelStore((s) => s.updateSettings);
+  const setActiveTool     = useModelStore((s) => s.setActiveTool);
+  const setSqlPanelOpen   = useModelStore((s) => s.setSqlPanelOpen);
+  const sqlPanelOpen      = useModelStore((s) => s.sqlPanelOpen);
+  const setListPanelOpen  = useModelStore((s) => s.setListPanelOpen);
+  const listPanelOpen     = useModelStore((s) => s.listPanelOpen);
   const setSmartViewsPanelOpen = useModelStore((s) => s.setSmartViewsPanelOpen);
-  const smartViewsPanelOpen = useModelStore((s) => s.smartViewsPanelOpen);
-  const setQTOPanelOpen = useModelStore((s) => s.setQTOPanelOpen);
-  const qtoPanelOpen = useModelStore((s) => s.qtoPanelOpen);
-  const clearMeasurements    = useModelStore((s) => s.clearMeasurements);
-  const measurements         = useModelStore((s) => s.measurements);
-  const models               = useModelStore((s) => s.models);
-  const propertyOverrides    = useModelStore((s) => s.propertyOverrides);
+  const smartViewsPanelOpen    = useModelStore((s) => s.smartViewsPanelOpen);
+  const setQTOPanelOpen   = useModelStore((s) => s.setQTOPanelOpen);
+  const qtoPanelOpen      = useModelStore((s) => s.qtoPanelOpen);
+  const clearMeasurements = useModelStore((s) => s.clearMeasurements);
+  const measurements      = useModelStore((s) => s.measurements);
+  const models            = useModelStore((s) => s.models);
+  const propertyOverrides = useModelStore((s) => s.propertyOverrides);
+
+  // 5D state
+  const billingModuleActive = useBillingStore((s) => s.moduleActive);
+  const billing5DCount      = useBillingStore((s) => Object.keys(s.entries).length);
 
   const [exportOpen, setExportOpen] = useState(false);
   const [ifcExporting, setIfcExporting] = useState(false);
+  const [viewOpen, setViewOpen]     = useState(false);
+  const [infoOpen, setInfoOpen]     = useState(false);
+  const [windowOpen, setWindowOpen] = useState(false);
 
+  // ── IFC export ────────────────────────────────────────────────────────────
   const handleIFCExport = useCallback(async () => {
     if (ifcExporting) return;
     setIfcExporting(true);
@@ -71,6 +81,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
     }
   }, [models, propertyOverrides, ifcExporting]);
 
+  // ── 5D JSON export ────────────────────────────────────────────────────────
   const handleExport5DJson = useCallback(() => {
     const data = useBillingStore.getState().exportData();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -82,6 +93,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
     setExportOpen(false);
   }, []);
 
+  // ── Monthly XLSX export ───────────────────────────────────────────────────
   const handleExportMonthlyXLSX = useCallback(() => {
     const entries = useBillingStore.getState().entries;
     const now = new Date();
@@ -97,54 +109,80 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         return d >= firstDay && d <= lastDay;
       });
       for (const stage of monthStages) {
-        const idx = entry.stages.indexOf(stage);
-        const prev = idx > 0 ? entry.stages[idx - 1] : null;
+        const idx   = entry.stages.indexOf(stage);
+        const prev  = idx > 0 ? entry.stages[idx - 1] : null;
         const delta = prev !== null ? stage.degree - prev.degree : null;
-        const docs = entry.documents.map(d => d.docId ? `${d.docId}: ${d.title}` : d.title).join("; ");
+        const docs  = entry.documents.map(d => d.docId ? `${d.docId}: ${d.title}` : d.title).join("; ");
         dataRows.push([
-          entry.elementName,
-          entry.ifcType.replace(/^Ifc/, ""),
-          entry.guid || "–",
-          idx + 1,
-          stage.label,
-          fmt(stage.date),
-          stage.degree,
+          entry.elementName, entry.ifcType.replace(/^Ifc/, ""), entry.guid || "–",
+          idx + 1, stage.label, fmt(stage.date), stage.degree,
           delta !== null ? (delta >= 0 ? `+${delta}` : String(delta)) : "–",
-          stage.note || "",
-          docs || "–",
+          stage.note || "", docs || "–",
         ]);
       }
     }
-
-    const cols = ["Element", "Typ", "GUID", "Stand-Nr.", "Bezeichnung", "Datum",
-                  "Fertigstellungsgrad (%)", "Δ (%)", "Anmerkung", "Dokumente"];
-
-    const aoa: (string | number)[][] = [
+    const cols = ["Element","Typ","GUID","Stand-Nr.","Bezeichnung","Datum",
+                  "Fertigstellungsgrad (%)","Δ (%)","Anmerkung","Dokumente"];
+    const aoa: (string|number)[][] = [
       [`Monatsbericht 5D-Abrechnung – ${monthLabel}`],
       [`Erstellt am: ${now.toLocaleDateString("de-DE")}`],
-      [],
-      cols,
+      [], cols,
       ...(dataRows.length ? dataRows : [["Keine Einträge für diesen Zeitraum."]]),
       [],
       [`Gesamt: ${dataRows.length} Abrechnung(en) | Zeitraum: ${firstDay.toLocaleDateString("de-DE")} – ${lastDay.toLocaleDateString("de-DE")}`],
     ];
-
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws["!cols"] = [30,14,22,10,20,12,22,8,24,30].map(wch => ({ wch }));
-    ws["!merges"] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } },
-    ];
+    ws["!merges"] = [{ s:{r:0,c:0}, e:{r:0,c:9} }, { s:{r:1,c:0}, e:{r:1,c:9} }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, monthLabel.slice(0, 31));
-    XLSX.writeFile(wb, `5d-monatsbericht-${firstDay.toISOString().slice(0, 7)}.xlsx`);
+    XLSX.writeFile(wb, `5d-monatsbericht-${firstDay.toISOString().slice(0,7)}.xlsx`);
     setExportOpen(false);
   }, []);
 
-  const [viewOpen, setViewOpen] = useState(false);
-  const [infoOpen, setInfoOpen] = useState(false);
-  const [windowOpen, setWindowOpen] = useState(false);
+  // ── 5D: isolate tracked elements ──────────────────────────────────────────
+  const handleIsolate5D = useCallback(() => {
+    const billingEntries = useBillingStore.getState().entries;
+    const modelMap       = useModelStore.getState().models;
+    if (Object.keys(billingEntries).length === 0) return;
 
+    const toIsolate: Array<{ modelId: string; expressId: number }> = [];
+    for (const key of Object.keys(billingEntries)) {
+      const colonIdx = key.lastIndexOf(":");
+      const filename  = key.slice(0, colonIdx);
+      const expressId = parseInt(key.slice(colonIdx + 1), 10);
+      for (const [modelId, model] of modelMap) {
+        if (model.name === filename) { toIsolate.push({ modelId, expressId }); break; }
+      }
+    }
+    if (toIsolate.length > 0) useModelStore.getState().isolateEntries(toIsolate);
+  }, []);
+
+  // ── 5D: toggle visualization overlay ─────────────────────────────────────
+  const handleToggleVisualize5D = useCallback(() => {
+    useBillingStore.getState().setModuleActive(!useBillingStore.getState().moduleActive);
+  }, []);
+
+  // ── App reset ─────────────────────────────────────────────────────────────
+  const handleResetApp = useCallback(() => {
+    if (!window.confirm("Alle geladenen Modelle entfernen und App zurücksetzen?\n\n5D-Abrechnungsdaten bleiben erhalten.")) return;
+    const st = useModelStore.getState();
+    for (const id of st.models.keys()) st.removeModel(id);
+    st.showAll();
+    st.setSelected(null);
+    st.clearMeasurements();
+    st.clearSectionPlanes();
+    st.clearBasket();
+    st.setActiveTool("select");
+    st.setColorGroups(null);
+    if (st.activeSmartViewId) st.deactivateSmartView();
+    st.setSqlPanelOpen(false);
+    st.setListPanelOpen(false);
+    st.setSmartViewsPanelOpen(false);
+    st.setQTOPanelOpen(false);
+  }, []);
+
+  // ── Misc ──────────────────────────────────────────────────────────────────
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(f => f.name.toLowerCase().endsWith(".ifc"));
     if (files.length) onOpenFiles(files);
@@ -166,7 +204,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         window.dispatchEvent(new Event("viewer:clearMeasure"));
         clearMeasurements();
       }
-      // Leaving section mode → keep clip planes but stop face-picking
       setActiveTool(tool);
     }
   };
@@ -177,6 +214,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
   return (
     <>
       <div className="flex items-center h-11 px-3 gap-1 border-b bg-card text-card-foreground shrink-0 select-none">
+
         {/* Logo */}
         <div className="flex items-center gap-2 pr-3 mr-1 border-r border-border">
           <svg width="20" height="20" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[4px]">
@@ -187,8 +225,9 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-medium">IFC Viewer</span>
         </div>
 
-        {/* Open file */}
-        <input ref={inputRef} type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
+        {/* ── File group: Öffnen · Hinzufügen · Batch ── */}
+        <input ref={inputRef}    type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
+        <input ref={addInputRef} type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
         <button
           className={cn("toolbar-button flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded",
             "bg-primary text-primary-foreground hover:opacity-90")}
@@ -199,9 +238,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           <FolderOpen size={14} />
           <span>Öffnen</span>
         </button>
-
-        {/* Add model */}
-        <input ref={addInputRef} type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
         <button
           className="toolbar-button"
           onClick={() => addInputRef.current?.click()}
@@ -210,15 +246,21 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         >
           <Plus size={16} />
         </button>
+        <button
+          className="toolbar-button flex items-center gap-1 px-2 py-1 text-xs"
+          onClick={onOpenBatch}
+          title="Batch-Änderungen"
+        >
+          <Sliders size={14} />
+          <span className="text-[11px]">Batch</span>
+        </button>
 
         <div className="w-px h-5 bg-border mx-1" />
 
-        {/* Camera tools */}
+        {/* ── Camera ── */}
         <button className="toolbar-button" onClick={onFitAll} title="Auf alle Modelle zoomen [F]">
           <Maximize2 size={16} />
         </button>
-
-        {/* Ortho / Perspective toggle */}
         <button
           className={cn("toolbar-button", orthographic && "active text-primary")}
           title={orthographic ? "Perspektivisch" : "Orthogonal"}
@@ -226,8 +268,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         >
           {orthographic ? <Box size={16} /> : <Rotate3D size={16} />}
         </button>
-
-        {/* View presets dropdown */}
         <div className="relative">
           <button
             className={cn("toolbar-button flex items-center gap-0.5", viewOpen && "active text-primary")}
@@ -241,12 +281,12 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
             <DropdownMenu onClose={() => setViewOpen(false)}>
               <div className="p-1 text-[10px] text-muted-foreground px-2 py-1 uppercase tracking-wide">Ansicht</div>
               {[
-                { label: "Draufsicht", preset: "top" },
-                { label: "Untersicht", preset: "bottom" },
-                { label: "Vorderansicht", preset: "front" },
-                { label: "Rückansicht", preset: "back" },
-                { label: "Links", preset: "left" },
-                { label: "Rechts", preset: "right" },
+                { label: "Draufsicht",   preset: "top"    },
+                { label: "Untersicht",   preset: "bottom" },
+                { label: "Vorderansicht",preset: "front"  },
+                { label: "Rückansicht",  preset: "back"   },
+                { label: "Links",        preset: "left"   },
+                { label: "Rechts",       preset: "right"  },
               ].map((v) => (
                 <DropdownItem key={v.preset} onClick={() => { handlePreset(v.preset); setViewOpen(false); }}>
                   {v.label}
@@ -258,7 +298,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
 
         <div className="w-px h-5 bg-border mx-1" />
 
-        {/* Interaction tools */}
+        {/* ── Interaction tools ── */}
         <button
           className={cn("toolbar-button", activeTool === "select" && "active text-primary")}
           title="Auswahl [S]"
@@ -284,8 +324,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           onClick={() => {
             const st = useModelStore.getState();
             if (st.activeTool === "section" || st.sectionPlanes.length > 0) {
-              st.clearSectionPlanes();
-              st.setActiveTool("select");
+              st.clearSectionPlanes(); st.setActiveTool("select");
             } else {
               st.setActiveTool("section");
             }
@@ -296,7 +335,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
 
         <div className="w-px h-5 bg-border mx-1" />
 
-        {/* Visibility toggles */}
+        {/* ── Visibility ── */}
         <button
           className={cn("toolbar-button", !showSpaces && "opacity-50")}
           title="Räume ein/ausblenden"
@@ -321,68 +360,79 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
 
         <div className="w-px h-5 bg-border mx-1" />
 
-        {/* SQL Panel */}
-        <PopoutPanelButton
-          active={sqlPanelOpen}
-          title="SQL-Abfrage [Q]"
-          panel="sql"
-          onClick={() => setSqlPanelOpen(!sqlPanelOpen)}
-        >
+        {/* ── Analysis panels ── */}
+        <PopoutPanelButton active={sqlPanelOpen} title="SQL-Abfrage [Q]" panel="sql"
+          onClick={() => setSqlPanelOpen(!sqlPanelOpen)}>
           <Database size={16} />
         </PopoutPanelButton>
-
-        {/* Lens Rules Panel */}
-        <PopoutPanelButton
-          active={listPanelOpen}
-          title="Lens Rules [L]"
-          panel="lists"
-          onClick={() => setListPanelOpen(!listPanelOpen)}
-        >
+        <PopoutPanelButton active={listPanelOpen} title="Lens Rules [L]" panel="lists"
+          onClick={() => setListPanelOpen(!listPanelOpen)}>
           <List size={16} />
         </PopoutPanelButton>
-
-        {/* SmartViews Panel */}
-        <PopoutPanelButton
-          active={smartViewsPanelOpen}
-          title="SmartViews [V]"
-          panel="smartviews"
-          onClick={() => setSmartViewsPanelOpen(!smartViewsPanelOpen)}
-        >
+        <PopoutPanelButton active={smartViewsPanelOpen} title="SmartViews [V]" panel="smartviews"
+          onClick={() => setSmartViewsPanelOpen(!smartViewsPanelOpen)}>
           <Glasses size={16} />
         </PopoutPanelButton>
-
-        {/* QTO / Lists Panel */}
-        <PopoutPanelButton
-          active={qtoPanelOpen}
-          title="Listen / Mengen (T)"
-          panel="qto"
-          onClick={() => setQTOPanelOpen(!qtoPanelOpen)}
-        >
+        <PopoutPanelButton active={qtoPanelOpen} title="Listen / Mengen [T]" panel="qto"
+          onClick={() => setQTOPanelOpen(!qtoPanelOpen)}>
           <Table2 size={16} />
         </PopoutPanelButton>
 
         <div className="w-px h-5 bg-border mx-1" />
 
-        {/* 5D Billing */}
-        <button
-          onClick={() => openBillingWindow()}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-muted hover:bg-primary/20 hover:text-primary transition-colors"
-          title="5D-Abrechnung öffnen"
+        {/* ── 5D-Abrechnung Group ── */}
+        <div
+          className="flex items-center gap-0.5 rounded px-1.5 py-0.5 border"
+          style={{ background: "color-mix(in srgb, #f59e0b 6%, transparent)", borderColor: "color-mix(in srgb, #f59e0b 30%, transparent)" }}
         >
-          <BarChart2 size={14} />
-          <span>5D</span>
-        </button>
+          {/* 5D öffnen */}
+          <button
+            onClick={() => openBillingWindow()}
+            className="flex items-center gap-1 px-1.5 py-1 rounded text-xs font-medium hover:bg-amber-500/15 hover:text-amber-400 transition-colors text-amber-500"
+            title="5D-Abrechnung öffnen"
+          >
+            <BarChart2 size={14} />
+            <span className="text-[11px] font-semibold">5D</span>
+            {billing5DCount > 0 && (
+              <span className="bg-amber-500/25 text-amber-400 text-[8px] px-1 rounded-full font-bold">
+                {billing5DCount}
+              </span>
+            )}
+          </button>
 
-        {/* Batch changes */}
-        <button
-          onClick={onOpenBatch}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-muted hover:bg-primary/20 hover:text-primary transition-colors"
-          title="Batch-Änderungen"
-        >
-          <Sliders size={14} />
-          <span>Batch</span>
-        </button>
+          <div className="w-px h-4 mx-0.5" style={{ background: "color-mix(in srgb, #f59e0b 30%, transparent)" }} />
 
+          {/* 5D isolieren */}
+          <button
+            onClick={handleIsolate5D}
+            disabled={billing5DCount === 0}
+            className={cn(
+              "toolbar-button px-1.5 hover:bg-amber-500/15 hover:text-amber-400 transition-colors",
+              billing5DCount === 0 && "opacity-30 cursor-not-allowed"
+            )}
+            title={billing5DCount > 0 ? `5D-Elemente isolieren (${billing5DCount} erfasst)` : "Keine 5D-Elemente erfasst"}
+          >
+            <Target size={15} />
+          </button>
+
+          {/* 5D visualisieren */}
+          <button
+            onClick={handleToggleVisualize5D}
+            disabled={billing5DCount === 0}
+            className={cn(
+              "toolbar-button px-1.5 transition-colors",
+              billingModuleActive
+                ? "text-amber-400 bg-amber-500/20 hover:bg-amber-500/30"
+                : "hover:bg-amber-500/15 hover:text-amber-400",
+              billing5DCount === 0 && "opacity-30 cursor-not-allowed"
+            )}
+            title={billingModuleActive ? "5D-Visualisierung ausschalten" : "5D-Visualisierung einschalten"}
+          >
+            <Layers size={15} />
+          </button>
+        </div>
+
+        {/* ── Spacer ── */}
         <div className="flex-1" />
 
         {/* Loading indicator */}
@@ -393,7 +443,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           </div>
         )}
 
-        {/* Window opener dropdown */}
+        {/* Window opener */}
         <div className="relative">
           <button
             className={cn("toolbar-button", windowOpen && "active text-primary")}
@@ -406,11 +456,8 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
             <DropdownMenu onClose={() => setWindowOpen(false)} align="right">
               <div className="p-1 text-[10px] text-muted-foreground px-2 py-1 uppercase tracking-wide">Fenster öffnen</div>
               {(Object.keys(PANEL_META) as PanelType[]).map((p) => (
-                <DropdownItem
-                  key={p}
-                  icon={<AppWindow size={13} />}
-                  onClick={() => { openSecondaryWindow(p); setWindowOpen(false); }}
-                >
+                <DropdownItem key={p} icon={<AppWindow size={13} />}
+                  onClick={() => { openSecondaryWindow(p); setWindowOpen(false); }}>
                   {PANEL_META[p].label}
                 </DropdownItem>
               ))}
@@ -418,7 +465,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           )}
         </div>
 
-        {/* Export dropdown */}
+        {/* Export */}
         <div className="relative">
           <button
             className="toolbar-button"
@@ -436,9 +483,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
                   .reduce((s, m) => s + Array.from(m.values()).reduce((a, o) => a + Object.keys(o).length, 0), 0);
                 return (
                   <DropdownItem
-                    icon={ifcExporting
-                      ? <Loader2 size={13} className="animate-spin" />
-                      : <Download size={13} />}
+                    icon={ifcExporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
                     onClick={hasModels && !ifcExporting ? handleIFCExport : undefined}
                     disabled={!hasModels || ifcExporting}
                   >
@@ -455,48 +500,32 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
               })()}
               <div className="h-px bg-border/50 my-0.5 mx-2" />
               {(() => {
-                const has5D = Object.keys(useBillingStore.getState().entries).length > 0;
+                const has5D = billing5DCount > 0;
                 return (<>
-                  <DropdownItem
-                    icon={<BarChart2 size={13} />}
-                    onClick={has5D ? handleExport5DJson : undefined}
-                    disabled={!has5D}
-                  >
+                  <DropdownItem icon={<BarChart2 size={13} />}
+                    onClick={has5D ? handleExport5DJson : undefined} disabled={!has5D}>
                     <span className="flex items-center gap-1.5">
                       5D-Daten als JSON
-                      {has5D && (
-                        <span className="bg-primary/20 text-primary text-[9px] px-1 rounded">
-                          {Object.keys(useBillingStore.getState().entries).length}
-                        </span>
-                      )}
+                      {has5D && <span className="bg-primary/20 text-primary text-[9px] px-1 rounded">{billing5DCount}</span>}
                     </span>
                   </DropdownItem>
-                  <DropdownItem
-                    icon={<Table2 size={13} />}
-                    onClick={has5D ? handleExportMonthlyXLSX : undefined}
-                    disabled={!has5D}
-                  >
+                  <DropdownItem icon={<Table2 size={13} />}
+                    onClick={has5D ? handleExportMonthlyXLSX : undefined} disabled={!has5D}>
                     Monatsbericht als XLSX
                   </DropdownItem>
                 </>);
               })()}
               <div className="h-px bg-border/50 my-0.5 mx-2" />
-              <DropdownItem
-                icon={<Box size={13} />}
-                onClick={() => { window.dispatchEvent(new Event("viewer:exportGLTF")); setExportOpen(false); }}
-              >
+              <DropdownItem icon={<Box size={13} />}
+                onClick={() => { window.dispatchEvent(new Event("viewer:exportGLTF")); setExportOpen(false); }}>
                 Modell als GLB
               </DropdownItem>
-              <DropdownItem
-                icon={<Camera size={13} />}
-                onClick={() => { window.dispatchEvent(new Event("viewer:screenshot")); setExportOpen(false); }}
-              >
+              <DropdownItem icon={<Camera size={13} />}
+                onClick={() => { window.dispatchEvent(new Event("viewer:screenshot")); setExportOpen(false); }}>
                 Screenshot (PNG)
               </DropdownItem>
-              <DropdownItem
-                icon={<FileDown size={13} />}
-                onClick={() => { exportElementsCSV(); setExportOpen(false); }}
-              >
+              <DropdownItem icon={<FileDown size={13} />}
+                onClick={() => { exportElementsCSV(); setExportOpen(false); }}>
                 Elemente als CSV
               </DropdownItem>
             </DropdownMenu>
@@ -510,13 +539,22 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
 
         <div className="w-px h-5 bg-border mx-1" />
 
-        {/* Theme toggle */}
+        {/* Theme */}
         <button className="toolbar-button" onClick={toggleTheme} title="Hell/Dunkel">
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </button>
+
+        {/* App reset */}
+        <button
+          className="toolbar-button text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          onClick={handleResetApp}
+          title="App zurücksetzen — alle Modelle entfernen"
+        >
+          <RotateCcw size={15} />
+        </button>
+
       </div>
 
-      {/* Info modal */}
       {infoOpen && <InfoModal onClose={() => setInfoOpen(false)} />}
     </>
   );
@@ -569,13 +607,20 @@ function DropdownMenu({ children, onClose, align = "left" }: {
   );
 }
 
-function DropdownItem({ children, onClick, icon }: {
-  children: React.ReactNode; onClick: () => void; icon?: React.ReactNode;
+function DropdownItem({ children, onClick, icon, disabled }: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  icon?: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <button
-      className="w-full flex items-center gap-2 text-left px-3 py-2 text-xs hover:bg-muted/60 text-foreground"
-      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-2 text-left px-3 py-2 text-xs text-foreground",
+        disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/60"
+      )}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
     >
       {icon && <span className="text-muted-foreground">{icon}</span>}
       {children}
@@ -599,28 +644,19 @@ function InfoModal({ onClose }: { onClose: () => void }) {
           </div>
           <button className="toolbar-button p-1" onClick={onClose}><X size={15} /></button>
         </div>
-
         <div className="text-xs text-muted-foreground space-y-1 mb-4">
           <p className="font-medium text-foreground">IFC Viewer by iC consulenten ZT GmbH</p>
           <p className="text-[11px]">Kompetenzbereich VDC</p>
           <p className="pt-1">Basierend auf web-ifc 0.0.77 + Three.js</p>
           <p>Unterstützt Multi-Modell-Ansichten und große Koordinatensysteme (bis 20 km)</p>
         </div>
-
         <div className="border-t border-border pt-3">
           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Tastenkürzel</p>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
             {[
-              ["F", "Alle einpassen"],
-              ["S", "Auswahl-Tool"],
-              ["M", "Mess-Tool"],
-              ["C", "Schnittebene"],
-              ["Q", "SQL-Panel"],
-              ["L", "Lens Rules"],
-              ["V", "SmartViews"],
-              ["T", "Listen / Mengen"],
-              ["Esc", "Abbrechen / Deselektieren"],
-              ["Entf", "Auswahl ausblenden"],
+              ["F","Alle einpassen"], ["S","Auswahl-Tool"], ["M","Mess-Tool"], ["C","Schnittebene"],
+              ["Q","SQL-Panel"], ["L","Lens Rules"], ["V","SmartViews"], ["T","Listen / Mengen"],
+              ["Esc","Abbrechen / Deselektieren"], ["Entf","Auswahl ausblenden"],
             ].map(([key, desc]) => (
               <div key={key} className="flex items-center gap-2">
                 <kbd className="bg-muted border border-border rounded px-1.5 py-0.5 text-[10px] font-mono shrink-0">{key}</kbd>
@@ -638,12 +674,10 @@ function InfoModal({ onClose }: { onClose: () => void }) {
 
 function exportElementsCSV() {
   const { models } = useModelStore.getState();
-  const rows: string[][] = [["Modell", "Typ", "Name", "ExpressID"]];
+  const rows: string[][] = [["Modell","Typ","Name","ExpressID"]];
   models.forEach((model) => {
     for (const [typeName, els] of Object.entries(model.elementsByType)) {
-      for (const el of els) {
-        rows.push([model.name, typeName, el.name, String(el.expressId)]);
-      }
+      for (const el of els) rows.push([model.name, typeName, el.name, String(el.expressId)]);
     }
   });
   const csv = rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
