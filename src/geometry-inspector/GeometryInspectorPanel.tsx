@@ -32,7 +32,6 @@ export function GeometryInspectorPanel({
   pickMode, onPickModeChange,
   showMesh, onToggleShowMesh, onClose,
 }: Props) {
-  const setQuantities = useBillingStore((s) => s.setQuantities);
   const [saved, setSaved] = useState(false);
 
   const selFaces      = faces.filter(f => selectedFaceIds.has(f.id));
@@ -45,18 +44,22 @@ export function GeometryInspectorPanel({
 
   const handleSave = () => {
     if (!billingKey) return;
+    // Ensure entry exists — addEntry is idempotent (no-op if key already present)
+    useBillingStore.getState().addEntry({ key: billingKey, guid: billingKey, expressId, modelId, elementName, ifcType });
+
+    // Re-read state after addEntry since set() replaced the state object
     const existing = useBillingStore.getState().entries[billingKey]?.quantities;
     const dimSrc = selBoundaries.length > 0
       ? selBoundaries.map(b => b.totalLength)
       : selEdges.map(e => e.length);
-    setQuantities(billingKey, {
+    useBillingStore.getState().setQuantities(billingKey, {
       volume:      existing?.volume      ?? 0,
       surfaceArea: totalArea > 0 ? totalArea : (existing?.surfaceArea ?? 0),
       bboxX:       dimSrc[0] ?? existing?.bboxX ?? 0,
       bboxY:       dimSrc[1] ?? existing?.bboxY ?? 0,
       bboxZ:       dimSrc[2] ?? existing?.bboxZ ?? 0,
       computedAt:  new Date().toISOString(),
-    }, { guid: billingKey, expressId, modelId, elementName, ifcType });
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
