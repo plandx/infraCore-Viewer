@@ -108,6 +108,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const billingVizRef  = useRef<BillingVisualizer | null>(null);
   const alignGroupRef  = useRef<THREE.Group | null>(null);
   const pickerRef      = useRef<FaceEdgePicker | null>(null);
+  const pendingSelectKeyRef = useRef<string | null>(null);
   const [inspSession,  setInspSession]  = useState<InspectionSession | null>(null);
   const [inspPickMode, setInspPickMode] = useState<PickMode>("face");
   const inspPickModeRef = useRef<PickMode>("face");
@@ -573,6 +574,15 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     bc.addEventListener("message", (ev) => {
       const msg = ev.data as BillingMsg;
+
+      if (msg.t === "ready") {
+        const pending = pendingSelectKeyRef.current;
+        if (pending) {
+          bc?.postMessage({ t: "selectEntry", key: pending } satisfies BillingMsg);
+          pendingSelectKeyRef.current = null;
+        }
+        return;
+      }
 
       if (msg.t === "requestQuantities") {
         const meshes = collectMeshesForKey(msg.key);
@@ -1616,15 +1626,13 @@ export function ViewportContainer({ onElementClick }: Props) {
           }}
           onOpen5D={inspSession?.billingKey ? () => {
             const key = inspSession.billingKey!;
-            useBillingStore.getState().setPendingSelectKey(key);
+            pendingSelectKeyRef.current = key;
             openBillingWindow();
-            setTimeout(() => {
-              try {
-                const bc = new BroadcastChannel(BILLING_CHANNEL);
-                bc.postMessage({ t: "selectEntry", key } satisfies BillingMsg);
-                bc.close();
-              } catch { /* ignore */ }
-            }, 300);
+            try {
+              const bc2 = new BroadcastChannel(BILLING_CHANNEL);
+              bc2.postMessage({ t: "selectEntry", key } satisfies BillingMsg);
+              bc2.close();
+            } catch { /* ignore */ }
           } : undefined}
         />
       )}
@@ -1676,29 +1684,27 @@ export function ViewportContainer({ onElementClick }: Props) {
               key, guid: "", expressId: contextMenu.expressId, modelId: contextMenu.modelId,
               elementName: contextMenu.elementName, ifcType: contextMenu.ifcType,
             });
-            useBillingStore.getState().setPendingSelectKey(key);
+            pendingSelectKeyRef.current = key;
             openBillingWindow();
-            setTimeout(() => {
-              try {
-                const bc = new BroadcastChannel(BILLING_CHANNEL);
-                bc.postMessage({ t: "selectEntry", key } satisfies BillingMsg);
-                bc.close();
-              } catch { /* ignore */ }
-            }, 300);
+            // Also send immediately in case the window is already open
+            try {
+              const bc2 = new BroadcastChannel(BILLING_CHANNEL);
+              bc2.postMessage({ t: "selectEntry", key } satisfies BillingMsg);
+              bc2.close();
+            } catch { /* ignore */ }
             setContextMenu(null);
           }}
           onOpen5D={() => {
             const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
             const key = `${filename}:${contextMenu.expressId}`;
-            useBillingStore.getState().setPendingSelectKey(key);
+            pendingSelectKeyRef.current = key;
             openBillingWindow();
-            setTimeout(() => {
-              try {
-                const bc = new BroadcastChannel(BILLING_CHANNEL);
-                bc.postMessage({ t: "selectEntry", key } satisfies BillingMsg);
-                bc.close();
-              } catch { /* ignore */ }
-            }, 300);
+            // Also send immediately in case the window is already open
+            try {
+              const bc2 = new BroadcastChannel(BILLING_CHANNEL);
+              bc2.postMessage({ t: "selectEntry", key } satisfies BillingMsg);
+              bc2.close();
+            } catch { /* ignore */ }
             setContextMenu(null);
           }}
           onSet5DDegree={(degree) => {
