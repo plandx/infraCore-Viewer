@@ -14,6 +14,8 @@ import { useBillingStore, BILLING_CHANNEL } from "../billing/billingStore";
 import { openBillingWindow } from "../utils/windowSync";
 import type { BillingMsg } from "../billing/types";
 import { computeQuantities } from "../billing/quantityUtils";
+import { extractQuantitiesFromPsets } from "../billing/IfcQuantityExtractor";
+import { loadIFCProperties } from "../utils/ifcLoader";
 import { FaceEdgePicker } from "../geometry-inspector/FaceEdgePicker";
 import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorPanel";
 import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
@@ -511,6 +513,25 @@ export function ViewportContainer({ onElementClick }: Props) {
         const meshes = collectMeshesForKey(msg.key);
         const data = meshes.length > 0 ? computeQuantities(meshes) : null;
         bc?.postMessage({ t: "quantities", key: msg.key, data } satisfies BillingMsg);
+        return;
+      }
+
+      if (msg.t === "requestIfcQuantities") {
+        const sessionModels = useModelStore.getState().models;
+        const [filename, expStr] = msg.key.split(":");
+        const expressId = parseInt(expStr, 10);
+        let modelFile: File | null = null;
+        sessionModels.forEach((m) => { if (m.name === filename) modelFile = m.file; });
+        if (!modelFile) { bc?.postMessage({ t: "ifcQuantities", key: msg.key, items: null } satisfies BillingMsg); return; }
+        (async () => {
+          try {
+            const { psets } = await loadIFCProperties(modelFile!, expressId);
+            const items = extractQuantitiesFromPsets(psets);
+            bc?.postMessage({ t: "ifcQuantities", key: msg.key, items: items.length > 0 ? items : null } satisfies BillingMsg);
+          } catch {
+            bc?.postMessage({ t: "ifcQuantities", key: msg.key, items: null } satisfies BillingMsg);
+          }
+        })();
         return;
       }
 

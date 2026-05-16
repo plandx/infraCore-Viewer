@@ -2,6 +2,8 @@ import { useState } from "react";
 import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore } from "../billing/billingStore";
+import { qid } from "../billing/quantityTypes";
+import type { QuantityItem } from "../billing/quantityTypes";
 import type { InspFace, InspFaceBoundary, InspEdge, PickMode } from "./types";
 
 interface Props {
@@ -44,22 +46,34 @@ export function GeometryInspectorPanel({
 
   const handleSave = () => {
     if (!billingKey) return;
-    // Ensure entry exists — addEntry is idempotent (no-op if key already present)
     useBillingStore.getState().addEntry({ key: billingKey, guid: billingKey, expressId, modelId, elementName, ifcType });
 
-    // Re-read state after addEntry since set() replaced the state object
-    const existing = useBillingStore.getState().entries[billingKey]?.quantities;
-    const dimSrc = selBoundaries.length > 0
-      ? selBoundaries.map(b => b.totalLength)
-      : selEdges.map(e => e.length);
-    useBillingStore.getState().setQuantities(billingKey, {
-      volume:      existing?.volume      ?? 0,
-      surfaceArea: totalArea > 0 ? totalArea : (existing?.surfaceArea ?? 0),
-      bboxX:       dimSrc[0] ?? existing?.bboxX ?? 0,
-      bboxY:       dimSrc[1] ?? existing?.bboxY ?? 0,
-      bboxZ:       dimSrc[2] ?? existing?.bboxZ ?? 0,
-      computedAt:  new Date().toISOString(),
+    const measuredItems: QuantityItem[] = [];
+    if (selFaces.length > 0) {
+      measuredItems.push({
+        id: qid(), type: "area", label: `${selFaces.length} Fläche${selFaces.length !== 1 ? "n" : ""} (Inspektor)`,
+        value: totalArea, unit: "m²", source: "measured",
+      });
+    }
+    selBoundaries.forEach((b, i) => {
+      measuredItems.push({
+        id: qid(), type: "perimeter", label: `Umrandung ${i + 1} (Inspektor)`,
+        value: b.totalLength, unit: "m", source: "measured",
+      });
     });
+    if (selEdges.length === 1) {
+      measuredItems.push({
+        id: qid(), type: "length", label: "Kante (Inspektor)",
+        value: selEdges[0].length, unit: "m", source: "measured",
+      });
+    } else if (selEdges.length > 1) {
+      measuredItems.push({
+        id: qid(), type: "length", label: `${selEdges.length} Kanten (Inspektor)`,
+        value: totalEdgeLength, unit: "m", source: "measured",
+      });
+    }
+
+    useBillingStore.getState().mergeQuantityItems(billingKey, measuredItems, "measured");
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };

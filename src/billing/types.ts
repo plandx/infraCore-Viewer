@@ -13,6 +13,8 @@ export interface DocumentRef {
   url: string;
 }
 
+// ── Legacy quantities (kept for backward compat with requestQuantities flow) ─
+
 export interface ElementQuantities {
   volume: number;       // m³
   surfaceArea: number;  // m²
@@ -21,6 +23,13 @@ export interface ElementQuantities {
   bboxZ: number;        // m
   computedAt: string;
 }
+
+// ── Extended quantity model ──────────────────────────────────────────────────
+
+export type { QuantityType, QuantityUnit, QuantitySource, QuantityItem, QuantitySet }
+  from "./quantityTypes";
+
+// ── Billing entry ────────────────────────────────────────────────────────────
 
 export interface BillingEntry {
   key: string;
@@ -31,7 +40,8 @@ export interface BillingEntry {
   ifcType: string;
   stages: BillingStage[];
   documents: DocumentRef[];
-  quantities?: ElementQuantities;
+  quantities?: ElementQuantities;   // legacy
+  quantitySet?: import("./quantityTypes").QuantitySet;  // extended
   createdAt: string;
 }
 
@@ -59,4 +69,6 @@ export type BillingMsg =
   | { t: "selectEntry"; key: string }
   | { t: "requestQuantities"; key: string }
   | { t: "quantities"; key: string; data: ElementQuantities | null }
+  | { t: "requestIfcQuantities"; key: string }
+  | { t: "ifcQuantities"; key: string; items: import("./quantityTypes").QuantityItem[] | null }
   | { t: "startInspection"; key: string; elementName: string };

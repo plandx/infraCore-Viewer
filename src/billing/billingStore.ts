@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { BillingEntry, BillingExport, BillingStage, DocumentRef, ElementQuantities } from "./types";
+import type { QuantityItem, QuantitySet } from "./quantityTypes";
 
 const LS_KEY = "infracore-billing-v1";
 export const BILLING_CHANNEL = "infracore-billing";
@@ -39,12 +40,26 @@ interface BillingStore {
   exportData(): BillingExport;
   setModuleActive(active: boolean): void;
   setQuantities(key: string, q: ElementQuantities): void;
+  // ── QuantitySet actions ──────────────────────────────────────────────────
+  setQuantitySet(key: string, set: QuantitySet): void;
+  addQuantityItem(key: string, item: Omit<QuantityItem, "id">): void;
+  updateQuantityItem(key: string, itemId: string, patch: Partial<QuantityItem>): void;
+  removeQuantityItem(key: string, itemId: string): void;
+  mergeQuantityItems(key: string, items: QuantityItem[], source: QuantityItem["source"]): void;
   _applySync(entries: Record<string, BillingEntry>): void;
 }
 
 export const useBillingStore = create<BillingStore>((set, get) => {
   function broadcast(entries: Record<string, BillingEntry>) {
     bc?.postMessage({ t: "dataSync", entries: Object.values(entries) });
+  }
+
+  function updateEntry(key: string, patch: Partial<BillingEntry>): boolean {
+    const entry = get().entries[key];
+    if (!entry) return false;
+    const next = { ...get().entries, [key]: { ...entry, ...patch } };
+    persist(next); broadcast(next); set({ entries: next });
+    return true;
   }
 
   return {
@@ -66,42 +81,33 @@ export const useBillingStore = create<BillingStore>((set, get) => {
     addStage(key, stage) {
       const entry = get().entries[key]; if (!entry) return;
       const s: BillingStage = { ...stage, id: nanoid() };
-      const updated = { ...entry, stages: [...entry.stages, s] };
-      const next = { ...get().entries, [key]: updated };
-      persist(next); broadcast(next); set({ entries: next });
+      updateEntry(key, { stages: [...entry.stages, s] });
     },
 
     updateStage(key, stageId, patch) {
       const entry = get().entries[key]; if (!entry) return;
-      const stages = entry.stages.map(s => s.id === stageId ? { ...s, ...patch } : s);
-      const next = { ...get().entries, [key]: { ...entry, stages } };
-      persist(next); broadcast(next); set({ entries: next });
+      updateEntry(key, { stages: entry.stages.map(s => s.id === stageId ? { ...s, ...patch } : s) });
     },
 
     removeStage(key, stageId) {
       const entry = get().entries[key]; if (!entry) return;
-      const next = { ...get().entries, [key]: { ...entry, stages: entry.stages.filter(s => s.id !== stageId) } };
-      persist(next); broadcast(next); set({ entries: next });
+      updateEntry(key, { stages: entry.stages.filter(s => s.id !== stageId) });
     },
 
     addDocument(key, doc) {
       const entry = get().entries[key]; if (!entry) return;
       const d: DocumentRef = { ...doc, id: nanoid() };
-      const next = { ...get().entries, [key]: { ...entry, documents: [...entry.documents, d] } };
-      persist(next); broadcast(next); set({ entries: next });
+      updateEntry(key, { documents: [...entry.documents, d] });
     },
 
     updateDocument(key, docId, patch) {
       const entry = get().entries[key]; if (!entry) return;
-      const documents = entry.documents.map(d => d.id === docId ? { ...d, ...patch } : d);
-      const next = { ...get().entries, [key]: { ...entry, documents } };
-      persist(next); broadcast(next); set({ entries: next });
+      updateEntry(key, { documents: entry.documents.map(d => d.id === docId ? { ...d, ...patch } : d) });
     },
 
     removeDocument(key, docId) {
       const entry = get().entries[key]; if (!entry) return;
-      const next = { ...get().entries, [key]: { ...entry, documents: entry.documents.filter(d => d.id !== docId) } };
-      persist(next); broadcast(next); set({ entries: next });
+      updateEntry(key, { documents: entry.documents.filter(d => d.id !== docId) });
     },
 
     importData(data) {
@@ -121,8 +127,39 @@ export const useBillingStore = create<BillingStore>((set, get) => {
 
     setQuantities(key, q) {
       const entry = get().entries[key]; if (!entry) return;
-      const next = { ...get().entries, [key]: { ...entry, quantities: q } };
-      persist(next); broadcast(next); set({ entries: next });
+      updateEntry(key, { quantities: q });
+    },
+
+    // ── QuantitySet ────────────────────────────────────────────────────────
+
+    setQuantitySet(key, qs) {
+      updateEntry(key, { quantitySet: qs });
+    },
+
+    addQuantityItem(key, item) {
+      const entry = get().entries[key]; if (!entry) return;
+      const newItem: QuantityItem = { ...item, id: nanoid() };
+      const existing = entry.quantitySet?.items ?? [];
+      updateEntry(key, { quantitySet: { items: [...existing, newItem], updatedAt: new Date().toISOString() } });
+    },
+
+    updateQuantityItem(key, itemId, patch) {
+      const entry = get().entries[key]; if (!entry) return;
+      const items = (entry.quantitySet?.items ?? []).map(i => i.id === itemId ? { ...i, ...patch } : i);
+      updateEntry(key, { quantitySet: { items, updatedAt: new Date().toISOString() } });
+    },
+
+    removeQuantityItem(key, itemId) {
+      const entry = get().entries[key]; if (!entry) return;
+      const items = (entry.quantitySet?.items ?? []).filter(i => i.id !== itemId);
+      updateEntry(key, { quantitySet: { items, updatedAt: new Date().toISOString() } });
+    },
+
+    // Replace all items of a given source and append new ones
+    mergeQuantityItems(key, items, source) {
+      const entry = get().entries[key]; if (!entry) return;
+      const kept = (entry.quantitySet?.items ?? []).filter(i => i.source !== source);
+      updateEntry(key, { quantitySet: { items: [...kept, ...items], updatedAt: new Date().toISOString() } });
     },
 
     _applySync(entries) {

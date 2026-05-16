@@ -28,7 +28,7 @@ Standalone-Root-Komponente für das Billing-Fenster (`?billing`). Lauscht auf `{
 
 ### BillingPanel (`src/billing/BillingPanel.tsx`)
 
-Haupt-UI des Billing-Fensters.
+Haupt-UI des Billing-Fensters. Vollständig neu gestaltet mit Tab-Layout und erweiterter Mengenerfassung.
 
 Props:
 ```typescript
@@ -39,26 +39,79 @@ interface Props {
 
 Aufbau:
 - **Header**: Titel, Visualisierungs-Toggle, Import-JSON-Button, Export-JSON-Button
-- **Linke Spalte** (272px): Suchfeld + scrollbare Elementliste. Jede Zeile zeigt Status-Dot (nicht erfasst/in Bearbeitung/fertig), Elementname, IFC-Typ-Chip, Fortschrittsbalken. Hover zeigt „Hinzufügen"-Button für nicht erfasste Elemente. Klick auf eine Zeile löst auch `{ t: "selectEntry", key }` via BroadcastChannel aus (hebt Element im Viewport hervor).
-- **Rechte Spalte**: Detailansicht des gewählten Elements:
-  - Elementkopf: Name, Typ, GUID, ExpressId
-  - **5D-Untermenü** (Kontextmenü): erscheint beim Hover über eine Elementzeile; Optionen: Grad 0–100 % in 10%-Schritten mit Farbcodierung (grau → orange → grün); „5D hinzufügen"; „Zum Viewer isolieren"
-  - Tabelle der Abrechnungsstände (Nr, Bezeichnung, Datum, Grad%, Delta, Löschen-Button)
-  - Formular für neuen Stand (Bezeichnung, Datum, Grad%, Notiz)
-  - **Mengen-Sektion**:
-    - **„Auto"**-Button (Calculator-Icon): sendet `{ t: "requestQuantities", key }` → ViewportContainer berechnet Volumen/BBox automatisch → antwortet mit `{ t: "quantities", key, data }`
-    - **„Messen"**-Button (Ruler-Icon): sendet `{ t: "startInspection", key, elementName }` → aktiviert Geometrie-Inspektor im Viewer
-    - Anzeige berechneter/manuell gespeicherter Mengen: Volumen (m³), Oberfläche (m²), Bounding Box X/Y/Z (m)
-    - **„Speichern"**-Button: persistiert `liveQuantities` via `billingStore.setQuantities()`
-  - Dokumentenliste mit Links
-  - Formular für neues Dokument (Dok.-Nr., Titel, URL)
+- **Linke Spalte** (272px): Suchfeld + IFC-Typ-Dropdown-Filter + scrollbare Elementliste. Status-Dot, Elementname, IFC-Typ-Chip, Fortschrittsbalken. Hover zeigt „Hinzufügen"-Button. Klick sendet `{ t: "selectEntry", key }`.
+- **Rechte Spalte** — drei Tabs: **Mengen** | **Abschnitte** | **Dokumente**
 
-#### 5D-Untermenü-Verhalten
+**Mengen-Tab:**
+- Toolbar mit vier farbcodierten Aktions-Buttons:
+  - **[IFC-Extrakt]** (sky) — sendet `{ t: "requestIfcQuantities", key }` → ViewportContainer lädt IFC-Psets async → antwortet `{ t: "ifcQuantities", key, items }` → `mergeQuantityItems(key, items, "ifc")`
+  - **[Geometrie]** (violet) — sendet `{ t: "requestQuantities", key }` → antwortet `{ t: "quantities", key, data }` → konvertiert `ElementQuantities` in `QuantityItem[]` → `mergeQuantityItems(key, items, "geometry")`
+  - **[Messen]** (amber) — sendet `{ t: "startInspection", key, elementName }` → aktiviert Geometrie-Inspektor
+  - **[Stückzahl +1]** (emerald) — fügt direkt `count`-Item (source: manual) hinzu
+- Inhalt: `<QuantitySetPanel>` (siehe unten)
 
-- Erscheint 120ms nach Hover (kein sofortiges Schließen beim Überqueren des Gaps zwischen Trigger und Flyout)
-- `useLayoutEffect` misst gerenderte Submenu-Größe via `getBoundingClientRect()` und berechnet:
-  - Horizontale Position: links oder rechts vom Trigger je nach verfügbarem Platz
-  - Vertikale Verschiebung: nach oben wenn Submenu über Viewport-Unterkante ragt
+**Abschnitte-Tab:** Tabelle der Abrechnungsstände (Nr, Bezeichnung, Datum, Grad%, Delta, Löschen); Formular für neuen Stand.
+
+**Dokumente-Tab:** Dokumentenliste mit Links; Formular für neues Dokument.
+
+### QuantitySetPanel (`src/billing/QuantitySetPanel.tsx`)
+
+Zeigt alle `QuantityItem[]` eines Elements nach Quelle gruppiert an.
+
+Sub-Komponenten:
+- **`ItemRow`**: Inline-editierbare Zeile. Hover-Aktionen (Stift/Mülleimer). Edit nur für `source === "manual"`. Derived-Items (`id.startsWith("__")`) zeigen keine Aktionen.
+- **`SourceGroup`**: Collapsible Gruppe (IFC/GEO/MESS/MAN) mit Chevron-Toggle. Zeigt Anzahl Positionen.
+- **`AddManualForm`**: Dropdown Typ-Selektor + Wert + Bezeichnung + Notiz. Fügt `source: "manual"` Items hinzu.
+- **`SummaryBar`**: Footer-Leiste mit aggregierten Summen: ∑ Fläche, − Öffnungen, ∑ Nettofläche, ∑ Volumen, ∑ Länge, ∑ Stückzahl.
+
+Props:
+```typescript
+interface Props {
+  entry: BillingEntry;
+  onAddItem(item: Omit<QuantityItem, "id">): void;
+  onUpdateItem(id: string, patch: Partial<QuantityItem>): void;
+  onRemoveItem(id: string): void;
+}
+```
+
+### IfcQuantityExtractor (`src/billing/IfcQuantityExtractor.ts`)
+
+Extrahiert `QuantityItem[]` aus IFC-PropertySets. Priorität: `Qto_` > `BaseQuantities` > `PSet_`. Mappt 40+ IFC-Eigenschaftsnamen auf `QuantityType`. Dedupliziert: ein Item pro (type, name).
+
+```typescript
+export function extractQuantitiesFromPsets(psets: PropertySet[]): QuantityItem[]
+```
+
+Name-Mapping (Auswahl):
+| IFC-Name | QuantityType |
+|---|---|
+| GrossArea, NetArea | area |
+| GrossVolume, NetVolume | volume |
+| Length, GrossLength | length |
+| Height, GrossHeight | height |
+| Width, GrossWidth | width |
+| Perimeter | perimeter |
+| NumberOfItems | count |
+| Slope | slope |
+
+### quantityTypes.ts (`src/billing/quantityTypes.ts`)
+
+Alle Typdefinitionen, Metadaten und Hilfsfunktionen für das erweiterte Mengenmodell.
+
+```typescript
+export const QUANTITY_META: Record<QuantityType, { label: string; unit: QuantityUnit; description: string }>
+export const SOURCE_LABEL: Record<QuantitySource, string>
+export const SOURCE_COLOR: Record<QuantitySource, string>  // Tailwind-Klassen für Badges
+
+export function qid(): string                              // Eindeutige ID
+export function fmtQty(value: number, unit: QuantityUnit): string  // Formatierung mit Komma
+export function computeDerivedQuantities(items: QuantityItem[]): QuantityItem[]  // netArea, netVolume
+```
+
+#### 5D-Untermenü-Verhalten (Elementliste)
+
+- Erscheint 120ms nach Hover (kein sofortiges Schließen beim Überqueren des Gaps)
+- `useLayoutEffect` misst gerenderte Submenu-Größe und passt Position an
 - Bleibt immer innerhalb der Viewer-Container-Grenzen
 
 ---

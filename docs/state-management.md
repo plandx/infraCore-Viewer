@@ -313,37 +313,79 @@ Separater Zustand-Store ausschließlich für das 5D-Abrechnungsmodul. **Unabhän
 
 ```typescript
 interface BillingEntry {
-  key:         string;
-  guid:        string;
-  expressId:   number;
-  modelId:     string;
-  elementName: string;
-  ifcType:     string;
-  stages:      BillingStage[];
-  documents:   DocumentRef[];
-  quantities?: ElementQuantities;   // optional: berechnete/gemessene Mengen
-  createdAt:   string;
+  key:          string;
+  guid:         string;
+  expressId:    number;
+  modelId:      string;
+  elementName:  string;
+  ifcType:      string;
+  stages:       BillingStage[];
+  documents:    DocumentRef[];
+  quantities?:  ElementQuantities;  // legacy (backward compat)
+  quantitySet?: QuantitySet;        // erweitertes Mengenmodell (neu)
+  createdAt:    string;
 }
 ```
 
-### ElementQuantities
+### QuantitySet & QuantityItem (erweitertes Mengenmodell)
+
+```typescript
+// src/billing/quantityTypes.ts
+type QuantityType =
+  | "length" | "area" | "volume" | "perimeter" | "count"
+  | "weight" | "height" | "width" | "thickness" | "slope"
+  | "openingArea" | "netArea" | "netVolume" | "axisLength";
+
+type QuantityUnit = "m" | "m²" | "m³" | "Stk" | "kg" | "t" | "%";
+type QuantitySource = "ifc" | "geometry" | "measured" | "manual";
+
+interface QuantityItem {
+  id:           string;
+  type:         QuantityType;
+  label:        string;
+  value:        number;
+  unit:         QuantityUnit;
+  source:       QuantitySource;
+  note?:        string;
+  isDeduction?: boolean;
+}
+
+interface QuantitySet {
+  items:     QuantityItem[];
+  updatedAt: string;
+}
+```
+
+**Quellen:**
+- `ifc` — extrahiert aus IFC-Psets/Qtos (via `IfcQuantityExtractor`)
+- `geometry` — berechnet aus Three.js-Geometrie (Divergenz-Theorem, BBox)
+- `measured` — manuell gemessen im Geometrie-Inspektor
+- `manual` — manuell eingegeben im BillingPanel
+
+**Abgeleitete Größen** (werden nicht gespeichert, aus `items` berechnet):
+- `netArea` = Σ area − Σ openingArea
+- `netVolume` = Σ volume − Σ area·thickness (wenn vorhanden)
+
+### ElementQuantities (legacy)
 
 ```typescript
 interface ElementQuantities {
-  volume:      number;  // m³ (Divergenz-Theorem oder manuell)
-  surfaceArea: number;  // m² (Auto-Berechnung oder Geometrie-Inspektor)
-  bboxX:       number;  // m (Auto oder erste ausgewählte Kante)
-  bboxY:       number;  // m (Auto oder zweite ausgewählte Kante)
-  bboxZ:       number;  // m (Auto oder dritte ausgewählte Kante)
+  volume:      number;  // m³
+  surfaceArea: number;  // m²
+  bboxX:       number;  // m
+  bboxY:       number;  // m
+  bboxZ:       number;  // m
   computedAt:  string;  // ISO 8601
 }
 ```
+
+Wird weiterhin von `requestQuantities`/`quantities` BC-Flow genutzt und beim Geometry-Inspector-Auto-Modus. Neue Flows nutzen `QuantitySet`.
 
 ### Aktionen
 
 | Aktion | Signatur | Beschreibung |
 |---|---|---|
-| `addEntry` | `(info) => void` | Erstellt neuen Eintrag (kein Duplikat) |
+| `addEntry` | `(info) => void` | Erstellt neuen Eintrag (kein Duplikat, idempotent) |
 | `removeEntry` | `(key) => void` | Entfernt Eintrag inkl. Phasen/Dokumente |
 | `addStage` | `(key, stage) => void` | Fügt Abrechnungsstand hinzu |
 | `updateStage` | `(key, stageId, patch) => void` | Aktualisiert Felder eines Stands |
@@ -351,7 +393,12 @@ interface ElementQuantities {
 | `addDocument` | `(key, doc) => void` | Verknüpft Dokument |
 | `updateDocument` | `(key, docId, patch) => void` | Aktualisiert Dokumentfelder |
 | `removeDocument` | `(key, docId) => void` | Entfernt Dokument |
-| `setQuantities` | `(key, q: ElementQuantities, fallback?) => void` | Speichert Mengen; erstellt Eintrag per Upsert wenn keiner existiert (benötigt `fallback` mit guid/expressId/modelId/elementName/ifcType) |
+| `setQuantities` | `(key, q: ElementQuantities) => void` | Legacy-Mengen speichern |
+| `setQuantitySet` | `(key, set: QuantitySet) => void` | Gesamtes QuantitySet ersetzen |
+| `addQuantityItem` | `(key, item: Omit<QuantityItem, "id">) => void` | Einzelne Position hinzufügen |
+| `updateQuantityItem` | `(key, itemId, patch) => void` | Position aktualisieren |
+| `removeQuantityItem` | `(key, itemId) => void` | Position entfernen |
+| `mergeQuantityItems` | `(key, items, source) => void` | Alle Items der Quelle ersetzen, andere behalten (idempotenter Upsert per Quelle) |
 | `importData` | `(BillingExport) => void` | Merged Import-JSON in bestehende Einträge |
 | `exportData` | `() => BillingExport` | Gibt alle Einträge als JSON-Snapshot zurück |
 | `setModuleActive` | `(active) => void` | Schaltet 3D-Visualisierung |
@@ -362,6 +409,10 @@ interface ElementQuantities {
 - **localStorage**: Key `infracore-billing-v1` — alle Writes persistieren sofort
 - **BroadcastChannel** `"infracore-billing"`: Jede Mutation sendet `{ t: "dataSync", entries }` an alle anderen Fenster
 - Empfangene `dataSync`-Nachrichten werden via `_applySync()` angewendet (ohne erneutes Broadcast)
+
+### Zustand-Snapshot-Pitfall
+
+Nach `addEntry()` / `set()` muss **erneut** `useBillingStore.getState()` aufgerufen werden um den frischen Zustand zu lesen — Zustand-Subscriptions feuern synchron, aber das alte `store`-Objekt ist veraltet, weil Zustand den State-Objekt bei jedem `set()` ersetzt.
 
 ---
 
