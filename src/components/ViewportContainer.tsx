@@ -16,7 +16,7 @@ import type { BillingMsg } from "../billing/types";
 import { computeQuantities } from "../billing/quantityUtils";
 import { FaceEdgePicker } from "../geometry-inspector/FaceEdgePicker";
 import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorPanel";
-import type { PickMode, InspFace, InspEdge, InspectionSession } from "../geometry-inspector/types";
+import type { PickMode, InspFace, InspFaceBoundary, InspectionSession } from "../geometry-inspector/types";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -105,10 +105,10 @@ export function ViewportContainer({ onElementClick }: Props) {
   const [inspSession,  setInspSession]  = useState<InspectionSession | null>(null);
   const [inspPickMode, setInspPickMode] = useState<PickMode>("face");
   const inspPickModeRef = useRef<PickMode>("face");
-  const [inspFaces,    setInspFaces]    = useState<InspFace[]>([]);
-  const [inspEdges,    setInspEdges]    = useState<InspEdge[]>([]);
-  const [inspSelFaces, setInspSelFaces] = useState<Set<number>>(new Set());
-  const [inspSelEdges, setInspSelEdges] = useState<Set<number>>(new Set());
+  const [inspFaces,      setInspFaces]      = useState<InspFace[]>([]);
+  const [inspBoundaries, setInspBoundaries] = useState<InspFaceBoundary[]>([]);
+  const [inspSelFaces,      setInspSelFaces]      = useState<Set<number>>(new Set());
+  const [inspSelBoundaries, setInspSelBoundaries] = useState<Set<number>>(new Set());
   const [inspLabels,   setInspLabels]   = useState<Array<{
     id: number; text: string; x: number; y: number;
     type: "face" | "edge"; selected: boolean;
@@ -140,20 +140,15 @@ export function ViewportContainer({ onElementClick }: Props) {
         });
       }
     } else {
-      for (const edge of picker.edges) {
-        const mid = new THREE.Vector3(
-          (edge.start[0] + edge.end[0]) / 2,
-          (edge.start[1] + edge.end[1]) / 2,
-          (edge.start[2] + edge.end[2]) / 2,
-        );
-        const v = mid.project(camera);
+      for (const boundary of picker.faceBoundaries) {
+        const v = new THREE.Vector3(...boundary.center).project(camera);
         if (v.z >= 1) continue;
         out.push({
-          id: edge.id, type: "edge",
-          text: `K${edge.id + 1} · ${fmt(edge.length)} m`,
+          id: boundary.id, type: "edge",
+          text: `U${boundary.id + 1} · ${fmt(boundary.totalLength)} m`,
           x: (v.x + 1) / 2 * rect.width,
           y: (-v.y + 1) / 2 * rect.height,
-          selected: picker.selectedEdgeIds.has(edge.id),
+          selected: picker.selectedBoundaryIds.has(boundary.id),
         });
       }
     }
@@ -176,7 +171,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   useEffect(() => {
     if (inspSession) updateInspLabels();
     else setInspLabels([]);
-  }, [inspSession, inspFaces, inspEdges, updateInspLabels]);
+  }, [inspSession, inspFaces, inspBoundaries, updateInspLabels]);
 
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
@@ -458,28 +453,29 @@ export function ViewportContainer({ onElementClick }: Props) {
         // Init picker
         const scene = sceneRef.current!;
         pickerRef.current?.dispose();
-        const picker = new FaceEdgePicker(scene, (faceIds, edgeIds) => {
+        const picker = new FaceEdgePicker(scene, (faceIds, boundaryIds) => {
           setInspSelFaces(new Set(faceIds));
-          setInspSelEdges(new Set(edgeIds));
+          setInspSelBoundaries(new Set(boundaryIds));
           needsRenderRef.current = true;
-          updateInspLabelsRef.current(); // update label selected state
+          updateInspLabelsRef.current();
         });
         picker.load(meshes);
         pickerRef.current = picker;
 
         // Mark overlay objects so normal raycaster ignores them
         scene.traverse((obj) => {
-          if (obj.userData.inspFaceId !== undefined || obj.userData.inspEdgeId !== undefined) {
+          if (obj.userData.inspFaceId !== undefined || obj.userData.inspBoundaryId !== undefined) {
             obj.userData.isGeometryInspector = true;
           }
         });
 
         setInspSession({ modelId, expressId, elementName: msg.elementName, billingKey: msg.key });
         setInspPickMode("face");
+        inspPickModeRef.current = "face";
         setInspFaces(picker.faces);
-        setInspEdges(picker.edges);
+        setInspBoundaries(picker.faceBoundaries);
         setInspSelFaces(new Set());
-        setInspSelEdges(new Set());
+        setInspSelBoundaries(new Set());
         needsRenderRef.current = true;
       }
     });
@@ -1439,9 +1435,9 @@ export function ViewportContainer({ onElementClick }: Props) {
           elementName={inspSession.elementName}
           billingKey={inspSession.billingKey}
           faces={inspFaces}
-          edges={inspEdges}
+          boundaries={inspBoundaries}
           selectedFaceIds={inspSelFaces}
-          selectedEdgeIds={inspSelEdges}
+          selectedBoundaryIds={inspSelBoundaries}
           pickMode={inspPickMode}
           onPickModeChange={handlePickModeChange}
           onClose={() => {

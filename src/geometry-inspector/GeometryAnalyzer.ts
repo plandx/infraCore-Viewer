@@ -1,8 +1,7 @@
 import * as THREE from "three";
-import type { InspFace, InspEdge } from "./types";
+import type { InspFace, InspFaceBoundary } from "./types";
 
-const COPLANAR_DOT  = Math.cos(10 * Math.PI / 180); // triangles within 10° → same face
-const HARD_EDGE_DOT = Math.cos(25 * Math.PI / 180); // faces with angle > 25° → hard edge
+const COPLANAR_DOT = Math.cos(10 * Math.PI / 180); // triangles within 10° → same face
 const PREC = 4000; // quantization: 0.25 mm
 
 function qv(v: THREE.Vector3): string {
@@ -17,7 +16,7 @@ interface TriData {
 
 export interface AnalysisResult {
   faces: InspFace[];
-  edges: InspEdge[];
+  faceBoundaries: InspFaceBoundary[];
   /** flat vertex array per face (9 floats per tri, world space) for building face geometries */
   faceVertArrays: Float32Array[];
 }
@@ -48,9 +47,9 @@ export function analyzeMeshes(meshes: THREE.Mesh[]): AnalysisResult {
     }
   }
 
-  if (tris.length === 0) return { faces: [], edges: [], faceVertArrays: [] };
+  if (tris.length === 0) return { faces: [], faceBoundaries: [], faceVertArrays: [] };
 
-  // ── Edge → triangle adjacency ────────────────────────────────────────────────
+  // ── Edge → triangle adjacency ──────────────────────────────────────────────
   interface EdgeEntry { triIndices: number[]; va: THREE.Vector3; vb: THREE.Vector3 }
   const edgeMap = new Map<string, EdgeEntry>();
 
@@ -65,7 +64,7 @@ export function analyzeMeshes(meshes: THREE.Mesh[]): AnalysisResult {
     }
   }
 
-  // ── BFS flood-fill → face groups ─────────────────────────────────────────────
+  // ── BFS flood-fill → face groups ──────────────────────────────────────────
   const triToFace = new Int32Array(tris.length).fill(-1);
   const faceTriLists: number[][] = [];
 
@@ -96,7 +95,7 @@ export function analyzeMeshes(meshes: THREE.Mesh[]): AnalysisResult {
     faceTriLists.push(group);
   }
 
-  // ── Face stats ────────────────────────────────────────────────────────────────
+  // ── Face stats ────────────────────────────────────────────────────────────
   const faces: InspFace[] = faceTriLists.map((group, id) => {
     let area = 0, cx = 0, cy = 0, cz = 0, nx = 0, ny = 0, nz = 0;
     for (const ti of group) {
@@ -113,34 +112,55 @@ export function analyzeMeshes(meshes: THREE.Mesh[]): AnalysisResult {
     return { id, area, normal: normal.toArray() as [number, number, number], center: [cx / n3, cy / n3, cz / n3] };
   });
 
-  // ── Hard edges ────────────────────────────────────────────────────────────────
-  const rawEdges: { a: THREE.Vector3; b: THREE.Vector3 }[] = [];
+  // ── Face boundaries: per-face boundary edge segments ──────────────────────
+  // For each face, collect all edges where one adjacent triangle belongs to this
+  // face and the other does not (inter-face edges) or there is no other triangle
+  // (mesh boundary edges). These segments form the complete perimeter of the face.
+  const faceBoundarySegs: Map<number, Array<{ start: THREE.Vector3; end: THREE.Vector3 }>> = new Map();
+  for (let fid = 0; fid < faces.length; fid++) faceBoundarySegs.set(fid, []);
 
   for (const [, entry] of edgeMap) {
     const { triIndices, va, vb } = entry;
-    const len = va.distanceTo(vb);
-    if (len < 5e-4) continue;
+    if (va.distanceTo(vb) < 5e-4) continue;
 
-    if (triIndices.length !== 2) {
-      rawEdges.push({ a: va, b: vb }); // boundary edge → always hard
-      continue;
+    if (triIndices.length === 1) {
+      // Mesh boundary edge — belongs to the one adjacent face
+      const fid = triToFace[triIndices[0]];
+      faceBoundarySegs.get(fid)!.push({ start: va, end: vb });
+    } else if (triIndices.length >= 2) {
+      const fid0 = triToFace[triIndices[0]];
+      const fid1 = triToFace[triIndices[1]];
+      if (fid0 !== fid1) {
+        // Inter-face edge — add to BOTH adjacent faces
+        faceBoundarySegs.get(fid0)!.push({ start: va, end: vb });
+        faceBoundarySegs.get(fid1)!.push({ start: va, end: vb });
+      }
+      // Same face → interior edge, skip
     }
-    const [ti0, ti1] = triIndices;
-    if (triToFace[ti0] === triToFace[ti1]) continue; // same face
-    const n0 = new THREE.Vector3(...faces[triToFace[ti0]].normal);
-    const n1 = new THREE.Vector3(...faces[triToFace[ti1]].normal);
-    if (n0.dot(n1) > HARD_EDGE_DOT) continue;
-    rawEdges.push({ a: va, b: vb });
   }
 
-  const edges = mergeCollinear(rawEdges).map((e, id) => ({
-    id,
-    length: e.a.distanceTo(e.b),
-    start: e.a.toArray() as [number, number, number],
-    end:   e.b.toArray() as [number, number, number],
-  }));
+  const faceBoundaries: InspFaceBoundary[] = faces.map((face) => {
+    const rawSegs = faceBoundarySegs.get(face.id)!;
+    const merged = mergeCollinear(rawSegs);
 
-  // ── Per-face flat vertex arrays ───────────────────────────────────────────────
+    let totalLength = 0, cx = 0, cy = 0, cz = 0;
+    const segments = merged.map(({ start: a, end: b }) => {
+      const len = a.distanceTo(b);
+      totalLength += len;
+      cx += (a.x + b.x) / 2;
+      cy += (a.y + b.y) / 2;
+      cz += (a.z + b.z) / 2;
+      return {
+        start: a.toArray() as [number, number, number],
+        end:   b.toArray() as [number, number, number],
+      };
+    });
+
+    const n = segments.length || 1;
+    return { id: face.id, faceId: face.id, totalLength, center: [cx / n, cy / n, cz / n], segments };
+  });
+
+  // ── Per-face flat vertex arrays ────────────────────────────────────────────
   const faceVertArrays: Float32Array[] = faceTriLists.map((group) => {
     const arr = new Float32Array(group.length * 9);
     group.forEach((ti, i) => {
@@ -152,49 +172,42 @@ export function analyzeMeshes(meshes: THREE.Mesh[]): AnalysisResult {
     return arr;
   });
 
-  return { faces, edges, faceVertArrays };
+  return { faces, faceBoundaries, faceVertArrays };
 }
 
-// Merge collinear adjacent edge segments into single edges
-function mergeCollinear(rawEdges: { a: THREE.Vector3; b: THREE.Vector3 }[]): { a: THREE.Vector3; b: THREE.Vector3 }[] {
+function mergeCollinear(
+  rawEdges: { start: THREE.Vector3; end: THREE.Vector3 }[],
+): { start: THREE.Vector3; end: THREE.Vector3 }[] {
   if (rawEdges.length === 0) return [];
 
-  type Edge = { a: THREE.Vector3; b: THREE.Vector3; alive: boolean };
-  const edges: Edge[] = rawEdges.map(e => ({ a: e.a.clone(), b: e.b.clone(), alive: true }));
+  type Edge = { start: THREE.Vector3; end: THREE.Vector3; alive: boolean };
+  const edges: Edge[] = rawEdges.map(e => ({ start: e.start.clone(), end: e.end.clone(), alive: true }));
 
   let merged = true;
   while (merged) {
     merged = false;
-
-    // vertex → list of alive edge indices
     const vMap = new Map<string, number[]>();
     for (let i = 0; i < edges.length; i++) {
       if (!edges[i].alive) continue;
-      for (const v of [edges[i].a, edges[i].b]) {
+      for (const v of [edges[i].start, edges[i].end]) {
         const k = qv(v);
         const arr = vMap.get(k) ?? [];
         arr.push(i);
         vMap.set(k, arr);
       }
     }
-
     for (const [vk, eIdxs] of vMap) {
       if (eIdxs.length !== 2) continue;
       const [i0, i1] = eIdxs;
       const e0 = edges[i0], e1 = edges[i1];
-
-      const o0 = qv(e0.a) === vk ? e0.b : e0.a;
-      const o1 = qv(e1.a) === vk ? e1.b : e1.a;
-
-      // Parse shared vertex from key
+      const o0 = qv(e0.start) === vk ? e0.end : e0.start;
+      const o1 = qv(e1.start) === vk ? e1.end : e1.start;
       const parts = vk.split(",");
       const vp = new THREE.Vector3(+parts[0] / PREC, +parts[1] / PREC, +parts[2] / PREC);
-
       const d0 = o0.clone().sub(vp).normalize();
       const d1 = o1.clone().sub(vp).normalize();
-
-      if (d0.dot(d1) < -0.999) {           // opposite directions → collinear
-        edges.push({ a: o0, b: o1, alive: true });
+      if (d0.dot(d1) < -0.999) {
+        edges.push({ start: o0, end: o1, alive: true });
         e0.alive = false;
         e1.alive = false;
         merged = true;
