@@ -346,28 +346,37 @@ Floating-Overlay über dem Viewport (`absolute top-4 right-4 z-40 w-72`). Ersche
 Props:
 ```typescript
 interface Props {
-  elementName:      string;
-  billingKey:       string | null;
-  faces:            InspFace[];
-  edges:            InspEdge[];
-  selectedFaceIds:  Set<number>;
-  selectedEdgeIds:  Set<number>;
-  pickMode:         PickMode;
-  onPickModeChange: (m: PickMode) => void;
-  onClose:          () => void;
+  elementName:         string;
+  billingKey:          string | null;
+  expressId:           number;
+  modelId:             string;
+  ifcType:             string;
+  faces:               InspFace[];
+  boundaries:          InspFaceBoundary[];
+  edges:               InspEdge[];
+  selectedFaceIds:     Set<number>;
+  selectedBoundaryIds: Set<number>;
+  selectedEdgeIds:     Set<number>;
+  pickMode:            PickMode;
+  onPickModeChange:    (m: PickMode) => void;
+  showMesh:            boolean;
+  onToggleShowMesh:    () => void;
+  onClose:             () => void;
 }
 ```
 
 Aufbau:
 - **Header**: Elementname, „Geometrie-Inspektor"-Label, Schließen-Button
-- **Mode-Tabs**: Flächen (Anzahl) / Kanten (Anzahl)
-- **Hinweis**: „Klick = wählen · Strg + Klick = Mehrfachauswahl"
-- **Liste**: Alle Flächen/Kanten mit Fläche (m²) / Länge (m); Ausgewählte hervorgehoben (grüne Border-Markierung)
-- **Zusammenfassung**: Gesamtfläche (grün, `#22cc88`) + einzelne Kantenlängen (hellgrün, `#44ff88`)
+- **Sichtbarkeits-Toggle**: Volle Breite, schaltet IFC-Objekt ein/aus (standardmäßig ausgeblendet)
+- **Mode-Tabs**: Flächen / Umrandungen / Kanten (jeweils mit Anzahl)
+- **Hinweis**: Klick-Anleitung je nach Modus; `Strg`+Klick für Mehrfachauswahl
+- **Liste**: Alle Flächen/Umrandungen/Kanten mit Maßangabe; Ausgewählte hervorgehoben
+- **Zusammenfassung**: Gesamtfläche (grün, `#22cc88`), Umrandungslängen, einzelne Kantenlängen + Summe aller ausgewählten Kanten (orange, `#ff8800`) wenn ≥2 Kanten gewählt
 - **„In 5D-Eintrag speichern"**-Button (nur wenn `billingKey` vorhanden und etwas ausgewählt):
   - `surfaceArea` = Summe ausgewählter Flächen
-  - `bboxX/Y/Z` = Länge der ersten 3 ausgewählten Kanten
+  - `bboxX/Y/Z` = Länge der ersten 3 ausgewählten Umrandungen / Kanten
   - `volume` = vorhandener Wert aus Store (wird nicht überschrieben)
+  - **Upsert**: erstellt fehlenden 5D-Eintrag automatisch (nutzt `expressId`, `modelId`, `ifcType`)
   - 2s grüne Bestätigungs-Anzeige nach Speichern
 
 ### Aktivierungs-Flow
@@ -379,7 +388,7 @@ Aufbau:
    - `isolateEntries([{ modelId, expressId }])` → Element allein sichtbar
    - `GeometryAnalyzer.analyze(meshes)` → faces, edges, faceVertArrays
    - `pickerRef.current = new FaceEdgePicker(scene); picker.load(meshes)`
-   - `setInspSession({ modelId, expressId, elementName, billingKey: key })`
+   - `setInspSession({ modelId, expressId, elementName, billingKey: key, ifcType })`
 4. `GeometryInspectorPanel` erscheint
 5. Maus-Events (`handleMouseMove`, `handleClick`) werden an `pickerRef.current` weitergeleitet
 6. `onClose`: `picker.dispose()`, `showAll()`, `setInspSession(null)`

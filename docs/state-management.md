@@ -351,7 +351,7 @@ interface ElementQuantities {
 | `addDocument` | `(key, doc) => void` | Verknüpft Dokument |
 | `updateDocument` | `(key, docId, patch) => void` | Aktualisiert Dokumentfelder |
 | `removeDocument` | `(key, docId) => void` | Entfernt Dokument |
-| `setQuantities` | `(key, q: ElementQuantities) => void` | Speichert berechnete/gemessene Mengen |
+| `setQuantities` | `(key, q: ElementQuantities, fallback?) => void` | Speichert Mengen; erstellt Eintrag per Upsert wenn keiner existiert (benötigt `fallback` mit guid/expressId/modelId/elementName/ifcType) |
 | `importData` | `(BillingExport) => void` | Merged Import-JSON in bestehende Einträge |
 | `exportData` | `() => BillingExport` | Gibt alle Einträge als JSON-Snapshot zurück |
 | `setModuleActive` | `(active) => void` | Schaltet 3D-Visualisierung |
