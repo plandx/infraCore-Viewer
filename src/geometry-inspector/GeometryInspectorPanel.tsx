@@ -2,8 +2,8 @@ import { useState } from "react";
 import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore } from "../billing/billingStore";
-import { qid } from "../billing/quantityTypes";
-import type { QuantityItem } from "../billing/quantityTypes";
+import { qid, QUANTITY_META } from "../billing/quantityTypes";
+import type { QuantityItem, QuantityType } from "../billing/quantityTypes";
 import type { InspFace, InspFaceBoundary, InspEdge, PickMode } from "./types";
 
 interface Props {
@@ -25,7 +25,64 @@ interface Props {
   onClose:             () => void;
 }
 
+// Type options per measurement kind
+const AREA_TYPES: { type: QuantityType; label: string }[] = [
+  { type: "area",        label: "Fläche (m²)" },
+  { type: "openingArea", label: "Öffnung / Abzug (m²)" },
+];
+
+const LENGTH_TYPES: { type: QuantityType; label: string }[] = [
+  { type: "length",     label: "Länge / lfm (m)" },
+  { type: "perimeter",  label: "Umfang / Perimeter (m)" },
+  { type: "height",     label: "Höhe (m)" },
+  { type: "width",      label: "Breite (m)" },
+  { type: "thickness",  label: "Dicke / Schichtstärke (m)" },
+  { type: "axisLength", label: "Achslänge (m)" },
+];
+
 const fmt = (n: number, d = 3) => n.toFixed(d).replace(".", ",");
+
+// ── Compact type-assignment card ──────────────────────────────────────────────
+
+function MeasureCard({
+  value, unit, defaultLabel, accentColor, options, type, onTypeChange, label, onLabelChange,
+}: {
+  value: number;
+  unit: string;
+  defaultLabel: string;
+  accentColor: string;
+  options: { type: QuantityType; label: string }[];
+  type: QuantityType;
+  onTypeChange: (t: QuantityType) => void;
+  label: string;
+  onLabelChange: (s: string) => void;
+}) {
+  return (
+    <div className={cn("rounded-lg p-2 space-y-1.5 border bg-muted/20", accentColor)}>
+      <div className="flex items-center gap-1.5">
+        <select
+          value={type}
+          onChange={e => onTypeChange(e.target.value as QuantityType)}
+          className="flex-1 min-w-0 text-[10px] px-1.5 py-0.5 bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary truncate"
+        >
+          {options.map(o => <option key={o.type} value={o.type}>{o.label}</option>)}
+        </select>
+        <span className="font-mono text-xs font-semibold shrink-0 tabular-nums">
+          {fmt(value)} {unit}
+        </span>
+      </div>
+      <input
+        type="text"
+        placeholder={defaultLabel}
+        value={label}
+        onChange={e => onLabelChange(e.target.value)}
+        className="w-full text-[10px] px-1.5 py-0.5 bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/40"
+      />
+    </div>
+  );
+}
+
+// ── Main panel ────────────────────────────────────────────────────────────────
 
 export function GeometryInspectorPanel({
   elementName, billingKey, expressId, modelId, ifcType,
@@ -36,40 +93,59 @@ export function GeometryInspectorPanel({
 }: Props) {
   const [saved, setSaved] = useState(false);
 
+  // Type assignments per measurement
+  const [faceType,  setFaceType]  = useState<QuantityType>("area");
+  const [faceLabel, setFaceLabel] = useState("");
+
+  // Per-boundary: type + label (keyed by boundary id)
+  const [boundaryTypes,  setBoundaryTypes]  = useState<Record<number, QuantityType>>({});
+  const [boundaryLabels, setBoundaryLabels] = useState<Record<number, string>>({});
+
+  const [edgeType,  setEdgeType]  = useState<QuantityType>("length");
+  const [edgeLabel, setEdgeLabel] = useState("");
+
   const selFaces      = faces.filter(f => selectedFaceIds.has(f.id));
   const selBoundaries = boundaries.filter(b => selectedBoundaryIds.has(b.id));
   const selEdges      = edges.filter(e => selectedEdgeIds.has(e.id));
-  const totalArea     = selFaces.reduce((s, f) => s + f.area, 0);
+  const totalArea       = selFaces.reduce((s, f) => s + f.area, 0);
   const totalEdgeLength = selEdges.reduce((s, e) => s + e.length, 0);
 
-  const canSave = selFaces.length > 0 || selBoundaries.length > 0 || selEdges.length > 0;
+  const canSave = billingKey && (selFaces.length > 0 || selBoundaries.length > 0 || selEdges.length > 0);
 
   const handleSave = () => {
     if (!billingKey) return;
     useBillingStore.getState().addEntry({ key: billingKey, guid: billingKey, expressId, modelId, elementName, ifcType });
 
     const measuredItems: QuantityItem[] = [];
+
     if (selFaces.length > 0) {
+      const type = faceType;
       measuredItems.push({
-        id: qid(), type: "area", label: `${selFaces.length} Fläche${selFaces.length !== 1 ? "n" : ""} (Inspektor)`,
-        value: totalArea, unit: "m²", source: "measured",
+        id: qid(), type, source: "measured",
+        label: faceLabel.trim() || `${selFaces.length} Fläche${selFaces.length !== 1 ? "n" : ""} (Inspektor)`,
+        value: totalArea,
+        unit: QUANTITY_META[type].unit,
+        isDeduction: type === "openingArea",
       });
     }
+
     selBoundaries.forEach((b, i) => {
+      const type = boundaryTypes[b.id] ?? "perimeter";
       measuredItems.push({
-        id: qid(), type: "perimeter", label: `Umrandung ${i + 1} (Inspektor)`,
-        value: b.totalLength, unit: "m", source: "measured",
+        id: qid(), type, source: "measured",
+        label: (boundaryLabels[b.id] ?? "").trim() || `Umrandung ${i + 1} (Inspektor)`,
+        value: b.totalLength,
+        unit: QUANTITY_META[type].unit,
       });
     });
-    if (selEdges.length === 1) {
+
+    if (selEdges.length > 0) {
+      const type = edgeType;
       measuredItems.push({
-        id: qid(), type: "length", label: "Kante (Inspektor)",
-        value: selEdges[0].length, unit: "m", source: "measured",
-      });
-    } else if (selEdges.length > 1) {
-      measuredItems.push({
-        id: qid(), type: "length", label: `${selEdges.length} Kanten (Inspektor)`,
-        value: totalEdgeLength, unit: "m", source: "measured",
+        id: qid(), type, source: "measured",
+        label: edgeLabel.trim() || (selEdges.length === 1 ? "Kante (Inspektor)" : `${selEdges.length} Kanten (Inspektor)`),
+        value: totalEdgeLength,
+        unit: QUANTITY_META[type].unit,
       });
     }
 
@@ -79,9 +155,9 @@ export function GeometryInspectorPanel({
   };
 
   const tabs: { mode: PickMode; label: string; count: number }[] = [
-    { mode: "face",     label: "Flächen",    count: faces.length },
+    { mode: "face",     label: "Flächen",     count: faces.length },
     { mode: "boundary", label: "Umrandungen", count: boundaries.length },
-    { mode: "edge",     label: "Kanten",     count: edges.length },
+    { mode: "edge",     label: "Kanten",      count: edges.length },
   ];
 
   return (
@@ -99,7 +175,7 @@ export function GeometryInspectorPanel({
         </button>
       </div>
 
-      {/* Mesh visibility toggle — prominent bar */}
+      {/* Mesh visibility toggle */}
       <button
         onClick={onToggleShowMesh}
         className={cn(
@@ -140,15 +216,17 @@ export function GeometryInspectorPanel({
         <p className="text-[10px] text-primary/80">
           {pickMode === "boundary"
             ? "Klick auf Fläche oder Kante = Umrandung wählen"
+            : pickMode === "edge"
+            ? "Klick = auswählen · Doppelklick = verbundene Kanten"
             : "Klick = auswählen"
           }
           {" · "}
           <kbd className="font-mono bg-primary/10 px-0.5 rounded text-[9px]">Strg</kbd>
-          {" "}+ Klick = Mehrfachauswahl
+          {" "}+ Mehrfachauswahl
         </p>
       </div>
 
-      {/* List */}
+      {/* Element list */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {pickMode === "face" && (
           faces.length === 0
@@ -172,7 +250,7 @@ export function GeometryInspectorPanel({
             : boundaries.map(b => (
               <div key={b.id} className={cn(
                 "flex items-center gap-2 px-3 py-1.5 border-b border-border/30 text-xs",
-                selectedBoundaryIds.has(b.id) ? "bg-red-500/10 border-l-2 border-l-red-400" : "hover:bg-muted/30"
+                selectedBoundaryIds.has(b.id) ? "bg-orange-500/10 border-l-2 border-l-orange-400" : "hover:bg-muted/30"
               )}>
                 <span className={cn("w-3 h-3 rounded shrink-0 border",
                   selectedBoundaryIds.has(b.id) ? "bg-[#ff8800] border-[#ff8800]" : "border-border")} />
@@ -188,7 +266,7 @@ export function GeometryInspectorPanel({
             : edges.map(e => (
               <div key={e.id} className={cn(
                 "flex items-center gap-2 px-3 py-1.5 border-b border-border/30 text-xs",
-                selectedEdgeIds.has(e.id) ? "bg-red-500/10 border-l-2 border-l-red-400" : "hover:bg-muted/30"
+                selectedEdgeIds.has(e.id) ? "bg-orange-500/10 border-l-2 border-l-orange-400" : "hover:bg-muted/30"
               )}>
                 <span className={cn("w-3 h-3 rounded shrink-0 border",
                   selectedEdgeIds.has(e.id) ? "bg-[#ff8800] border-[#ff8800]" : "border-border")} />
@@ -199,50 +277,75 @@ export function GeometryInspectorPanel({
         )}
       </div>
 
-      {/* Summary + Save */}
-      <div className="px-3 py-2.5 border-t border-border bg-card/90 shrink-0 space-y-1.5">
-        {selFaces.length > 0 && (
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">{selFaces.length} Fläche{selFaces.length !== 1 ? "n" : ""}</span>
-            <span className="font-mono font-semibold text-[#22cc88]">{fmt(totalArea)} m²</span>
-          </div>
-        )}
-        {selBoundaries.map((b, i) => (
-          <div key={b.id} className="flex justify-between text-xs">
-            <span className="text-muted-foreground">Umrandung {i + 1}</span>
-            <span className="font-mono font-semibold text-[#ff8800]">{fmt(b.totalLength)} m</span>
-          </div>
-        ))}
-        {selEdges.map((e, i) => (
-          <div key={e.id} className="flex justify-between text-xs">
-            <span className="text-muted-foreground">Kante {i + 1}</span>
-            <span className="font-mono font-semibold text-[#ff8800]">{fmt(e.length)} m</span>
-          </div>
-        ))}
-        {selEdges.length > 1 && (
-          <div className="flex justify-between text-xs border-t border-border/40 pt-1">
-            <span className="text-muted-foreground">{selEdges.length} Kanten gesamt</span>
-            <span className="font-mono font-semibold text-[#ff8800]">{fmt(totalEdgeLength)} m</span>
-          </div>
-        )}
-        {!canSave && (
-          <p className="text-[10px] text-muted-foreground text-center">
+      {/* Type-assignment + Save */}
+      <div className="px-3 pt-2.5 pb-3 border-t border-border bg-card/90 shrink-0">
+        {!canSave ? (
+          <p className="text-[10px] text-muted-foreground text-center py-1">
             Auf Fläche, Umrandung oder Kante klicken
           </p>
-        )}
-        {billingKey && canSave && (
-          <button
-            onClick={handleSave}
-            className={cn(
-              "w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-all",
-              saved
-                ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                : "bg-primary text-primary-foreground hover:opacity-90"
+        ) : (
+          <div className="space-y-2">
+            {/* Section label */}
+            <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+              LV-Grundgröße zuordnen
+            </p>
+
+            {selFaces.length > 0 && (
+              <MeasureCard
+                value={totalArea}
+                unit="m²"
+                defaultLabel={`${selFaces.length} Fläche${selFaces.length !== 1 ? "n" : ""} (Inspektor)`}
+                accentColor="border-[#22cc88]/25"
+                options={AREA_TYPES}
+                type={faceType}
+                onTypeChange={setFaceType}
+                label={faceLabel}
+                onLabelChange={setFaceLabel}
+              />
             )}
-          >
-            <Save size={11} />
-            {saved ? "Gespeichert ✓" : "In 5D-Eintrag speichern"}
-          </button>
+
+            {selBoundaries.map((b, i) => (
+              <MeasureCard
+                key={b.id}
+                value={b.totalLength}
+                unit="m"
+                defaultLabel={`Umrandung ${i + 1} (Inspektor)`}
+                accentColor="border-[#ff8800]/25"
+                options={LENGTH_TYPES}
+                type={boundaryTypes[b.id] ?? "perimeter"}
+                onTypeChange={t => setBoundaryTypes(prev => ({ ...prev, [b.id]: t }))}
+                label={boundaryLabels[b.id] ?? ""}
+                onLabelChange={s => setBoundaryLabels(prev => ({ ...prev, [b.id]: s }))}
+              />
+            ))}
+
+            {selEdges.length > 0 && (
+              <MeasureCard
+                value={totalEdgeLength}
+                unit="m"
+                defaultLabel={selEdges.length === 1 ? "Kante (Inspektor)" : `${selEdges.length} Kanten (Inspektor)`}
+                accentColor="border-[#ff8800]/25"
+                options={LENGTH_TYPES}
+                type={edgeType}
+                onTypeChange={setEdgeType}
+                label={edgeLabel}
+                onLabelChange={setEdgeLabel}
+              />
+            )}
+
+            <button
+              onClick={handleSave}
+              className={cn(
+                "w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-all mt-0.5",
+                saved
+                  ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                  : "bg-primary text-primary-foreground hover:opacity-90"
+              )}
+            >
+              <Save size={11} />
+              {saved ? "Gespeichert ✓" : "In 5D-Eintrag speichern"}
+            </button>
+          </div>
         )}
       </div>
     </div>
