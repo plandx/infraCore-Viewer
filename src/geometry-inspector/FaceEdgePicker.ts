@@ -2,9 +2,10 @@ import * as THREE from "three";
 import type { InspFace, InspEdge, PickMode } from "./types";
 import { analyzeMeshes } from "./GeometryAnalyzer";
 
-const C_FACE_HOVER   = 0x4488ff;
+const C_FACE_DEFAULT = 0x4488ff;
+const C_FACE_HOVER   = 0x66aaff;
 const C_FACE_SELECT  = 0x22cc88;
-const C_EDGE_DEFAULT = 0xaaaaaa;
+const C_EDGE_DEFAULT = 0xccddff;
 const C_EDGE_HOVER   = 0x88ccff;
 const C_EDGE_SELECT  = 0x44ff88;
 const FACE_OFFSET    = 0.001; // 1 mm outward to avoid z-fighting
@@ -51,8 +52,8 @@ export class FaceEdgePicker {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(offsetVerts, 3));
       const mat = new THREE.MeshBasicMaterial({
-        color: C_FACE_HOVER, transparent: true, opacity: 0,
-        depthTest: true, depthWrite: false, side: THREE.DoubleSide,
+        color: C_FACE_DEFAULT, transparent: true, opacity: 0.12,
+        depthTest: false, depthWrite: false, side: THREE.DoubleSide,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.renderOrder = 10;
@@ -152,11 +153,11 @@ export class FaceEdgePicker {
       const id  = m.userData.inspFaceId as number;
       const mat = m.material as THREE.MeshBasicMaterial;
       if (this.selectedFaceIds.has(id)) {
-        mat.color.setHex(C_FACE_SELECT); mat.opacity = 0.5;
+        mat.color.setHex(C_FACE_SELECT); mat.opacity = 0.65;
       } else if (id === this.hoveredFaceId) {
-        mat.color.setHex(C_FACE_HOVER);  mat.opacity = 0.35;
+        mat.color.setHex(C_FACE_HOVER);  mat.opacity = 0.40;
       } else {
-        mat.opacity = 0;
+        mat.color.setHex(C_FACE_DEFAULT); mat.opacity = 0.12;
       }
       mat.needsUpdate = true;
     }

@@ -108,6 +108,62 @@ export function ViewportContainer({ onElementClick }: Props) {
   const [inspEdges,    setInspEdges]    = useState<InspEdge[]>([]);
   const [inspSelFaces, setInspSelFaces] = useState<Set<number>>(new Set());
   const [inspSelEdges, setInspSelEdges] = useState<Set<number>>(new Set());
+  const [inspLabels,   setInspLabels]   = useState<Array<{
+    id: number; text: string; x: number; y: number;
+    type: "face" | "edge"; selected: boolean;
+  }>>([]);
+  const labelScheduledRef    = useRef(false);
+  const updateInspLabelsRef  = useRef<() => void>(() => {});
+
+  // Compute 3D→2D label positions for all faces + edges in inspection mode
+  const updateInspLabels = useCallback(() => {
+    const picker   = pickerRef.current;
+    const camera   = cameraRef.current;
+    const renderer = rendererRef.current;
+    if (!picker || !camera || !renderer) { setInspLabels([]); return; }
+    const rect = renderer.domElement.getBoundingClientRect();
+    const fmt  = (n: number) => n.toFixed(2).replace(".", ",");
+    const out: typeof inspLabels = [];
+
+    for (const face of picker.faces) {
+      const v = new THREE.Vector3(...face.center).project(camera);
+      if (v.z >= 1) continue;
+      out.push({
+        id: face.id, type: "face",
+        text: `F${face.id + 1} · ${fmt(face.area)} m²`,
+        x: (v.x + 1) / 2 * rect.width,
+        y: (-v.y + 1) / 2 * rect.height,
+        selected: picker.selectedFaceIds.has(face.id),
+      });
+    }
+
+    for (const edge of picker.edges) {
+      const mid = new THREE.Vector3(
+        (edge.start[0] + edge.end[0]) / 2,
+        (edge.start[1] + edge.end[1]) / 2,
+        (edge.start[2] + edge.end[2]) / 2,
+      );
+      const v = mid.project(camera);
+      if (v.z >= 1) continue;
+      out.push({
+        id: edge.id, type: "edge",
+        text: `K${edge.id + 1} · ${fmt(edge.length)} m`,
+        x: (v.x + 1) / 2 * rect.width,
+        y: (-v.y + 1) / 2 * rect.height,
+        selected: picker.selectedEdgeIds.has(edge.id),
+      });
+    }
+
+    setInspLabels(out);
+  }, []); // all reads through stable refs
+
+  useEffect(() => { updateInspLabelsRef.current = updateInspLabels; }, [updateInspLabels]);
+
+  // Recompute labels whenever inspection session / face+edge data changes
+  useEffect(() => {
+    if (inspSession) updateInspLabels();
+    else setInspLabels([]);
+  }, [inspSession, inspFaces, inspEdges, updateInspLabels]);
 
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
@@ -208,8 +264,18 @@ export function ViewportContainer({ onElementClick }: Props) {
     axes.name = "__axes";
     scene.add(axes);
 
-    // Trigger a render whenever the camera moves
-    controls.addEventListener("change", () => { needsRenderRef.current = true; });
+    // Trigger a render whenever the camera moves; throttle inspector label updates via RAF
+    controls.addEventListener("change", () => {
+      needsRenderRef.current = true;
+      if (!pickerRef.current) return;
+      if (!labelScheduledRef.current) {
+        labelScheduledRef.current = true;
+        requestAnimationFrame(() => {
+          labelScheduledRef.current = false;
+          updateInspLabelsRef.current();
+        });
+      }
+    });
 
     // Render-on-demand loop: only calls renderer.render() when needsRenderRef is set.
     // With enableDamping=false, controls.update() is a no-op so we skip it here.
@@ -383,6 +449,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           setInspSelFaces(new Set(faceIds));
           setInspSelEdges(new Set(edgeIds));
           needsRenderRef.current = true;
+          updateInspLabelsRef.current(); // update label selected state
         });
         picker.load(meshes);
         pickerRef.current = picker;
@@ -984,8 +1051,8 @@ export function ViewportContainer({ onElementClick }: Props) {
     setContextMenu(null);
     if (clickSuppressedRef.current) { clickSuppressedRef.current = false; return; }
 
-    // Inspection mode: route clicks to picker
-    if (pickerRef.current && inspSession && rendererRef.current && cameraRef.current) {
+    // Inspection mode: route clicks to picker (check ref only — inspSession is React state and would be stale in this closure)
+    if (pickerRef.current && rendererRef.current && cameraRef.current) {
       const rect = rendererRef.current.domElement.getBoundingClientRect();
       const ndc = new THREE.Vector2(
         ((e.clientX - rect.left) / rect.width)  * 2 - 1,
@@ -1330,6 +1397,26 @@ export function ViewportContainer({ onElementClick }: Props) {
         </div>
       ))}
 
+      {/* Inspector labels — face (F1…) and edge (K1…) labels in 3D viewport */}
+      {inspSession && inspLabels.map((lbl) => (
+        <div
+          key={`${lbl.type}-${lbl.id}`}
+          className={cn(
+            "absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded text-[9px] font-mono whitespace-nowrap border select-none shadow",
+            lbl.type === "face"
+              ? lbl.selected
+                ? "bg-[#22cc88] text-black border-[#22cc88] font-semibold"
+                : "bg-[#3366ff]/80 text-white border-[#3366ff]/60"
+              : lbl.selected
+                ? "bg-[#44ff88] text-black border-[#44ff88] font-semibold"
+                : "bg-[#334455]/80 text-white border-[#334455]/60"
+          )}
+          style={{ left: lbl.x, top: lbl.y }}
+        >
+          {lbl.text}
+        </div>
+      ))}
+
       {/* Section panel — top center, lazy: only mounts when active */}
       <SectionPanel />
 
@@ -1348,6 +1435,7 @@ export function ViewportContainer({ onElementClick }: Props) {
             pickerRef.current?.dispose();
             pickerRef.current = null;
             setInspSession(null);
+            setInspLabels([]);
             useModelStore.getState().showAll();
             needsRenderRef.current = true;
           }}
