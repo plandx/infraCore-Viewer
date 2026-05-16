@@ -422,6 +422,63 @@ export function ViewportContainer({ onElementClick }: Props) {
     needsRenderRef.current = true;
   }, [billingEntries, billingModuleActive]);
 
+  // Reusable inspection starter — called from both BroadcastChannel and context menu
+  const startInspectionForElement = useCallback((
+    modelId: string,
+    expressId: number,
+    elementName: string,
+    billingKey: string | null,
+  ) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    // Collect all IFC meshes for this element (skip overlays / highlights)
+    scene.updateMatrixWorld(true);
+    const meshes: THREE.Mesh[] = [];
+    scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
+      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap ||
+          obj.userData.isEdge || obj.userData.isBillingOverlay || obj.userData.isGeometryInspector) return;
+      let objModelId = "";
+      let node: THREE.Object3D | null = obj;
+      while (node) { if (node.userData.modelId) { objModelId = node.userData.modelId as string; break; } node = node.parent; }
+      if (objModelId === modelId && obj.userData.expressId === expressId) meshes.push(obj);
+    });
+    if (meshes.length === 0) return;
+
+    useModelStore.getState().isolateEntries([{ modelId, expressId }]);
+
+    pickerRef.current?.dispose();
+    const picker = new FaceEdgePicker(scene, (faceIds, boundaryIds, edgeIds) => {
+      setInspSelFaces(new Set(faceIds));
+      setInspSelBoundaries(new Set(boundaryIds));
+      setInspSelEdges(new Set(edgeIds));
+      needsRenderRef.current = true;
+      updateInspLabelsRef.current();
+    });
+    picker.load(meshes);
+    pickerRef.current = picker;
+
+    scene.traverse((obj) => {
+      if (obj.userData.inspFaceId !== undefined || obj.userData.inspBoundaryId !== undefined) {
+        obj.userData.isGeometryInspector = true;
+      }
+    });
+
+    inspMeshesRef.current = meshes;
+    setInspSession({ modelId, expressId, elementName, billingKey });
+    setInspPickMode("face");
+    inspPickModeRef.current = "face";
+    setInspFaces(picker.faces);
+    setInspBoundaries(picker.faceBoundaries);
+    setInspEdges(picker.edges);
+    setInspSelFaces(new Set());
+    setInspSelBoundaries(new Set());
+    setInspSelEdges(new Set());
+    setInspShowMesh(false);
+    needsRenderRef.current = true;
+  }, []);
+
   // Handle requestQuantities + startInspection from billing window
   useEffect(() => {
     let bc: BroadcastChannel | null = null;
@@ -457,54 +514,13 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
 
       if (msg.t === "startInspection") {
-        const meshes = collectMeshesForKey(msg.key);
-        if (meshes.length === 0) return;
-
-        // Find modelId + expressId from key
         const sessionModels = useModelStore.getState().models;
         const [filename, expStr] = msg.key.split(":");
         const expressId = parseInt(expStr, 10);
         let modelId = "";
         sessionModels.forEach((m, id) => { if (m.name === filename) modelId = id; });
         if (!modelId) return;
-
-        // Isolate element
-        useModelStore.getState().isolateEntries([{ modelId, expressId }]);
-
-        // Init picker
-        const scene = sceneRef.current!;
-        pickerRef.current?.dispose();
-        const picker = new FaceEdgePicker(scene, (faceIds, boundaryIds, edgeIds) => {
-          setInspSelFaces(new Set(faceIds));
-          setInspSelBoundaries(new Set(boundaryIds));
-          setInspSelEdges(new Set(edgeIds));
-          needsRenderRef.current = true;
-          updateInspLabelsRef.current();
-        });
-        picker.load(meshes);
-        pickerRef.current = picker;
-
-        // Mark overlay objects so normal raycaster ignores them
-        scene.traverse((obj) => {
-          if (obj.userData.inspFaceId !== undefined || obj.userData.inspBoundaryId !== undefined) {
-            obj.userData.isGeometryInspector = true;
-          }
-        });
-
-        // Store IFC meshes for the hide/show toggle
-        inspMeshesRef.current = meshes;
-
-        setInspSession({ modelId, expressId, elementName: msg.elementName, billingKey: msg.key });
-        setInspPickMode("face");
-        inspPickModeRef.current = "face";
-        setInspFaces(picker.faces);
-        setInspBoundaries(picker.faceBoundaries);
-        setInspEdges(picker.edges);
-        setInspSelFaces(new Set());
-        setInspSelBoundaries(new Set());
-        setInspSelEdges(new Set());
-        setInspShowMesh(false); // hide IFC mesh by default
-        needsRenderRef.current = true;
+        startInspectionForElement(modelId, expressId, msg.elementName, msg.key);
       }
     });
 
@@ -1568,6 +1584,15 @@ export function ViewportContainer({ onElementClick }: Props) {
           }}
           faceNormal={contextMenu.faceNormal}
           hitPoint={contextMenu.hitPoint}
+          onStartInspection={() => {
+            const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
+            startInspectionForElement(
+              contextMenu.modelId, contextMenu.expressId,
+              contextMenu.elementName,
+              `${filename}:${contextMenu.expressId}`,
+            );
+            setContextMenu(null);
+          }}
           onSectionFromFace={contextMenu.faceNormal ? () => {
             const N = new THREE.Vector3(...contextMenu.faceNormal!).negate().normalize();
             const planes = useModelStore.getState().sectionPlanes;
@@ -1610,7 +1635,8 @@ function degreeColor(d: number): string {
 function ContextMenu({
   x, y, expressId, inBasket, inBilling, currentDegree, menuX, faceNormal,
   onClose, onHide, onIsolate, onShowAll,
-  onFit, onBasketToggle, onSelectClass, onSelectStorey, onSectionFromFace, onAdd5D, onSet5DDegree,
+  onFit, onBasketToggle, onSelectClass, onSelectStorey, onSectionFromFace,
+  onAdd5D, onSet5DDegree, onStartInspection,
 }: {
   x: number; y: number; modelId: string; expressId: number; inBasket: boolean; inBilling: boolean;
   currentDegree: number | null; menuX: number;
@@ -1619,6 +1645,7 @@ function ContextMenu({
   onShowAll: () => void; onFit: () => void;
   onBasketToggle: () => void; onSelectClass: () => void; onSelectStorey: () => void;
   onSectionFromFace?: () => void; onAdd5D: () => void; onSet5DDegree: (d: number) => void;
+  onStartInspection: () => void;
 }) {
   const [subOpen, setSubOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1784,6 +1811,10 @@ function ContextMenu({
           </button>
         </>
       )}
+      <div className="border-t border-border my-1" />
+      <button className="w-full text-left px-3 py-1.5 hover:bg-muted/60 text-foreground" onClick={onStartInspection}>
+        Geometrie-Inspektor starten
+      </button>
     </div>
   );
 }
