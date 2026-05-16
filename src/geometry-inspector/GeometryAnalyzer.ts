@@ -29,7 +29,8 @@ export function analyzeMeshes(meshes: THREE.Mesh[]): AnalysisResult {
   for (const mesh of meshes) {
     mesh.updateWorldMatrix(true, false);
     const { geometry: geo, matrixWorld } = mesh;
-    const pos = geo.attributes.position;
+    const pos = geo.attributes.position as THREE.BufferAttribute | undefined;
+    if (!pos) continue;
     const idx = geo.index;
     const count = idx ? idx.count : pos.count;
 

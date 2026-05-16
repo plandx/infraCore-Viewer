@@ -508,15 +508,23 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     useModelStore.getState().isolateEntries([{ modelId, expressId }]);
 
-    pickerRef.current?.dispose();
-    const picker = new FaceEdgePicker(scene, (faceIds, boundaryIds, edgeIds) => {
-      setInspSelFaces(new Set(faceIds));
-      setInspSelBoundaries(new Set(boundaryIds));
-      setInspSelEdges(new Set(edgeIds));
+    let picker: FaceEdgePicker;
+    try {
+      pickerRef.current?.dispose();
+      picker = new FaceEdgePicker(scene, (faceIds, boundaryIds, edgeIds) => {
+        setInspSelFaces(new Set(faceIds));
+        setInspSelBoundaries(new Set(boundaryIds));
+        setInspSelEdges(new Set(edgeIds));
+        needsRenderRef.current = true;
+        updateInspLabelsRef.current();
+      });
+      picker.load(meshes);
+    } catch (err) {
+      console.error("Geometry inspector failed to analyse element:", err);
+      useModelStore.getState().showAll();
       needsRenderRef.current = true;
-      updateInspLabelsRef.current();
-    });
-    picker.load(meshes);
+      return;
+    }
     pickerRef.current = picker;
 
     scene.traverse((obj) => {
