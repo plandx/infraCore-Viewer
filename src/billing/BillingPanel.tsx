@@ -204,6 +204,15 @@ export function BillingPanel({ elements }: Props) {
     });
 
     bc.postMessage({ t: "ready" } satisfies BillingMsg);
+
+    // On mount, honour any pending navigation key (set before window opened)
+    const pending = useBillingStore.getState().pendingSelectKey;
+    if (pending) {
+      setSelectedKey(pending);
+      setTab("mengen");
+      useBillingStore.getState().setPendingSelectKey(null);
+    }
+
     return () => { bc?.close(); bcRef.current = null; };
   }, [mergeQuantityItems, setQuantities]);
 

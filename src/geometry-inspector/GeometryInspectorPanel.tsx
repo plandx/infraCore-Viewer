@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye, Trash2 } from "lucide-react";
+import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye, Trash2, ExternalLink } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore } from "../billing/billingStore";
 import { qid, QUANTITY_META, fmtQty } from "../billing/quantityTypes";
@@ -23,6 +23,8 @@ interface Props {
   showMesh:            boolean;
   onToggleShowMesh:    () => void;
   onClose:             () => void;
+  onClearSelection:    () => void;
+  onOpen5D?:           () => void;
 }
 
 // Which stored QuantityTypes belong to each tab
@@ -183,7 +185,7 @@ export function GeometryInspectorPanel({
   faces, boundaries, edges,
   selectedFaceIds, selectedBoundaryIds, selectedEdgeIds,
   pickMode, onPickModeChange,
-  showMesh, onToggleShowMesh, onClose,
+  showMesh, onToggleShowMesh, onClose, onClearSelection, onOpen5D,
 }: Props) {
   const [saved, setSaved] = useState(false);
 

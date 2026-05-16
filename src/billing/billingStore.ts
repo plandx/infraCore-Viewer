@@ -27,6 +27,8 @@ try { bc = new BroadcastChannel(BILLING_CHANNEL); } catch { /* SSR/test env */ }
 interface BillingStore {
   entries: Record<string, BillingEntry>;
   moduleActive: boolean;
+  pendingSelectKey: string | null;
+  setPendingSelectKey(key: string | null): void;
 
   addEntry(info: { key: string; guid: string; expressId: number; modelId: string; elementName: string; ifcType: string }): void;
   removeEntry(key: string): void;
@@ -65,6 +67,8 @@ export const useBillingStore = create<BillingStore>((set, get) => {
   return {
     entries: loadFromStorage(),
     moduleActive: false,
+    pendingSelectKey: null,
+    setPendingSelectKey(key) { set({ pendingSelectKey: key }); },
 
     addEntry(info) {
       if (get().entries[info.key]) return;
