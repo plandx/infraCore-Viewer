@@ -5,7 +5,7 @@ import {
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
-  Target, Layers, RotateCcw,
+  Target, Layers, RotateCcw, Navigation2,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -13,6 +13,7 @@ import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { useBillingStore } from "../billing/billingStore";
+import { useAlignmentStore } from "../alignment/alignmentStore";
 import * as XLSX from "xlsx";
 import type { ActiveTool } from "../types/ifc";
 
@@ -52,6 +53,11 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
   // 5D state
   const billingModuleActive = useBillingStore((s) => s.moduleActive);
   const billing5DCount      = useBillingStore((s) => Object.keys(s.entries).length);
+
+  // Alignment state
+  const alignmentPanelOpen  = useAlignmentStore((s) => s.panelOpen);
+  const alignmentFileCount  = useAlignmentStore((s) => s.files.length);
+  const toggleAlignmentPanel = useAlignmentStore((s) => s.togglePanel);
 
   const [exportOpen, setExportOpen] = useState(false);
   const [ifcExporting, setIfcExporting] = useState(false);
@@ -377,6 +383,21 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           onClick={() => setQTOPanelOpen(!qtoPanelOpen)}>
           <Table2 size={16} />
         </PopoutPanelButton>
+
+        <div className="w-px h-5 bg-border mx-1" />
+
+        {/* ── Alignment / Trassen ── */}
+        <button
+          onClick={toggleAlignmentPanel}
+          className={cn("toolbar-button flex items-center gap-1 px-2 py-1 text-xs", alignmentPanelOpen && "active text-primary")}
+          title="Trassen-Viewer (LandXML)"
+        >
+          <Navigation2 size={14} />
+          <span className="text-[11px]">Achsen</span>
+          {alignmentFileCount > 0 && (
+            <span className="bg-muted text-muted-foreground text-[8px] px-1 rounded-full">{alignmentFileCount}</span>
+          )}
+        </button>
 
         <div className="w-px h-5 bg-border mx-1" />
 

@@ -19,6 +19,9 @@ import { loadIFCProperties } from "../utils/ifcLoader";
 import { FaceEdgePicker } from "../geometry-inspector/FaceEdgePicker";
 import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorPanel";
 import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
+import { useAlignmentStore } from "../alignment/alignmentStore";
+import { AlignmentPanel } from "../alignment/AlignmentPanel";
+import { sampleAtDisplayStation } from "../alignment/landXmlParser";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -103,6 +106,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const billingEntries = useBillingStore((s) => s.entries);
   const billingModuleActive = useBillingStore((s) => s.moduleActive);
   const billingVizRef  = useRef<BillingVisualizer | null>(null);
+  const alignGroupRef  = useRef<THREE.Group | null>(null);
   const pickerRef      = useRef<FaceEdgePicker | null>(null);
   const [inspSession,  setInspSession]  = useState<InspectionSession | null>(null);
   const [inspPickMode, setInspPickMode] = useState<PickMode>("face");
@@ -230,6 +234,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     sceneRef.current = scene;
 
     billingVizRef.current = new BillingVisualizer(scene);
+
+    const alignGroup = new THREE.Group();
+    alignGroup.name = "__alignments";
+    scene.add(alignGroup);
+    alignGroupRef.current = alignGroup;
 
     // Separate scene for section handles/gizmos — rendered without clip planes
     const handleScene = new THREE.Scene();
@@ -387,6 +396,54 @@ export function ViewportContainer({ onElementClick }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Alignment scene: rebuild Three.js lines when store changes ───────────
+  useEffect(() => {
+    function rebuild() {
+      const group = alignGroupRef.current;
+      if (!group) return;
+
+      // Dispose and clear existing alignment lines
+      while (group.children.length > 0) {
+        const child = group.children[0] as THREE.Line;
+        child.geometry?.dispose();
+        (child.material as THREE.Material)?.dispose();
+        group.remove(child);
+      }
+
+      const { files, visibleIds, colors, geoOrigin } = useAlignmentStore.getState();
+      const ox = geoOrigin?.x ?? 0;
+      const oy = geoOrigin?.y ?? 0;
+      const oz = geoOrigin?.z ?? 0;
+
+      for (const file of files) {
+        for (const alignment of file.alignments) {
+          if (!visibleIds.has(alignment.id)) continue;
+          const numPts = Math.min(2000, Math.max(50, Math.ceil(alignment.length / 2)));
+          const step = (alignment.staEnd - alignment.staStart) / Math.max(1, numPts - 1);
+          const pts: THREE.Vector3[] = [];
+          for (let i = 0; i < numPts; i++) {
+            const sta = alignment.staStart + i * step;
+            const p = sampleAtDisplayStation(alignment, sta);
+            if (!p) continue;
+            // LandXML: X=Easting, Y=Northing, Z=Elevation → Three.js: X, Y=up, -Z=North
+            pts.push(new THREE.Vector3(p.x - ox, (p.z ?? 0) - oz, -(p.y - oy)));
+          }
+          if (pts.length < 2) continue;
+          const geo = new THREE.BufferGeometry().setFromPoints(pts);
+          const mat = new THREE.LineBasicMaterial({ color: colors[alignment.id] ?? "#ff7043" });
+          const line = new THREE.Line(geo, mat);
+          line.userData.isAlignment = true;
+          line.userData.alignmentId = alignment.id;
+          group.add(line);
+        }
+      }
+      needsRenderRef.current = true;
+    }
+
+    rebuild();
+    return useAlignmentStore.subscribe(rebuild);
+  }, []);
+
   // ── Section module: sync planes from store ───────────────────────────────
   useEffect(() => {
     sectionModuleRef.current?.syncPlanes(sectionPlanes);
@@ -495,7 +552,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       const meshes: THREE.Mesh[] = [];
       scene.traverse((obj) => {
         if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
-        if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBillingOverlay || obj.userData.isGeometryInspector) return;
+        if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBillingOverlay || obj.userData.isGeometryInspector || obj.userData.isAlignment) return;
         let modelId = "";
         let node: THREE.Object3D | null = obj;
         while (node) { if (node.userData.modelId) { modelId = node.userData.modelId as string; break; } node = node.parent; }
@@ -1546,6 +1603,9 @@ export function ViewportContainer({ onElementClick }: Props) {
           }}
         />
       )}
+
+      {/* Alignment panel */}
+      <AlignmentPanel />
 
       {/* SmartView: apply hint */}
       {stagedSmartViewId && stagedSmartViewId !== activeSmartViewId && (
