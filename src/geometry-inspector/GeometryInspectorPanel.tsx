@@ -7,6 +7,9 @@ import type { InspFace, InspFaceBoundary, InspEdge, PickMode } from "./types";
 interface Props {
   elementName:         string;
   billingKey:          string | null;
+  expressId:           number;
+  modelId:             string;
+  ifcType:             string;
   faces:               InspFace[];
   boundaries:          InspFaceBoundary[];
   edges:               InspEdge[];
@@ -23,7 +26,7 @@ interface Props {
 const fmt = (n: number, d = 3) => n.toFixed(d).replace(".", ",");
 
 export function GeometryInspectorPanel({
-  elementName, billingKey,
+  elementName, billingKey, expressId, modelId, ifcType,
   faces, boundaries, edges,
   selectedFaceIds, selectedBoundaryIds, selectedEdgeIds,
   pickMode, onPickModeChange,
@@ -36,13 +39,13 @@ export function GeometryInspectorPanel({
   const selBoundaries = boundaries.filter(b => selectedBoundaryIds.has(b.id));
   const selEdges      = edges.filter(e => selectedEdgeIds.has(e.id));
   const totalArea     = selFaces.reduce((s, f) => s + f.area, 0);
+  const totalEdgeLength = selEdges.reduce((s, e) => s + e.length, 0);
 
   const canSave = selFaces.length > 0 || selBoundaries.length > 0 || selEdges.length > 0;
 
   const handleSave = () => {
     if (!billingKey) return;
     const existing = useBillingStore.getState().entries[billingKey]?.quantities;
-    // Prefer boundaries for bboxX/Y/Z; fall back to individual edges
     const dimSrc = selBoundaries.length > 0
       ? selBoundaries.map(b => b.totalLength)
       : selEdges.map(e => e.length);
@@ -53,7 +56,7 @@ export function GeometryInspectorPanel({
       bboxY:       dimSrc[1] ?? existing?.bboxY ?? 0,
       bboxZ:       dimSrc[2] ?? existing?.bboxZ ?? 0,
       computedAt:  new Date().toISOString(),
-    });
+    }, { guid: billingKey, expressId, modelId, elementName, ifcType });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -199,6 +202,12 @@ export function GeometryInspectorPanel({
             <span className="font-mono font-semibold text-[#ff8800]">{fmt(e.length)} m</span>
           </div>
         ))}
+        {selEdges.length > 1 && (
+          <div className="flex justify-between text-xs border-t border-border/40 pt-1">
+            <span className="text-muted-foreground">{selEdges.length} Kanten gesamt</span>
+            <span className="font-mono font-semibold text-[#ff8800]">{fmt(totalEdgeLength)} m</span>
+          </div>
+        )}
         {!canSave && (
           <p className="text-[10px] text-muted-foreground text-center">
             Auf Fläche, Umrandung oder Kante klicken

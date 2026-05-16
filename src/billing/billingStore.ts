@@ -38,7 +38,7 @@ interface BillingStore {
   importData(data: BillingExport): void;
   exportData(): BillingExport;
   setModuleActive(active: boolean): void;
-  setQuantities(key: string, q: ElementQuantities): void;
+  setQuantities(key: string, q: ElementQuantities, fallback?: { guid: string; expressId: number; modelId: string; elementName: string; ifcType: string }): void;
   _applySync(entries: Record<string, BillingEntry>): void;
 }
 
@@ -119,8 +119,17 @@ export const useBillingStore = create<BillingStore>((set, get) => {
       set({ moduleActive: active });
     },
 
-    setQuantities(key, q) {
-      const entry = get().entries[key]; if (!entry) return;
+    setQuantities(key, q, fallback?: { guid: string; expressId: number; modelId: string; elementName: string; ifcType: string }) {
+      const entry = get().entries[key];
+      if (!entry) {
+        if (!fallback) return;
+        const newEntry: import("./types").BillingEntry = {
+          key, ...fallback, stages: [], documents: [], quantities: q, createdAt: new Date().toISOString(),
+        };
+        const next = { ...get().entries, [key]: newEntry };
+        persist(next); broadcast(next); set({ entries: next });
+        return;
+      }
       const next = { ...get().entries, [key]: { ...entry, quantities: q } };
       persist(next); broadcast(next); set({ entries: next });
     },

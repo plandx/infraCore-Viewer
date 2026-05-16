@@ -428,6 +428,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     expressId: number,
     elementName: string,
     billingKey: string | null,
+    ifcType = "",
   ) => {
     const scene = sceneRef.current;
     if (!scene) return;
@@ -460,13 +461,13 @@ export function ViewportContainer({ onElementClick }: Props) {
     pickerRef.current = picker;
 
     scene.traverse((obj) => {
-      if (obj.userData.inspFaceId !== undefined || obj.userData.inspBoundaryId !== undefined) {
+      if (obj.userData.inspFaceId !== undefined || obj.userData.inspBoundaryId !== undefined || obj.userData.inspEdgeId !== undefined) {
         obj.userData.isGeometryInspector = true;
       }
     });
 
     inspMeshesRef.current = meshes;
-    setInspSession({ modelId, expressId, elementName, billingKey });
+    setInspSession({ modelId, expressId, elementName, billingKey, ifcType });
     setInspPickMode("face");
     inspPickModeRef.current = "face";
     setInspFaces(picker.faces);
@@ -1486,6 +1487,9 @@ export function ViewportContainer({ onElementClick }: Props) {
         <GeometryInspectorPanel
           elementName={inspSession.elementName}
           billingKey={inspSession.billingKey}
+          expressId={inspSession.expressId}
+          modelId={inspSession.modelId}
+          ifcType={inspSession.ifcType}
           faces={inspFaces}
           boundaries={inspBoundaries}
           edges={inspEdges}
@@ -1590,6 +1594,7 @@ export function ViewportContainer({ onElementClick }: Props) {
               contextMenu.modelId, contextMenu.expressId,
               contextMenu.elementName,
               `${filename}:${contextMenu.expressId}`,
+              contextMenu.ifcType,
             );
             setContextMenu(null);
           }}

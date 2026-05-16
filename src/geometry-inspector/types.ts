@@ -32,4 +32,5 @@ export interface InspectionSession {
   expressId: number;
   elementName: string;
   billingKey: string | null;
+  ifcType: string;
 }

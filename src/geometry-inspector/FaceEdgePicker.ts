@@ -151,6 +151,7 @@ export class FaceEdgePicker {
       for (const m of this.boundaryMeshes) m.visible = false;
       for (const m of this.edgeMeshes)     m.visible = true;
     }
+    this.updateColors();
   }
 
   onMouseMove(ndc: THREE.Vector2, camera: THREE.Camera): boolean {
