@@ -60,7 +60,11 @@ Geöffnete IFC-Dateien bleiben im Browser-Speicher; WASM parst die Geometrie und
 | `C` | Schnitt |
 | `Q` | SQL-Panel togglen |
 | `L` | Listen-Panel togglen |
-| `H` | Ausgewähltes Element ausblenden |
+| `H` → `H` | Ausgewähltes Element ausblenden (H+H Chord) |
+| `H` → `I` | Ausgewähltes Element isolieren (H+I Chord) |
+| `H` → `R` | Ausblenden/Isolieren zurücksetzen (H+R Chord) |
 | `Shift+A` | Alles einblenden |
 | `Delete/Backspace` | Ausgewähltes Element ausblenden |
 | `Esc` | Werkzeug abbrechen / Auswahl aufheben |
+
+**H-Chord:** `H` drücken → 1 Sekunde warten → zweite Taste drücken. Kein zweiter Tastendruck → H-Chord läuft ab ohne Aktion.

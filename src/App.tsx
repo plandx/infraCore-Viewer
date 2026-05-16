@@ -126,6 +126,10 @@ function MainApp() {
   }, [settings.theme]);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // H-chord state: pressing H arms a 1-second window for H+H / H+I / H+R
+  const hChordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hChordArmedRef = useRef(false);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -189,9 +193,40 @@ function MainApp() {
             hideElement(selectedElement.modelId, selectedElement.expressId);
           }
           break;
-        case "h":
-          if (selectedElement) hideElement(selectedElement.modelId, selectedElement.expressId);
+        case "h": {
+          if (hChordArmedRef.current) {
+            // H+H → hide
+            hChordArmedRef.current = false;
+            if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
+            if (selectedElement) hideElement(selectedElement.modelId, selectedElement.expressId);
+          } else {
+            // Arm the chord; wait for second key
+            hChordArmedRef.current = true;
+            if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
+            hChordTimerRef.current = setTimeout(() => { hChordArmedRef.current = false; }, 1000);
+          }
           break;
+        }
+        case "i": {
+          if (hChordArmedRef.current) {
+            // H+I → isolate
+            hChordArmedRef.current = false;
+            if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
+            if (selectedElement) {
+              useModelStore.getState().isolateElement(selectedElement.modelId, selectedElement.expressId);
+            }
+          }
+          break;
+        }
+        case "r": {
+          if (hChordArmedRef.current) {
+            // H+R → reset (show all)
+            hChordArmedRef.current = false;
+            if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
+            showAll();
+          }
+          break;
+        }
         case "a":
           if (e.shiftKey) showAll();
           break;
