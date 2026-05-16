@@ -380,57 +380,40 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
 
         <div className="w-px h-5 bg-border mx-1" />
 
-        {/* ── 5D-Abrechnung Group ── */}
-        <div
-          className="flex items-center gap-0.5 rounded px-1.5 py-0.5 border"
-          style={{ background: "color-mix(in srgb, #f59e0b 6%, transparent)", borderColor: "color-mix(in srgb, #f59e0b 30%, transparent)" }}
+        {/* ── 5D-Abrechnung ── */}
+        <button
+          onClick={() => openBillingWindow()}
+          className="toolbar-button flex items-center gap-1 px-2 py-1 text-xs"
+          title="5D-Abrechnung öffnen"
         >
-          {/* 5D öffnen */}
-          <button
-            onClick={() => openBillingWindow()}
-            className="flex items-center gap-1 px-1.5 py-1 rounded text-xs font-medium hover:bg-amber-500/15 hover:text-amber-400 transition-colors text-amber-500"
-            title="5D-Abrechnung öffnen"
-          >
-            <BarChart2 size={14} />
-            <span className="text-[11px] font-semibold">5D</span>
-            {billing5DCount > 0 && (
-              <span className="bg-amber-500/25 text-amber-400 text-[8px] px-1 rounded-full font-bold">
-                {billing5DCount}
-              </span>
-            )}
-          </button>
-
-          <div className="w-px h-4 mx-0.5" style={{ background: "color-mix(in srgb, #f59e0b 30%, transparent)" }} />
-
-          {/* 5D isolieren */}
-          <button
-            onClick={handleIsolate5D}
-            disabled={billing5DCount === 0}
-            className={cn(
-              "toolbar-button px-1.5 hover:bg-amber-500/15 hover:text-amber-400 transition-colors",
-              billing5DCount === 0 && "opacity-30 cursor-not-allowed"
-            )}
-            title={billing5DCount > 0 ? `5D-Elemente isolieren (${billing5DCount} erfasst)` : "Keine 5D-Elemente erfasst"}
-          >
-            <Target size={15} />
-          </button>
-
-          {/* 5D visualisieren */}
-          <button
-            onClick={handleToggleVisualize5D}
-            disabled={billing5DCount === 0}
-            className={cn(
-              "toolbar-button px-1.5 transition-colors",
-              billingModuleActive
-                ? "text-amber-400 bg-amber-500/20 hover:bg-amber-500/30"
-                : "hover:bg-amber-500/15 hover:text-amber-400",
-              billing5DCount === 0 && "opacity-30 cursor-not-allowed"
-            )}
-            title={billingModuleActive ? "5D-Visualisierung ausschalten" : "5D-Visualisierung einschalten"}
-          >
-            <Layers size={15} />
-          </button>
-        </div>
+          <BarChart2 size={14} />
+          <span className="text-[11px]">5D</span>
+          {billing5DCount > 0 && (
+            <span className="bg-muted text-muted-foreground text-[8px] px-1 rounded-full">
+              {billing5DCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={handleIsolate5D}
+          disabled={billing5DCount === 0}
+          className={cn("toolbar-button", billing5DCount === 0 && "opacity-30 cursor-not-allowed")}
+          title={billing5DCount > 0 ? `5D-Elemente isolieren (${billing5DCount} erfasst)` : "Keine 5D-Elemente erfasst"}
+        >
+          <Target size={15} />
+        </button>
+        <button
+          onClick={handleToggleVisualize5D}
+          disabled={billing5DCount === 0}
+          className={cn(
+            "toolbar-button",
+            billingModuleActive && "active text-primary",
+            billing5DCount === 0 && "opacity-30 cursor-not-allowed"
+          )}
+          title={billingModuleActive ? "5D-Visualisierung ausschalten" : "5D-Visualisierung einschalten"}
+        >
+          <Layers size={15} />
+        </button>
 
         {/* ── Spacer ── */}
         <div className="flex-1" />
