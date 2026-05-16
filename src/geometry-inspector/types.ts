@@ -1,4 +1,4 @@
-export type PickMode = "face" | "edge";
+export type PickMode = "face" | "boundary" | "edge";
 
 export interface InspFace {
   id: number;
@@ -17,6 +17,14 @@ export interface InspFaceBoundary {
     start: [number, number, number];
     end:   [number, number, number];
   }>;
+}
+
+/** One individual hard-edge segment. */
+export interface InspEdge {
+  id: number;
+  length: number;      // m
+  start: [number, number, number];
+  end:   [number, number, number];
 }
 
 export interface InspectionSession {

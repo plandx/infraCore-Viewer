@@ -16,7 +16,7 @@ import type { BillingMsg } from "../billing/types";
 import { computeQuantities } from "../billing/quantityUtils";
 import { FaceEdgePicker } from "../geometry-inspector/FaceEdgePicker";
 import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorPanel";
-import type { PickMode, InspFace, InspFaceBoundary, InspectionSession } from "../geometry-inspector/types";
+import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -107,8 +107,12 @@ export function ViewportContainer({ onElementClick }: Props) {
   const inspPickModeRef = useRef<PickMode>("face");
   const [inspFaces,      setInspFaces]      = useState<InspFace[]>([]);
   const [inspBoundaries, setInspBoundaries] = useState<InspFaceBoundary[]>([]);
+  const [inspEdges,      setInspEdges]      = useState<InspEdge[]>([]);
   const [inspSelFaces,      setInspSelFaces]      = useState<Set<number>>(new Set());
   const [inspSelBoundaries, setInspSelBoundaries] = useState<Set<number>>(new Set());
+  const [inspSelEdges,      setInspSelEdges]      = useState<Set<number>>(new Set());
+  const [inspShowMesh,   setInspShowMesh]   = useState(false); // IFC mesh hidden by default in inspector
+  const inspMeshesRef = useRef<THREE.Mesh[]>([]); // IFC meshes of the inspected element
   const [inspLabels,   setInspLabels]   = useState<Array<{
     id: number; text: string; x: number; y: number;
     type: "face" | "edge"; selected: boolean;
@@ -139,7 +143,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           selected: picker.selectedFaceIds.has(face.id),
         });
       }
-    } else {
+    } else if (mode === "boundary") {
       for (const boundary of picker.faceBoundaries) {
         const v = new THREE.Vector3(...boundary.center).project(camera);
         if (v.z >= 1) continue;
@@ -149,6 +153,23 @@ export function ViewportContainer({ onElementClick }: Props) {
           x: (v.x + 1) / 2 * rect.width,
           y: (-v.y + 1) / 2 * rect.height,
           selected: picker.selectedBoundaryIds.has(boundary.id),
+        });
+      }
+    } else {
+      for (const edge of picker.edges) {
+        const mid = new THREE.Vector3(
+          (edge.start[0] + edge.end[0]) / 2,
+          (edge.start[1] + edge.end[1]) / 2,
+          (edge.start[2] + edge.end[2]) / 2,
+        );
+        const v = mid.project(camera);
+        if (v.z >= 1) continue;
+        out.push({
+          id: edge.id, type: "edge",
+          text: `K${edge.id + 1} · ${fmt(edge.length)} m`,
+          x: (v.x + 1) / 2 * rect.width,
+          y: (-v.y + 1) / 2 * rect.height,
+          selected: picker.selectedEdgeIds.has(edge.id),
         });
       }
     }
@@ -167,11 +188,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     updateInspLabelsRef.current();
   }, []);
 
-  // Recompute labels whenever inspection session / face+edge data changes
+  // Recompute labels whenever inspection session or data changes
   useEffect(() => {
     if (inspSession) updateInspLabels();
     else setInspLabels([]);
-  }, [inspSession, inspFaces, inspBoundaries, updateInspLabels]);
+  }, [inspSession, inspFaces, inspBoundaries, inspEdges, updateInspLabels]);
 
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
@@ -453,9 +474,10 @@ export function ViewportContainer({ onElementClick }: Props) {
         // Init picker
         const scene = sceneRef.current!;
         pickerRef.current?.dispose();
-        const picker = new FaceEdgePicker(scene, (faceIds, boundaryIds) => {
+        const picker = new FaceEdgePicker(scene, (faceIds, boundaryIds, edgeIds) => {
           setInspSelFaces(new Set(faceIds));
           setInspSelBoundaries(new Set(boundaryIds));
+          setInspSelEdges(new Set(edgeIds));
           needsRenderRef.current = true;
           updateInspLabelsRef.current();
         });
@@ -469,13 +491,19 @@ export function ViewportContainer({ onElementClick }: Props) {
           }
         });
 
+        // Store IFC meshes for the hide/show toggle
+        inspMeshesRef.current = meshes;
+
         setInspSession({ modelId, expressId, elementName: msg.elementName, billingKey: msg.key });
         setInspPickMode("face");
         inspPickModeRef.current = "face";
         setInspFaces(picker.faces);
         setInspBoundaries(picker.faceBoundaries);
+        setInspEdges(picker.edges);
         setInspSelFaces(new Set());
         setInspSelBoundaries(new Set());
+        setInspSelEdges(new Set());
+        setInspShowMesh(false); // hide IFC mesh by default
         needsRenderRef.current = true;
       }
     });
@@ -610,6 +638,14 @@ export function ViewportContainer({ onElementClick }: Props) {
   }, [hiddenElements, isolatedElements, models, basketMode,
       // eslint-disable-next-line react-hooks/exhaustive-deps
       basketMode === "isolate" ? selectionBasket : null]);
+
+  // ── Inspector mesh hide/show (runs AFTER element visibility effect) ─────────
+  // Declared after the element-visibility effect so it can override its result.
+  useEffect(() => {
+    for (const m of inspMeshesRef.current) m.visible = inspShowMesh;
+    needsRenderRef.current = true;
+    // hiddenElements / isolatedElements in deps: re-apply after visibility effect runs
+  }, [inspShowMesh, inspSession, hiddenElements, isolatedElements]);
 
   // ── Color group override ──────────────────────────────────────────────────
   useEffect(() => {
@@ -1436,13 +1472,20 @@ export function ViewportContainer({ onElementClick }: Props) {
           billingKey={inspSession.billingKey}
           faces={inspFaces}
           boundaries={inspBoundaries}
+          edges={inspEdges}
           selectedFaceIds={inspSelFaces}
           selectedBoundaryIds={inspSelBoundaries}
+          selectedEdgeIds={inspSelEdges}
           pickMode={inspPickMode}
           onPickModeChange={handlePickModeChange}
+          showMesh={inspShowMesh}
+          onToggleShowMesh={() => setInspShowMesh(v => !v)}
           onClose={() => {
             pickerRef.current?.dispose();
             pickerRef.current = null;
+            // Restore IFC mesh visibility before clearing state
+            for (const m of inspMeshesRef.current) m.visible = true;
+            inspMeshesRef.current = [];
             setInspSession(null);
             setInspLabels([]);
             useModelStore.getState().showAll();

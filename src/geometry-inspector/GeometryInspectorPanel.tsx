@@ -1,49 +1,68 @@
 import { useState } from "react";
-import { X, Calculator, Save, Square, Minus } from "lucide-react";
+import { X, Calculator, Save, Square, Minus, Eye, EyeOff } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore } from "../billing/billingStore";
-import type { InspFace, InspFaceBoundary, PickMode } from "./types";
+import type { InspFace, InspFaceBoundary, InspEdge, PickMode } from "./types";
 
 interface Props {
   elementName:         string;
   billingKey:          string | null;
   faces:               InspFace[];
   boundaries:          InspFaceBoundary[];
+  edges:               InspEdge[];
   selectedFaceIds:     Set<number>;
   selectedBoundaryIds: Set<number>;
+  selectedEdgeIds:     Set<number>;
   pickMode:            PickMode;
   onPickModeChange:    (m: PickMode) => void;
+  showMesh:            boolean;
+  onToggleShowMesh:    () => void;
   onClose:             () => void;
 }
 
 const fmt = (n: number, d = 3) => n.toFixed(d).replace(".", ",");
 
 export function GeometryInspectorPanel({
-  elementName, billingKey, faces, boundaries,
-  selectedFaceIds, selectedBoundaryIds,
-  pickMode, onPickModeChange, onClose,
+  elementName, billingKey,
+  faces, boundaries, edges,
+  selectedFaceIds, selectedBoundaryIds, selectedEdgeIds,
+  pickMode, onPickModeChange,
+  showMesh, onToggleShowMesh, onClose,
 }: Props) {
   const setQuantities = useBillingStore((s) => s.setQuantities);
   const [saved, setSaved] = useState(false);
 
   const selFaces      = faces.filter(f => selectedFaceIds.has(f.id));
   const selBoundaries = boundaries.filter(b => selectedBoundaryIds.has(b.id));
+  const selEdges      = edges.filter(e => selectedEdgeIds.has(e.id));
   const totalArea     = selFaces.reduce((s, f) => s + f.area, 0);
+
+  const canSave = selFaces.length > 0 || selBoundaries.length > 0 || selEdges.length > 0;
 
   const handleSave = () => {
     if (!billingKey) return;
     const existing = useBillingStore.getState().entries[billingKey]?.quantities;
+    // Prefer boundaries for bboxX/Y/Z; fall back to individual edges
+    const dimSrc = selBoundaries.length > 0
+      ? selBoundaries.map(b => b.totalLength)
+      : selEdges.map(e => e.length);
     setQuantities(billingKey, {
       volume:      existing?.volume      ?? 0,
       surfaceArea: totalArea > 0 ? totalArea : (existing?.surfaceArea ?? 0),
-      bboxX:       selBoundaries[0]?.totalLength ?? existing?.bboxX ?? 0,
-      bboxY:       selBoundaries[1]?.totalLength ?? existing?.bboxY ?? 0,
-      bboxZ:       selBoundaries[2]?.totalLength ?? existing?.bboxZ ?? 0,
+      bboxX:       dimSrc[0] ?? existing?.bboxX ?? 0,
+      bboxY:       dimSrc[1] ?? existing?.bboxY ?? 0,
+      bboxZ:       dimSrc[2] ?? existing?.bboxZ ?? 0,
       computedAt:  new Date().toISOString(),
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  const tabs: { mode: PickMode; label: string; count: number }[] = [
+    { mode: "face",     label: "Flächen",    count: faces.length },
+    { mode: "boundary", label: "Umrandungen", count: boundaries.length },
+    { mode: "edge",     label: "Kanten",     count: edges.length },
+  ];
 
   return (
     <div className="absolute top-4 right-4 z-40 w-72 flex flex-col bg-card border border-border rounded-xl shadow-2xl overflow-hidden max-h-[calc(100%-2rem)]">
@@ -55,6 +74,19 @@ export function GeometryInspectorPanel({
           <p className="text-xs font-semibold truncate">{elementName}</p>
           <p className="text-[10px] text-muted-foreground">Geometrie-Inspektor</p>
         </div>
+        {/* Mesh visibility toggle */}
+        <button
+          onClick={onToggleShowMesh}
+          title={showMesh ? "Objekt ausblenden" : "Objekt einblenden"}
+          className={cn(
+            "p-1 rounded transition-colors",
+            showMesh
+              ? "text-primary hover:bg-muted/60"
+              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          )}
+        >
+          {showMesh ? <Eye size={13} /> : <EyeOff size={13} />}
+        </button>
         <button onClick={onClose} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
           <X size={13} />
         </button>
@@ -62,19 +94,19 @@ export function GeometryInspectorPanel({
 
       {/* Mode tabs */}
       <div className="flex shrink-0 border-b border-border">
-        {(["face", "edge"] as PickMode[]).map((m) => (
+        {tabs.map(({ mode, label, count }) => (
           <button
-            key={m}
-            onClick={() => onPickModeChange(m)}
+            key={mode}
+            onClick={() => onPickModeChange(mode)}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs transition-colors",
-              pickMode === m
+              "flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] transition-colors",
+              pickMode === mode
                 ? "bg-primary/15 text-primary border-b-2 border-primary"
                 : "text-muted-foreground hover:bg-muted/40"
             )}
           >
-            {m === "face" ? <Square size={11} /> : <Minus size={11} />}
-            {m === "face" ? `Flächen (${faces.length})` : `Umrandungen (${boundaries.length})`}
+            {mode === "face" ? <Square size={10} /> : <Minus size={10} />}
+            {label} ({count})
           </button>
         ))}
       </div>
@@ -82,9 +114,9 @@ export function GeometryInspectorPanel({
       {/* Hint */}
       <div className="px-3 py-1 bg-primary/5 border-b border-border/50 shrink-0">
         <p className="text-[10px] text-primary/80">
-          {pickMode === "face"
-            ? <>Klick = Fläche wählen</>
-            : <>Klick auf Fläche oder Kante = Umrandung wählen</>
+          {pickMode === "boundary"
+            ? "Klick auf Fläche oder Kante = Umrandung wählen"
+            : "Klick = auswählen"
           }
           {" · "}
           <kbd className="font-mono bg-primary/10 px-0.5 rounded text-[9px]">Strg</kbd>
@@ -94,50 +126,50 @@ export function GeometryInspectorPanel({
 
       {/* List */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {pickMode === "face" ? (
+        {pickMode === "face" && (
           faces.length === 0
             ? <p className="text-xs text-muted-foreground text-center p-4">Keine Flächen erkannt</p>
             : faces.map(f => (
-              <div
-                key={f.id}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 border-b border-border/30 text-xs",
-                  selectedFaceIds.has(f.id)
-                    ? "bg-primary/10 border-l-2 border-l-primary"
-                    : "hover:bg-muted/30"
-                )}
-              >
-                <span className={cn(
-                  "w-3.5 h-3.5 rounded shrink-0 border",
-                  selectedFaceIds.has(f.id) ? "bg-[#22cc88] border-[#22cc88]" : "border-border"
-                )} />
-                <span className="flex-1 text-muted-foreground font-mono text-[10px]">
-                  Fläche {f.id + 1}
-                </span>
+              <div key={f.id} className={cn(
+                "flex items-center gap-2 px-3 py-1.5 border-b border-border/30 text-xs",
+                selectedFaceIds.has(f.id) ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/30"
+              )}>
+                <span className={cn("w-3 h-3 rounded shrink-0 border",
+                  selectedFaceIds.has(f.id) ? "bg-[#22cc88] border-[#22cc88]" : "border-border")} />
+                <span className="flex-1 text-muted-foreground font-mono text-[10px]">Fläche {f.id + 1}</span>
                 <span className="font-mono tabular-nums">{fmt(f.area)} m²</span>
               </div>
             ))
-        ) : (
+        )}
+
+        {pickMode === "boundary" && (
           boundaries.length === 0
             ? <p className="text-xs text-muted-foreground text-center p-4">Keine Umrandungen erkannt</p>
             : boundaries.map(b => (
-              <div
-                key={b.id}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 border-b border-border/30 text-xs",
-                  selectedBoundaryIds.has(b.id)
-                    ? "bg-red-500/10 border-l-2 border-l-red-400"
-                    : "hover:bg-muted/30"
-                )}
-              >
-                <span className={cn(
-                  "w-3.5 h-3.5 rounded shrink-0 border",
-                  selectedBoundaryIds.has(b.id) ? "bg-[#ff8800] border-[#ff8800]" : "border-border"
-                )} />
-                <span className="flex-1 text-muted-foreground font-mono text-[10px]">
-                  Umrandung {b.id + 1}
-                </span>
+              <div key={b.id} className={cn(
+                "flex items-center gap-2 px-3 py-1.5 border-b border-border/30 text-xs",
+                selectedBoundaryIds.has(b.id) ? "bg-red-500/10 border-l-2 border-l-red-400" : "hover:bg-muted/30"
+              )}>
+                <span className={cn("w-3 h-3 rounded shrink-0 border",
+                  selectedBoundaryIds.has(b.id) ? "bg-[#ff8800] border-[#ff8800]" : "border-border")} />
+                <span className="flex-1 text-muted-foreground font-mono text-[10px]">Umrandung {b.id + 1}</span>
                 <span className="font-mono tabular-nums">{fmt(b.totalLength)} m</span>
+              </div>
+            ))
+        )}
+
+        {pickMode === "edge" && (
+          edges.length === 0
+            ? <p className="text-xs text-muted-foreground text-center p-4">Keine Kanten erkannt</p>
+            : edges.map(e => (
+              <div key={e.id} className={cn(
+                "flex items-center gap-2 px-3 py-1.5 border-b border-border/30 text-xs",
+                selectedEdgeIds.has(e.id) ? "bg-red-500/10 border-l-2 border-l-red-400" : "hover:bg-muted/30"
+              )}>
+                <span className={cn("w-3 h-3 rounded shrink-0 border",
+                  selectedEdgeIds.has(e.id) ? "bg-[#ff8800] border-[#ff8800]" : "border-border")} />
+                <span className="flex-1 text-muted-foreground font-mono text-[10px]">Kante {e.id + 1}</span>
+                <span className="font-mono tabular-nums">{fmt(e.length)} m</span>
               </div>
             ))
         )}
@@ -147,9 +179,7 @@ export function GeometryInspectorPanel({
       <div className="px-3 py-2.5 border-t border-border bg-card/90 shrink-0 space-y-1.5">
         {selFaces.length > 0 && (
           <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">
-              {selFaces.length} Fläche{selFaces.length !== 1 ? "n" : ""}
-            </span>
+            <span className="text-muted-foreground">{selFaces.length} Fläche{selFaces.length !== 1 ? "n" : ""}</span>
             <span className="font-mono font-semibold text-[#22cc88]">{fmt(totalArea)} m²</span>
           </div>
         )}
@@ -159,12 +189,18 @@ export function GeometryInspectorPanel({
             <span className="font-mono font-semibold text-[#ff8800]">{fmt(b.totalLength)} m</span>
           </div>
         ))}
-        {selFaces.length === 0 && selBoundaries.length === 0 && (
+        {selEdges.map((e, i) => (
+          <div key={e.id} className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Kante {i + 1}</span>
+            <span className="font-mono font-semibold text-[#ff8800]">{fmt(e.length)} m</span>
+          </div>
+        ))}
+        {!canSave && (
           <p className="text-[10px] text-muted-foreground text-center">
-            Auf Fläche oder Umrandung klicken
+            Auf Fläche, Umrandung oder Kante klicken
           </p>
         )}
-        {billingKey && (selFaces.length > 0 || selBoundaries.length > 0) && (
+        {billingKey && canSave && (
           <button
             onClick={handleSave}
             className={cn(
