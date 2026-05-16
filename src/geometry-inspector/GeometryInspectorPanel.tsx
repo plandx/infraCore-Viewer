@@ -174,6 +174,8 @@ function MeasureCard({
   );
 }
 
+const EMPTY_ITEMS: QuantityItem[] = [];
+
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 export function GeometryInspectorPanel({
@@ -194,7 +196,7 @@ export function GeometryInspectorPanel({
 
   // Live-read stored items for this element
   const storedItems = useBillingStore(s =>
-    billingKey ? (s.entries[billingKey]?.quantitySet?.items ?? []) : []
+    billingKey ? (s.entries[billingKey]?.quantitySet?.items ?? EMPTY_ITEMS) : EMPTY_ITEMS
   );
   const savedAreaItems      = storedItems.filter(i => AREA_TYPES_SET.has(i.type));
   const savedPerimeterItems = storedItems.filter(i => PERIMETER_TYPES_SET.has(i.type));
