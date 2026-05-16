@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Calculator, Save, Square, Minus, Eye, EyeOff } from "lucide-react";
+import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore } from "../billing/billingStore";
 import type { InspFace, InspFaceBoundary, InspEdge, PickMode } from "./types";
@@ -74,23 +74,27 @@ export function GeometryInspectorPanel({
           <p className="text-xs font-semibold truncate">{elementName}</p>
           <p className="text-[10px] text-muted-foreground">Geometrie-Inspektor</p>
         </div>
-        {/* Mesh visibility toggle */}
-        <button
-          onClick={onToggleShowMesh}
-          title={showMesh ? "Objekt ausblenden" : "Objekt einblenden"}
-          className={cn(
-            "p-1 rounded transition-colors",
-            showMesh
-              ? "text-primary hover:bg-muted/60"
-              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-          )}
-        >
-          {showMesh ? <Eye size={13} /> : <EyeOff size={13} />}
-        </button>
         <button onClick={onClose} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
           <X size={13} />
         </button>
       </div>
+
+      {/* Mesh visibility toggle — prominent bar */}
+      <button
+        onClick={onToggleShowMesh}
+        className={cn(
+          "w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors border-b border-border shrink-0",
+          showMesh
+            ? "bg-primary/10 text-primary hover:bg-primary/20"
+            : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+        )}
+      >
+        {showMesh ? <Eye size={12} /> : <EyeOff size={12} />}
+        <span className="flex-1 text-left">
+          {showMesh ? "Objekt eingeblendet" : "Objekt ausgeblendet"}
+        </span>
+        <ScanEye size={11} className="opacity-50" />
+      </button>
 
       {/* Mode tabs */}
       <div className="flex shrink-0 border-b border-border">
