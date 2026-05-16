@@ -1294,6 +1294,18 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // ── Double-click: zoom to element or apply staged SmartView ─────────────
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // In edge-pick mode: flood-select all connected edges from the clicked one
+    if (pickerRef.current && inspPickModeRef.current === "edge" && rendererRef.current && cameraRef.current) {
+      const rect = rendererRef.current.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+        -((e.clientY - rect.top)  / rect.height) * 2 + 1,
+      );
+      if (pickerRef.current.onDblClick(ndc, cameraRef.current)) {
+        needsRenderRef.current = true;
+        return;
+      }
+    }
     if (stagedSmartViewId) { applySmartView(stagedSmartViewId); return; }
     const hit = raycastPoint(e);
     if (hit) ctxZoomTo(hit.modelId, [hit.expressId]);

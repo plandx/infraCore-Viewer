@@ -41,6 +41,9 @@ export class FaceEdgePicker {
   private boundaryMeshes: THREE.Mesh[] = []; // userData.inspBoundaryId = faceId
   private edgeMeshes:     THREE.Mesh[] = []; // userData.inspEdgeId = edgeId
 
+  // vertex key → edge IDs sharing that endpoint (built in load())
+  private vertexToEdges = new Map<string, number[]>();
+
   private onChange: (faces: Set<number>, boundaries: Set<number>, edges: Set<number>) => void;
 
   constructor(
@@ -117,6 +120,20 @@ export class FaceEdgePicker {
       mesh.userData.inspEdgeId = edge.id;
       this.scene.add(mesh);
       this.edgeMeshes.push(mesh);
+    }
+
+    // Build vertex → edge adjacency for connected-edge flood-fill
+    const PREC = 4000;
+    const qv = (x: number, y: number, z: number) =>
+      `${Math.round(x * PREC)},${Math.round(y * PREC)},${Math.round(z * PREC)}`;
+    this.vertexToEdges.clear();
+    for (const edge of edges) {
+      for (const pt of [edge.start, edge.end]) {
+        const k = qv(pt[0], pt[1], pt[2]);
+        const arr = this.vertexToEdges.get(k) ?? [];
+        arr.push(edge.id);
+        this.vertexToEdges.set(k, arr);
+      }
     }
 
     this.setMode("face");
@@ -209,6 +226,45 @@ export class FaceEdgePicker {
     return true;
   }
 
+  onDblClick(ndc: THREE.Vector2, camera: THREE.Camera): boolean {
+    if (this.currentMode !== "edge") return false;
+    this.raycaster.setFromCamera(ndc, camera);
+    const hits = this.raycaster.intersectObjects(this.edgeMeshes);
+    if (hits.length === 0) return false;
+    const seedId = hits[0].object.userData.inspEdgeId as number;
+    this.selectConnectedEdges(seedId);
+    return true;
+  }
+
+  private selectConnectedEdges(seedId: number): void {
+    const PREC = 4000;
+    const qv = (pt: [number,number,number]) =>
+      `${Math.round(pt[0] * PREC)},${Math.round(pt[1] * PREC)},${Math.round(pt[2] * PREC)}`;
+
+    const edgeById = new Map(this.edges.map(e => [e.id, e]));
+    const visited = new Set<number>();
+    const stack = [seedId];
+
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const edge = edgeById.get(id);
+      if (!edge) continue;
+      for (const pt of [edge.start, edge.end]) {
+        const neighbors = this.vertexToEdges.get(qv(pt)) ?? [];
+        for (const nid of neighbors) {
+          if (!visited.has(nid)) stack.push(nid);
+        }
+      }
+    }
+
+    // Add all connected edges to current selection (union, not replace)
+    for (const id of visited) this.selectedEdgeIds.add(id);
+    this.updateColors();
+    this.onChange(new Set(this.selectedFaceIds), new Set(this.selectedBoundaryIds), new Set(this.selectedEdgeIds));
+  }
+
   private _toggle(id: number | undefined, set: Set<number>, ctrl: boolean): void {
     if (id === undefined) { if (!ctrl) set.clear(); return; }
     if (ctrl) {
@@ -253,5 +309,6 @@ export class FaceEdgePicker {
     this.faces = []; this.faceBoundaries = []; this.edges = [];
     this.selectedFaceIds.clear(); this.selectedBoundaryIds.clear(); this.selectedEdgeIds.clear();
     this.hoveredFaceId = -1; this.hoveredBoundaryId = -1; this.hoveredEdgeId = -1;
+    this.vertexToEdges.clear();
   }
 }
