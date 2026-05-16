@@ -319,8 +319,6 @@ export function AlignmentPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  if (!panelOpen) return null;
-
   const handleFiles = useCallback(
     (fileList: FileList | null) => {
       if (!fileList) return;
@@ -342,6 +340,8 @@ export function AlignmentPanel() {
     },
     [handleFiles]
   );
+
+  if (!panelOpen) return null;
 
   const allAlignments = files.flatMap(f => f.alignments);
   const selectedAlign = selectedId !== null ? allAlignments.find(a => a.id === selectedId) : null;
