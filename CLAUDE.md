@@ -68,3 +68,4 @@ Geöffnete IFC-Dateien bleiben im Browser-Speicher; WASM parst die Geometrie und
 | `Esc` | Werkzeug abbrechen / Auswahl aufheben |
 
 **H-Chord:** `H` drücken → 1 Sekunde warten → zweite Taste drücken. Kein zweiter Tastendruck → H-Chord läuft ab ohne Aktion.
+Schließe deine Aufgaben immer ab bevor die Credits aufgebraucht sind und Commit und Push.
