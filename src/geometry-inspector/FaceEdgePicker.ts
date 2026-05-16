@@ -21,6 +21,7 @@ export class FaceEdgePicker {
   selectedEdgeIds = new Set<number>();
   hoveredFaceId   = -1;
   hoveredEdgeId   = -1;
+  currentMode: PickMode = "face";
 
   private scene: THREE.Scene;
   private raycaster = new THREE.Raycaster();
@@ -89,16 +90,32 @@ export class FaceEdgePicker {
       this.scene.add(mesh);
       this.edgeMeshes.push(mesh);
     }
+
+    // Start in face mode: show faces, hide edges
+    this.setMode("face");
+  }
+
+  setMode(mode: PickMode): void {
+    this.currentMode = mode;
+    for (const m of this.faceMeshes) m.visible = (mode === "face");
+    for (const m of this.edgeMeshes) m.visible = (mode === "edge");
+    // Clear hover for the mode we're leaving
+    this.hoveredFaceId = -1;
+    this.hoveredEdgeId = -1;
   }
 
   onMouseMove(ndc: THREE.Vector2, camera: THREE.Camera): boolean {
     this.raycaster.setFromCamera(ndc, camera);
 
-    const faceHit = this.raycaster.intersectObjects(this.faceMeshes);
-    const newFace = faceHit.length > 0 ? (faceHit[0].object.userData.inspFaceId as number) : -1;
-
-    const edgeHit = this.raycaster.intersectObjects(this.edgeMeshes);
-    const newEdge = edgeHit.length > 0 ? (edgeHit[0].object.userData.inspEdgeId as number) : -1;
+    // Only raycast against the active mode's objects (the other set is already invisible)
+    let newFace = -1, newEdge = -1;
+    if (this.currentMode === "face") {
+      const hit = this.raycaster.intersectObjects(this.faceMeshes);
+      newFace = hit.length > 0 ? (hit[0].object.userData.inspFaceId as number) : -1;
+    } else {
+      const hit = this.raycaster.intersectObjects(this.edgeMeshes);
+      newEdge = hit.length > 0 ? (hit[0].object.userData.inspEdgeId as number) : -1;
+    }
 
     if (newFace !== this.hoveredFaceId || newEdge !== this.hoveredEdgeId) {
       this.hoveredFaceId = newFace;

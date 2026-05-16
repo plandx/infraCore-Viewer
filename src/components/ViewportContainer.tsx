@@ -104,6 +104,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const pickerRef      = useRef<FaceEdgePicker | null>(null);
   const [inspSession,  setInspSession]  = useState<InspectionSession | null>(null);
   const [inspPickMode, setInspPickMode] = useState<PickMode>("face");
+  const inspPickModeRef = useRef<PickMode>("face");
   const [inspFaces,    setInspFaces]    = useState<InspFace[]>([]);
   const [inspEdges,    setInspEdges]    = useState<InspEdge[]>([]);
   const [inspSelFaces, setInspSelFaces] = useState<Set<number>>(new Set());
@@ -123,41 +124,53 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (!picker || !camera || !renderer) { setInspLabels([]); return; }
     const rect = renderer.domElement.getBoundingClientRect();
     const fmt  = (n: number) => n.toFixed(2).replace(".", ",");
+    const mode = inspPickModeRef.current;
     const out: typeof inspLabels = [];
 
-    for (const face of picker.faces) {
-      const v = new THREE.Vector3(...face.center).project(camera);
-      if (v.z >= 1) continue;
-      out.push({
-        id: face.id, type: "face",
-        text: `F${face.id + 1} · ${fmt(face.area)} m²`,
-        x: (v.x + 1) / 2 * rect.width,
-        y: (-v.y + 1) / 2 * rect.height,
-        selected: picker.selectedFaceIds.has(face.id),
-      });
-    }
-
-    for (const edge of picker.edges) {
-      const mid = new THREE.Vector3(
-        (edge.start[0] + edge.end[0]) / 2,
-        (edge.start[1] + edge.end[1]) / 2,
-        (edge.start[2] + edge.end[2]) / 2,
-      );
-      const v = mid.project(camera);
-      if (v.z >= 1) continue;
-      out.push({
-        id: edge.id, type: "edge",
-        text: `K${edge.id + 1} · ${fmt(edge.length)} m`,
-        x: (v.x + 1) / 2 * rect.width,
-        y: (-v.y + 1) / 2 * rect.height,
-        selected: picker.selectedEdgeIds.has(edge.id),
-      });
+    if (mode === "face") {
+      for (const face of picker.faces) {
+        const v = new THREE.Vector3(...face.center).project(camera);
+        if (v.z >= 1) continue;
+        out.push({
+          id: face.id, type: "face",
+          text: `F${face.id + 1} · ${fmt(face.area)} m²`,
+          x: (v.x + 1) / 2 * rect.width,
+          y: (-v.y + 1) / 2 * rect.height,
+          selected: picker.selectedFaceIds.has(face.id),
+        });
+      }
+    } else {
+      for (const edge of picker.edges) {
+        const mid = new THREE.Vector3(
+          (edge.start[0] + edge.end[0]) / 2,
+          (edge.start[1] + edge.end[1]) / 2,
+          (edge.start[2] + edge.end[2]) / 2,
+        );
+        const v = mid.project(camera);
+        if (v.z >= 1) continue;
+        out.push({
+          id: edge.id, type: "edge",
+          text: `K${edge.id + 1} · ${fmt(edge.length)} m`,
+          x: (v.x + 1) / 2 * rect.width,
+          y: (-v.y + 1) / 2 * rect.height,
+          selected: picker.selectedEdgeIds.has(edge.id),
+        });
+      }
     }
 
     setInspLabels(out);
   }, []); // all reads through stable refs
 
   useEffect(() => { updateInspLabelsRef.current = updateInspLabels; }, [updateInspLabels]);
+
+  // Combined mode-change handler: updates state + ref + picker visibility + labels
+  const handlePickModeChange = useCallback((m: PickMode) => {
+    setInspPickMode(m);
+    inspPickModeRef.current = m;
+    pickerRef.current?.setMode(m);
+    needsRenderRef.current = true;
+    updateInspLabelsRef.current();
+  }, []);
 
   // Recompute labels whenever inspection session / face+edge data changes
   useEffect(() => {
@@ -1058,7 +1071,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         ((e.clientX - rect.left) / rect.width)  * 2 - 1,
         -((e.clientY - rect.top)  / rect.height) * 2 + 1,
       );
-      pickerRef.current.onClick(ndc, cameraRef.current, e.ctrlKey, inspPickMode);
+      pickerRef.current.onClick(ndc, cameraRef.current, e.ctrlKey, inspPickModeRef.current);
       needsRenderRef.current = true;
       return;
     }
@@ -1430,7 +1443,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           selectedFaceIds={inspSelFaces}
           selectedEdgeIds={inspSelEdges}
           pickMode={inspPickMode}
-          onPickModeChange={setInspPickMode}
+          onPickModeChange={handlePickModeChange}
           onClose={() => {
             pickerRef.current?.dispose();
             pickerRef.current = null;
