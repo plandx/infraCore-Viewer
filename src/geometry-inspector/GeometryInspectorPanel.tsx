@@ -40,6 +40,18 @@ const LENGTH_TYPES: { type: QuantityType; label: string }[] = [
   { type: "axisLength", label: "Achslänge (m)" },
 ];
 
+// Preset label suggestions per QuantityType
+const LABEL_PRESETS: Partial<Record<QuantityType, string[]>> = {
+  area:        ["Wandfläche", "Bodenfläche", "Deckenfläche", "Dachfläche", "Fassadenfläche", "Schalfläche", "Belagsfläche"],
+  openingArea: ["Fensteröffnung", "Türöffnung", "Durchbruch", "Aussparung", "Schacht"],
+  length:      ["Leitung", "Profil", "Fuge", "Kante", "Geländer", "Anschlusslinie"],
+  perimeter:   ["Randabschluss", "Sockelleiste", "Anschlussbereich"],
+  height:      ["Wandhöhe", "Einbauhöhe", "lichte Höhe"],
+  width:       ["Elementbreite", "lichte Weite"],
+  thickness:   ["Wandstärke", "Schichtstärke", "Einbaustärke"],
+  axisLength:  ["Trassenlänge", "Achsmaß"],
+};
+
 const fmt = (n: number, d = 3) => n.toFixed(d).replace(".", ",");
 
 // ── Compact type-assignment card ──────────────────────────────────────────────
@@ -57,12 +69,15 @@ function MeasureCard({
   label: string;
   onLabelChange: (s: string) => void;
 }) {
+  const presets = LABEL_PRESETS[type] ?? [];
+
   return (
     <div className={cn("rounded-lg p-2 space-y-1.5 border bg-muted/20", accentColor)}>
+      {/* Type selector + value */}
       <div className="flex items-center gap-1.5">
         <select
           value={type}
-          onChange={e => onTypeChange(e.target.value as QuantityType)}
+          onChange={e => { onTypeChange(e.target.value as QuantityType); onLabelChange(""); }}
           className="flex-1 min-w-0 text-[10px] px-1.5 py-0.5 bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary truncate"
         >
           {options.map(o => <option key={o.type} value={o.type}>{o.label}</option>)}
@@ -71,6 +86,28 @@ function MeasureCard({
           {fmt(value)} {unit}
         </span>
       </div>
+
+      {/* Preset chips */}
+      {presets.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {presets.map(p => (
+            <button
+              key={p}
+              onClick={() => onLabelChange(label === p ? "" : p)}
+              className={cn(
+                "text-[9px] px-1.5 py-0.5 rounded border transition-colors",
+                label === p
+                  ? "bg-primary/20 border-primary/40 text-primary"
+                  : "bg-background border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              )}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Free-text label */}
       <input
         type="text"
         placeholder={defaultLabel}
