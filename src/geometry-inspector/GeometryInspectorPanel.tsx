@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye, Trash2, ExternalLink, Tag, TagOff } from "lucide-react";
+import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye, Trash2, ExternalLink, Tag } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore } from "../billing/billingStore";
 import { qid, QUANTITY_META, fmtQty } from "../billing/quantityTypes";
@@ -328,7 +328,7 @@ export function GeometryInspectorPanel({
               : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
           )}
         >
-          {showLabels ? <Tag size={12} /> : <TagOff size={12} />}
+          <Tag size={12} />
           <span className="text-[10px]">Labels</span>
         </button>
       </div>
