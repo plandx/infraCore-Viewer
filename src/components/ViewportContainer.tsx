@@ -561,8 +561,20 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
 
       if (msg.t === "requestQuantities") {
+        const [filename] = msg.key.split(":");
         const meshes = collectMeshesForKey(msg.key);
         const data = meshes.length > 0 ? computeQuantities(meshes) : null;
+        if (data) {
+          // Translate Three.js world-space center back to raw IFC coordinates so the
+          // fingerprint position is stable regardless of scene composition / load order.
+          let offset: THREE.Vector3 | undefined;
+          useModelStore.getState().models.forEach((m) => { if (m.name === filename) offset = m.originOffset; });
+          if (offset) {
+            data.bboxCenterX = (data.bboxCenterX ?? 0) + offset.x;
+            data.bboxCenterY = (data.bboxCenterY ?? 0) + offset.y;
+            data.bboxCenterZ = (data.bboxCenterZ ?? 0) + offset.z;
+          }
+        }
         bc?.postMessage({ t: "quantities", key: msg.key, data } satisfies BillingMsg);
         return;
       }

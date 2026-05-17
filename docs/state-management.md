@@ -384,6 +384,8 @@ interface ElementIdentity {
 
 Toleranzen bei `runIdentityCheck`: GUID exakt, Volumen ±1%, Lage ±5cm, Abmessungen ±1cm je Achse.
 
+**Koordinatensystem:** `bboxCenter*` im Fingerabdruck sind **rohe IFC-Koordinaten** (= Three.js-Weltkoordinaten + `model.originOffset`). Damit ist der Lage-Check unabhängig von der Reihenfolge des Modell-Ladens und der Szenen-Komposition. ViewportContainer addiert `originOffset` im `requestQuantities`-Handler bevor er `quantities` zurücksendet.
+
 **GUID-basiertes Import-Remapping:** `handleImport` baut eine `Map<guid, currentKey>` aus den aktuell geladenen Elementen. Einträge deren GUID in der aktuellen Modelldatei gefunden wird, aber unter einem anderen Key (anderer Dateiname), werden vor dem `importData()`-Aufruf auf den aktuellen Key umgeschrieben. So funktioniert der Vergleich auch wenn Bauleiter und Bauüberwachung unterschiedliche Dateinamen verwenden.
 
 **Auto-Snapshot:** `handleAddEntry` setzt `pendingSnapshotRef.current = key` und sendet `{ t: "requestQuantities" }` sofort nach dem Anlegen des Eintrags. Der eintreffende `quantities`-Response persistiert dann automatisch die `ElementIdentity`.

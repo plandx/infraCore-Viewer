@@ -281,6 +281,15 @@ export function BillingPanel({ elements }: Props) {
 
   useEffect(() => { setVizActive(moduleActive); }, [moduleActive]);
 
+  // Auto-snapshot: whenever a tracked entry with no fingerprint is selected, capture it
+  useEffect(() => {
+    if (!selectedKey) return;
+    const entry = entries[selectedKey];
+    if (!entry || entry.identity || pendingSnapshotRef.current === selectedKey) return;
+    pendingSnapshotRef.current = selectedKey;
+    bcRef.current?.postMessage({ t: "requestQuantities", key: selectedKey } satisfies BillingMsg);
+  }, [selectedKey, entries]);
+
   // BroadcastChannel listener
   useEffect(() => {
     let bc: BroadcastChannel | null = null;
@@ -427,9 +436,6 @@ export function BillingPanel({ elements }: Props) {
     addEntry({ key: el.key, guid: el.guid, expressId: el.expressId, modelId: el.modelId, elementName: el.name, ifcType: el.ifcType });
     handleSelectKey(el.key);
     setTab("mengen");
-    // Auto-snapshot: capture geometry fingerprint immediately
-    pendingSnapshotRef.current = el.key;
-    bcRef.current?.postMessage({ t: "requestQuantities", key: el.key } satisfies BillingMsg);
   };
 
   const handleAddStage = () => {
