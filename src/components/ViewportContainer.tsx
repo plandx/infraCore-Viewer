@@ -21,7 +21,7 @@ import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorP
 import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
 import { useAlignmentStore } from "../alignment/alignmentStore";
 import { AlignmentPanel } from "../alignment/AlignmentPanel";
-import { sampleAtDisplayStation, buildStationSeries } from "../alignment/landXmlParser";
+import { buildRobustPolyline } from "../alignment/landXmlParser";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -106,6 +106,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const billingVizRef    = useRef<BillingVisualizer | null>(null);
   const billingMeshMapRef = useRef<Map<string, THREE.Mesh[]>>(new Map());
   const alignGroupRef  = useRef<THREE.Group | null>(null);
+  const alignPolylineRef = useRef<Map<number, { pts: Array<{ x: number; y: number; z: number; sta: number; ox: number; oy: number; oz: number }>; name: string }>>(new Map());
   const pickerRef      = useRef<FaceEdgePicker | null>(null);
   const pendingSelectKeyRef = useRef<string | null>(null);
   const [inspSession,  setInspSession]  = useState<InspectionSession | null>(null);
@@ -439,9 +440,9 @@ export function ViewportContainer({ onElementClick }: Props) {
       const ifc = useModelStore.getState().models[0];
       let ox: number, oy: number, oz: number;
       if (ifc) {
-        ox = ifc.originOffset.x;
-        oy = ifc.originOffset.y;
-        oz = ifc.originOffset.z;
+        ox = ifc.originOffset.x;    // Easting
+        oy = -ifc.originOffset.z;   // Northing = -Z_threejs
+        oz = ifc.originOffset.y;    // Elevation = Y_threejs
       } else if (geoOrigin) {
         ox = geoOrigin.x; // Easting
         oy = geoOrigin.y; // Northing
@@ -450,21 +451,24 @@ export function ViewportContainer({ onElementClick }: Props) {
         ox = 0; oy = 0; oz = 0;
       }
 
+      alignPolylineRef.current.clear();
+
       for (const file of files) {
         for (const alignment of file.alignments) {
           if (!visibleIds.has(alignment.id)) continue;
 
-          // Build a station series that assigns extra points to transition
-          // segments so clothoid curves render smoothly without visible kinks.
-          const basePts = Math.min(2000, Math.max(60, Math.ceil(alignment.length / 2)));
-          const stations = buildStationSeries(alignment, basePts);
+          const { sampleInterval } = useAlignmentStore.getState();
+          const approxPts = buildRobustPolyline(alignment, sampleInterval);
+
+          // Cache pts for station tool (in world coords + original coords)
+          alignPolylineRef.current.set(alignment.id, {
+            pts: approxPts.map(p => ({ ...p, ox, oy, oz })),
+            name: alignment.displayName,
+          });
 
           const pts: THREE.Vector3[] = [];
-          for (const sta of stations) {
-            const p = sampleAtDisplayStation(alignment, sta);
-            if (!p) continue;
-            // LandXML: X=Easting, Y=Northing, Z=Elevation → Three.js: X=East, Y=Elev, Z=-North
-            pts.push(new THREE.Vector3(p.x - ox, (p.z ?? 0) - oz, -(p.y - oy)));
+          for (const p of approxPts) {
+            pts.push(new THREE.Vector3(p.x - ox, p.z - oz, -(p.y - oy)));
           }
           if (pts.length < 2) continue;
           const geo = new THREE.BufferGeometry().setFromPoints(pts);
@@ -488,6 +492,78 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
     });
     return () => { unsubAlign(); unsubModel(); };
+  }, []);
+
+  // ── Station measurement tool ───────────────────────────────────────────
+  useEffect(() => {
+    const canvas = rendererRef.current?.domElement;
+    if (!canvas) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const { stationToolActive, setHoveredStation, files, visibleIds } = useAlignmentStore.getState();
+      if (!stationToolActive) return;
+
+      const camera = cameraRef.current;
+      if (!camera) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const ndcX =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+      const ndcY = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+      const rayOrigin = raycaster.ray.origin;
+      const rayDir    = raycaster.ray.direction;
+
+      const clampVal = (v: number, lo: number, hi: number) => v < lo ? lo : v > hi ? hi : v;
+      const lerpVal  = (a: number, b: number, t: number)   => a + (b - a) * t;
+
+      let bestDist = Infinity;
+      let bestInfo: { alignmentId: number; station: number; name: string } | null = null;
+
+      const allIds = new Set(files.flatMap(f => f.alignments.map(a => a.id)));
+
+      for (const [alignId, cache] of alignPolylineRef.current.entries()) {
+        if (!visibleIds.has(alignId) || !allIds.has(alignId)) continue;
+        const { pts, name } = cache;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const A = pts[i], B = pts[i + 1];
+          const { ox, oy, oz } = A;
+          const p0 = new THREE.Vector3(A.x - ox, A.z - oz, -(A.y - oy));
+          const p1 = new THREE.Vector3(B.x - ox, B.z - oz, -(B.y - oy));
+
+          const seg = p1.clone().sub(p0);
+          const w   = p0.clone().sub(rayOrigin);
+          const a   = seg.dot(seg);
+          const b   = seg.dot(rayDir);
+          const c   = rayDir.dot(rayDir);
+          const d   = seg.dot(w);
+          const ev  = rayDir.dot(w);
+          const denom = a * c - b * b;
+          let sc = denom > 1e-10 ? clampVal((b * ev - c * d) / denom, 0, 1) : 0;
+          const tc = (b * sc + ev) / c;
+          if (tc < 0) sc = clampVal(-d / a, 0, 1);
+
+          const closest = p0.clone().addScaledVector(seg, sc);
+          const rayPt   = rayOrigin.clone().addScaledVector(rayDir, Math.max(0, (b * sc + ev) / c));
+          const dist    = closest.distanceTo(rayPt);
+
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestInfo = {
+              alignmentId: alignId,
+              station: lerpVal(A.sta, B.sta, sc),
+              name,
+            };
+          }
+        }
+      }
+
+      setHoveredStation(bestDist < 20 ? bestInfo : null);
+    };
+
+    canvas.addEventListener("mousemove", onMouseMove);
+    return () => canvas.removeEventListener("mousemove", onMouseMove);
   }, []);
 
   // ── Section module: sync planes from store ───────────────────────────────

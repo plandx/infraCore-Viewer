@@ -756,3 +756,65 @@ export function generateStationSeries(alignment: Alignment, interval: number): n
     series.push(alignment.staEnd);
   return series;
 }
+
+export interface ApproxPoint {
+  x: number;
+  y: number;
+  z: number;
+  sta: number;
+}
+
+// Builds a polyline for display that avoids clothoid integration:
+// - Lines: exact (2 pts)
+// - Curves: exact circular arc at arcSpacingM intervals
+// - Transitions: linear chord approximation at arcSpacingM intervals
+// Endpoints of every segment are always exact XML coordinates → no V-kinks.
+export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): ApproxPoint[] {
+  const eqs = alignment.stationEquations;
+  const hasProfile = alignment.profileGeom.vertices.length >= 2;
+
+  const getElev = (coordZ: number | null, sta: number): number => {
+    if (hasProfile) return evaluateProfile(alignment.profileGeom, sta) ?? coordZ ?? 0;
+    return coordZ ?? 0;
+  };
+
+  const pts: ApproxPoint[] = [];
+
+  const pushPt = (x: number, y: number, z: number, sta: number) => {
+    const last = pts[pts.length - 1];
+    if (last && Math.abs(x - last.x) < 1e-9 && Math.abs(y - last.y) < 1e-9) return;
+    pts.push({ x, y, z, sta });
+  };
+
+  for (const seg of alignment.segments) {
+    const dispStart = stationToDisplay(eqs, seg.staStart);
+    const dispEnd   = stationToDisplay(eqs, seg.staEnd);
+
+    if (seg.type === "Line") {
+      pushPt(seg.start.x, seg.start.y, getElev(seg.start.z, dispStart), dispStart);
+      pushPt(seg.end.x,   seg.end.y,   getElev(seg.end.z,   dispEnd),   dispEnd);
+
+    } else if (seg.type === "Curve") {
+      const n = Math.max(4, Math.ceil(seg.length / Math.max(1, arcSpacingM)));
+      for (let i = 0; i <= n; i++) {
+        const t     = i / n;
+        const angle = seg.a0 + (seg.rot === "cw" ? -1 : 1) * t * seg.geomDelta;
+        const x     = seg.center.x + seg.radius * Math.cos(angle);
+        const y     = seg.center.y + seg.radius * Math.sin(angle);
+        const sta   = lerp(dispStart, dispEnd, t);
+        pushPt(x, y, getElev(lerp(seg.start.z ?? 0, seg.end.z ?? 0, t), sta), sta);
+      }
+
+    } else {
+      const n = Math.max(2, Math.ceil(seg.length / Math.max(1, arcSpacingM)));
+      for (let i = 0; i <= n; i++) {
+        const t   = i / n;
+        const x   = lerp(seg.start.x, seg.end.x, t);
+        const y   = lerp(seg.start.y, seg.end.y, t);
+        const sta = lerp(dispStart, dispEnd, t);
+        pushPt(x, y, getElev(lerp(seg.start.z ?? 0, seg.end.z ?? 0, t), sta), sta);
+      }
+    }
+  }
+  return pts;
+}

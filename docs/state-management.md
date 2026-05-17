@@ -459,6 +459,45 @@ Nach `addEntry()` / `set()` muss **erneut** `useBillingStore.getState()` aufgeru
 
 ---
 
+## Alignment-Store (`src/alignment/alignmentStore.ts`)
+
+Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen und das Stationierungs-Werkzeug.
+
+### Felder
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `files` | `AlignFile[]` | Geladene Dateien mit ihren Alignments |
+| `selectedId` | `number \| null` | Aktuell ausgewähltes Alignment |
+| `visibleIds` | `Set<number>` | Sichtbare Alignment-IDs |
+| `colors` | `Record<number, string>` | Farbe je Alignment-ID (aus PALETTE) |
+| `geoOrigin` | `{x,y,z} \| null` | Geo-Referenzpunkt (Easting/Northing/Elev des ersten Segments) für Szene ohne IFC |
+| `panelOpen` | `boolean` | AlignmentPanel sichtbar |
+| `sampleInterval` | `number` | Bogenabtastabstand in Metern (Standard: 5 m) |
+| `stationToolActive` | `boolean` | Stationierungs-Mess-Werkzeug aktiv |
+| `hoveredStation` | `{alignmentId, station, name} \| null` | Aktuelle Hover-Station (vom Viewport befüllt) |
+
+### Aktionen
+
+| Aktion | Beschreibung |
+|---|---|
+| `loadFile(file)` | Liest File, parst LandXML, weist ID/Farbe zu, setzt `geoOrigin` |
+| `removeFile(fileId)` | Entfernt Datei und alle zugehörigen Alignments |
+| `toggleVisible(id)` | Sichtbarkeit eines Alignments umschalten |
+| `selectAlignment(id)` | Alignment auswählen (null = Auswahl aufheben) |
+| `togglePanel()` | Panel öffnen/schließen |
+| `setSampleInterval(n)` | Bogenabtastabstand setzen |
+| `toggleStationTool()` | Stationierungs-Werkzeug an/aus |
+| `setHoveredStation(info)` | Hover-Station setzen (vom ViewportContainer aufgerufen) |
+
+### Koordinaten-Konvention in `geoOrigin`
+
+`geoOrigin.x` = Easting, `geoOrigin.y` = Northing, `geoOrigin.z` = Elevation. Diese Werte entstammen dem ersten Segment-Startpunkt. Der ViewportContainer subtrahiert sie so: `(p.x-ox, p.z-oz, -(p.y-oy))` → Three.js (X=East, Y=Elev, Z=−North).
+
+Wenn ein IFC-Modell geladen ist, wird stattdessen `ifc.originOffset` genutzt, mit Remapping: `ox=originOffset.x`, `oy=−originOffset.z`, `oz=originOffset.y` (weil Three.js Y=Elev, Z=−North).
+
+---
+
 ## Geometrie-Inspektor State (ViewportContainer-lokal)
 
 Diese Zustände sind **React-State** in `ViewportContainer`, nicht im Zustand-Store. Sie leben nur solange der Inspektor aktiv ist und werden beim Schließen zurückgesetzt.

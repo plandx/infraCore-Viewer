@@ -31,12 +31,18 @@ interface AlignmentStore {
   // x = Easting, y = Northing, z = Elevation of first alignment's first point.
   geoOrigin: { x: number; y: number; z: number } | null;
   panelOpen: boolean;
+  sampleInterval: number;
+  stationToolActive: boolean;
+  hoveredStation: { alignmentId: number; station: number; name: string } | null;
 
   loadFile(file: File): Promise<void>;
   removeFile(fileId: string): void;
   toggleVisible(id: number): void;
   selectAlignment(id: number | null): void;
   togglePanel(): void;
+  setSampleInterval(n: number): void;
+  toggleStationTool(): void;
+  setHoveredStation(info: { alignmentId: number; station: number; name: string } | null): void;
 }
 
 export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
@@ -46,6 +52,9 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   colors: {},
   geoOrigin: null,
   panelOpen: false,
+  sampleInterval: 5,
+  stationToolActive: false,
+  hoveredStation: null,
 
   loadFile: async (file: File) => {
     const text = await file.text();
@@ -134,4 +143,8 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   selectAlignment: (id: number | null) => set({ selectedId: id }),
 
   togglePanel: () => set(state => ({ panelOpen: !state.panelOpen })),
+
+  setSampleInterval: (n) => set({ sampleInterval: n }),
+  toggleStationTool: () => set(state => ({ stationToolActive: !state.stationToolActive })),
+  setHoveredStation: (info) => set({ hoveredStation: info }),
 }));

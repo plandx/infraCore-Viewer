@@ -7,6 +7,7 @@ import {
   Upload,
   ChevronDown,
   ChevronRight,
+  Ruler,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAlignmentStore } from "./alignmentStore";
@@ -221,6 +222,12 @@ export function AlignmentPanel() {
   const selectAlignment = useAlignmentStore(s => s.selectAlignment);
   const togglePanel    = useAlignmentStore(s => s.togglePanel);
 
+  const sampleInterval    = useAlignmentStore(s => s.sampleInterval);
+  const stationToolActive = useAlignmentStore(s => s.stationToolActive);
+  const hoveredStation    = useAlignmentStore(s => s.hoveredStation);
+  const setSampleInterval = useAlignmentStore(s => s.setSampleInterval);
+  const toggleStationTool = useAlignmentStore(s => s.toggleStationTool);
+
   const inputRef  = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -311,6 +318,54 @@ export function AlignmentPanel() {
                 onSelect={selectAlignment}
               />
             ))}
+          </div>
+        )}
+
+        {/* Station tool + resolution toolbar */}
+        {files.length > 0 && (
+          <div className="px-2 pb-2 border-t border-zinc-800 pt-2 flex flex-col gap-2">
+            {/* Station tool */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleStationTool}
+                className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors",
+                  stationToolActive
+                    ? "bg-sky-600 text-white"
+                    : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                )}
+              >
+                <Ruler size={11} />
+                Stationierung messen
+              </button>
+            </div>
+            {/* Hovered station display */}
+            {stationToolActive && hoveredStation && (
+              <div className="bg-zinc-800 rounded px-2 py-1 text-xs">
+                <span className="text-zinc-400">{hoveredStation.name}: </span>
+                <span className="text-sky-300 font-mono">{formatStation(hoveredStation.station)}</span>
+              </div>
+            )}
+            {stationToolActive && !hoveredStation && (
+              <p className="text-xs text-zinc-500 italic">Maus über Achse bewegen…</p>
+            )}
+            {/* Arc spacing interval */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-400 shrink-0">Auflösung:</span>
+              <select
+                value={sampleInterval}
+                onChange={e => setSampleInterval(Number(e.target.value))}
+                className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs rounded px-1 py-0.5"
+              >
+                {[1, 2, 5, 10, 25, 50].map(v => (
+                  <option key={v} value={v}>{v} m</option>
+                ))}
+              </select>
+            </div>
+            {/* Approximation warning */}
+            <p className="text-[10px] text-yellow-500 leading-tight">
+              ⚠ Übergangskurven werden linear angenähert. Bögen und Geraden sind exakt.
+            </p>
           </div>
         )}
 

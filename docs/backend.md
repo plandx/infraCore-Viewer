@@ -419,9 +419,12 @@ Aliases: `stationInternalToDisplay`, `stationDisplayToInternal`.
 |---|---|
 | `parseLandXmlText(text, fileName, nextId)` | Parst XML-String → `ParsedLandXml` |
 | `evaluateProfile(profileGeom, displaySta)` | Profil-Elevation an Anzeige-Station |
-| `sampleAtDisplayStation(alignment, displaySta)` | XYZ + Tangente an Anzeige-Station |
+| `sampleAtDisplayStation(alignment, displaySta)` | XYZ + Tangente an Anzeige-Station (Clothoid-Sampling) |
+| `buildRobustPolyline(alignment, arcSpacingM)` | Punktfolge ohne Clothoid: Geraden exakt, Bögen via Kreisformel, Spiralen als Chord (kein V-Kink) |
 | `buildStationSeries(alignment, basePts)` | nicht-uniforme Stationsfolge (Spiralen ≥24 Pkt, Bögen ≥12) |
 | `generateStationSeries(alignment, interval)` | uniforme Station alle `interval` m |
+
+`ApproxPoint = { x, y, z, sta }` — Output-Typ von `buildRobustPolyline`.
 
 ---
 
