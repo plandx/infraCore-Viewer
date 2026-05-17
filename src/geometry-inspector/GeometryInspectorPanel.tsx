@@ -29,11 +29,6 @@ interface Props {
   onOpen5D?:           () => void;
 }
 
-// Which stored QuantityTypes belong to each tab
-const AREA_TYPES_SET      = new Set<QuantityType>(["area", "openingArea", "netArea"]);
-const PERIMETER_TYPES_SET = new Set<QuantityType>(["perimeter"]);
-const LENGTH_TYPES_SET    = new Set<QuantityType>(["length", "height", "width", "thickness", "axisLength"]);
-
 // Dropdown options per measurement kind
 const AREA_OPTIONS: { type: QuantityType; label: string }[] = [
   { type: "area",        label: "Fläche (m²)" },
@@ -204,9 +199,9 @@ export function GeometryInspectorPanel({
   const storedItems = useBillingStore(s =>
     billingKey ? (s.entries[billingKey]?.quantitySet?.items ?? EMPTY_ITEMS) : EMPTY_ITEMS
   );
-  const savedFaceItems     = storedItems.filter(i => i.inspectorGeom === "face"     || (!i.inspectorGeom && AREA_TYPES_SET.has(i.type)));
-  const savedBoundaryItems = storedItems.filter(i => i.inspectorGeom === "boundary" || (!i.inspectorGeom && PERIMETER_TYPES_SET.has(i.type)));
-  const savedEdgeItems     = storedItems.filter(i => i.inspectorGeom === "edge"     || (!i.inspectorGeom && LENGTH_TYPES_SET.has(i.type) && !PERIMETER_TYPES_SET.has(i.type)));
+  const savedFaceItems     = storedItems.filter(i => i.inspectorGeom === "face");
+  const savedBoundaryItems = storedItems.filter(i => i.inspectorGeom === "boundary");
+  const savedEdgeItems     = storedItems.filter(i => i.inspectorGeom === "edge");
 
   const handleDeleteItem = (id: string) => {
     if (!billingKey) return;
