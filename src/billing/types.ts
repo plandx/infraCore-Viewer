@@ -4,6 +4,7 @@ export interface BillingStage {
   date: string;
   degree: number;
   note: string;
+  createdBy?: string;
 }
 
 export interface DocumentRef {

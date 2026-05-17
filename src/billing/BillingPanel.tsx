@@ -3,7 +3,7 @@ import {
   Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink,
   ScanEye, Calculator, Ruler, Cpu, Hash, ChevronRight,
   Fingerprint, ShieldCheck, ShieldAlert, ShieldOff, RefreshCw,
-  ListFilter, ArrowDownUp, ClipboardCheck,
+  ListFilter, ArrowDownUp, ClipboardCheck, AlertTriangle, User,
 } from "lucide-react";
 import type { BillingEntry } from "./types";
 import { cn } from "../lib/utils";
@@ -251,10 +251,15 @@ export function BillingPanel({ elements }: Props) {
   const [vizActive, setVizActive] = useState(moduleActive);
 
   // Stages form
-  const [stageLabel, setStageLabel] = useState("");
-  const [stageDate,  setStageDate]  = useState(() => new Date().toISOString().slice(0, 10));
-  const [stageDegree,setStageDegree]= useState("0");
-  const [stageNote,  setStageNote]  = useState("");
+  const [stageLabel,     setStageLabel]     = useState("");
+  const [stageDate,      setStageDate]      = useState(() => new Date().toISOString().slice(0, 10));
+  const [stageDegree,    setStageDegree]    = useState("0");
+  const [stageNote,      setStageNote]      = useState("");
+  const [stageCreatedBy, setStageCreatedBy] = useState(() => localStorage.getItem("infracore-username") ?? "");
+
+  useEffect(() => {
+    if (stageCreatedBy) localStorage.setItem("infracore-username", stageCreatedBy);
+  }, [stageCreatedBy]);
 
   // Documents form
   const [docDocId, setDocDocId] = useState("");
@@ -435,8 +440,11 @@ export function BillingPanel({ elements }: Props) {
 
   const handleAddStage = () => {
     if (!selectedKey || !stageLabel.trim()) return;
-    const deg = Math.max(0, Math.min(100, parseFloat(stageDegree) || 0));
-    addStage(selectedKey, { label: stageLabel.trim(), date: stageDate, degree: deg, note: stageNote.trim() });
+    const deg = Math.max(0, parseFloat(stageDegree) || 0);
+    addStage(selectedKey, {
+      label: stageLabel.trim(), date: stageDate, degree: deg,
+      note: stageNote.trim(), createdBy: stageCreatedBy.trim() || undefined,
+    });
     setStageLabel(""); setStageDegree("0"); setStageNote("");
   };
 
@@ -643,10 +651,11 @@ export function BillingPanel({ elements }: Props) {
               onRemoveQuantityItem={id => removeQuantityItem(selectedKey, id)}
               onAddStage={handleAddStage}
               onRemoveStage={id => removeStage(selectedKey, id)}
-              stageLabel={stageLabel} setStageLabel={setStageLabel}
-              stageDate={stageDate}   setStageDate={setStageDate}
-              stageDegree={stageDegree} setStageDegree={setStageDegree}
-              stageNote={stageNote}   setStageNote={setStageNote}
+              stageLabel={stageLabel}         setStageLabel={setStageLabel}
+              stageDate={stageDate}           setStageDate={setStageDate}
+              stageDegree={stageDegree}       setStageDegree={setStageDegree}
+              stageNote={stageNote}           setStageNote={setStageNote}
+              stageCreatedBy={stageCreatedBy} setStageCreatedBy={setStageCreatedBy}
               onAddDoc={handleAddDoc}
               onRemoveDoc={id => removeDocument(selectedKey, id)}
               docDocId={docDocId} setDocDocId={setDocDocId}
@@ -711,10 +720,11 @@ interface DetailProps {
   onRemoveQuantityItem(id: string): void;
   onAddStage(): void;
   onRemoveStage(id: string): void;
-  stageLabel: string; setStageLabel(v: string): void;
-  stageDate: string;  setStageDate(v: string): void;
-  stageDegree: string; setStageDegree(v: string): void;
-  stageNote: string;  setStageNote(v: string): void;
+  stageLabel: string;     setStageLabel(v: string): void;
+  stageDate: string;      setStageDate(v: string): void;
+  stageDegree: string;    setStageDegree(v: string): void;
+  stageNote: string;      setStageNote(v: string): void;
+  stageCreatedBy: string; setStageCreatedBy(v: string): void;
   onAddDoc(): void;
   onRemoveDoc(id: string): void;
   docDocId: string; setDocDocId(v: string): void;
@@ -1051,71 +1061,125 @@ function IdTab({
 
 // ── Stages tab ─────────────────────────────────────────────────────────────────
 
-function StagesTab({ entry, selectedKey, onAddStage, onRemoveStage, stageLabel, setStageLabel, stageDate, setStageDate, stageDegree, setStageDegree, stageNote, setStageNote }: DetailProps) {
+function StagesTab({ entry, onAddStage, onRemoveStage, stageLabel, setStageLabel, stageDate, setStageDate, stageDegree, setStageDegree, stageNote, setStageNote, stageCreatedBy, setStageCreatedBy }: DetailProps) {
+  const hasOver100 = entry.stages.some(s => s.degree > 100);
+  const latestDeg  = entry.stages.length ? entry.stages[entry.stages.length - 1].degree : 0;
+
   return (
     <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 flex flex-col gap-4">
       {entry.stages.length > 0 ? (
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-muted-foreground border-b border-border">
-              <th className="text-left pb-1.5 pr-2 font-medium w-6">Nr</th>
-              <th className="text-left pb-1.5 pr-2 font-medium">Bezeichnung</th>
-              <th className="text-left pb-1.5 pr-2 font-medium w-24">Datum</th>
-              <th className="text-right pb-1.5 pr-2 font-medium w-20">Grad</th>
-              <th className="text-right pb-1.5 pr-2 font-medium w-12">Δ</th>
-              <th className="w-6" />
-            </tr>
-          </thead>
-          <tbody>
-            {entry.stages.map((s, i) => {
-              const prev = i > 0 ? entry.stages[i - 1].degree : 0;
-              const delta = s.degree - prev;
-              return (
-                <tr key={s.id} className="border-b border-border/40 hover:bg-muted/30">
-                  <td className="py-1.5 pr-2 text-muted-foreground">{i + 1}</td>
-                  <td className="py-1.5 pr-2">
-                    <div className="font-medium">{s.label}</div>
-                    {s.note && <div className="text-[10px] text-muted-foreground">{s.note}</div>}
-                  </td>
-                  <td className="py-1.5 pr-2 text-muted-foreground font-mono">{s.date}</td>
-                  <td className="py-1.5 pr-2">
-                    <div className="flex items-center gap-1.5 justify-end">
-                      <div className="w-14 h-1.5 bg-border rounded-full overflow-hidden">
-                        <div className={cn("h-full rounded-full", s.degree >= 100 ? "bg-green-500" : "bg-amber-400")} style={{ width: `${s.degree}%` }} />
+        <>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-muted-foreground border-b border-border">
+                <th className="text-left pb-1.5 pr-2 font-medium w-5">Nr</th>
+                <th className="text-left pb-1.5 pr-2 font-medium">Bezeichnung</th>
+                <th className="text-left pb-1.5 pr-2 font-medium w-20">Datum</th>
+                <th className="text-right pb-1.5 pr-2 font-medium w-20">Grad</th>
+                <th className="text-right pb-1.5 pr-2 font-medium w-10">Δ</th>
+                <th className="w-6" />
+              </tr>
+            </thead>
+            <tbody>
+              {entry.stages.map((s, i) => {
+                const prev = i > 0 ? entry.stages[i - 1].degree : 0;
+                const delta = s.degree - prev;
+                const over = s.degree > 100;
+                return (
+                  <tr key={s.id} className={cn("border-b border-border/40 hover:bg-muted/30", over && "bg-orange-500/5")}>
+                    <td className="py-1.5 pr-2 text-muted-foreground">{i + 1}</td>
+                    <td className="py-1.5 pr-2">
+                      <div className="font-medium">{s.label}</div>
+                      {s.note && <div className="text-[10px] text-muted-foreground">{s.note}</div>}
+                      {s.createdBy && (
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 mt-0.5">
+                          <User size={8} />
+                          {s.createdBy}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-1.5 pr-2 text-muted-foreground font-mono text-[10px]">{s.date}</td>
+                    <td className="py-1.5 pr-2">
+                      <div className="flex items-center gap-1.5 justify-end">
+                        <div className="w-14 h-1.5 bg-border rounded-full overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full", over ? "bg-orange-500" : s.degree >= 100 ? "bg-green-500" : "bg-amber-400")}
+                            style={{ width: `${Math.min(s.degree, 100)}%` }}
+                          />
+                        </div>
+                        <span className={cn("font-mono w-10 text-right", over && "text-orange-400 font-semibold")}>{s.degree}%</span>
                       </div>
-                      <span className="font-mono w-8 text-right">{s.degree}%</span>
-                    </div>
-                  </td>
-                  <td className={cn("py-1.5 pr-2 text-right font-mono text-xs", delta > 0 ? "text-green-400" : delta < 0 ? "text-red-400" : "text-muted-foreground")}>
-                    {delta > 0 ? "+" : ""}{delta}%
-                  </td>
-                  <td className="py-1.5">
-                    <button onClick={() => onRemoveStage(s.id)} className="text-muted-foreground/40 hover:text-destructive transition-colors"><X size={12} /></button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                    <td className={cn("py-1.5 pr-2 text-right font-mono text-[10px]", delta > 0 ? "text-green-400" : delta < 0 ? "text-red-400" : "text-muted-foreground")}>
+                      {delta > 0 ? "+" : ""}{delta}%
+                    </td>
+                    <td className="py-1.5">
+                      <button onClick={() => onRemoveStage(s.id)} className="text-muted-foreground/40 hover:text-destructive transition-colors"><X size={12} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {hasOver100 && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-orange-500/10 border border-orange-500/25 text-xs text-orange-400">
+              <AlertTriangle size={12} className="shrink-0" />
+              <span>% Stand: Aktuell <span className="font-semibold">{latestDeg}%</span> — Wert liegt über 100%</span>
+            </div>
+          )}
+        </>
       ) : (
         <p className="text-xs text-muted-foreground">Noch kein Abrechnungsstand erfasst.</p>
       )}
 
       <div className="bg-muted/30 border border-border rounded-lg p-3 flex flex-col gap-2 shrink-0">
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Neuer Stand</span>
-        <input type="text" placeholder="Bezeichnung" value={stageLabel} onChange={e => setStageLabel(e.target.value)}
+
+        {/* Quick 10% step buttons */}
+        <div className="grid grid-cols-5 gap-1">
+          {[10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map(v => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setStageDegree(String(v))}
+              className={cn(
+                "py-1 rounded text-[10px] font-mono transition-colors border",
+                Number(stageDegree) === v
+                  ? "bg-primary/20 text-primary border-primary/30"
+                  : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
+              )}
+            >
+              {v}%
+            </button>
+          ))}
+        </div>
+
+        <input type="text" placeholder="Bezeichnung *" value={stageLabel} onChange={e => setStageLabel(e.target.value)}
           className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+
         <div className="grid grid-cols-2 gap-2">
           <input type="date" value={stageDate} onChange={e => setStageDate(e.target.value)}
             className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
           <div className="flex items-center gap-1.5">
-            <input type="number" min={0} max={100} value={stageDegree} onChange={e => setStageDegree(e.target.value)}
-              className="flex-1 px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+            <input type="number" min={0} value={stageDegree} onChange={e => setStageDegree(e.target.value)}
+              className={cn(
+                "flex-1 px-2 py-1.5 text-xs bg-background border rounded focus:outline-none focus:ring-1 focus:ring-primary",
+                Number(stageDegree) > 100 ? "border-orange-500/60 text-orange-400" : "border-border"
+              )} />
             <span className="text-xs text-muted-foreground">%</span>
           </div>
         </div>
+
+        <div className="flex items-center gap-1.5">
+          <User size={11} className="text-muted-foreground shrink-0" />
+          <input type="text" placeholder="Erfasst von (optional)" value={stageCreatedBy} onChange={e => setStageCreatedBy(e.target.value)}
+            className="flex-1 px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+        </div>
+
         <input type="text" placeholder="Notiz (optional)" value={stageNote} onChange={e => setStageNote(e.target.value)}
           className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+
         <button onClick={onAddStage} disabled={!stageLabel.trim()}
           className="self-end flex items-center gap-1 px-3 py-1.5 rounded text-xs bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity">
           <Plus size={12} />Hinzufügen
