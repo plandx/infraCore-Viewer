@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import {
   Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink,
   ScanEye, Calculator, Ruler, Cpu, Hash, ChevronRight,
+  Fingerprint, ShieldCheck, ShieldAlert, ShieldOff, RefreshCw,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore, BILLING_CHANNEL } from "./billingStore";
-import type { ElementInfo, BillingExport, BillingMsg, ElementQuantities } from "./types";
+import type { ElementIdentity, ElementInfo, BillingExport, BillingMsg, ElementQuantities } from "./types";
 import type { QuantityItem } from "./quantityTypes";
 import { QuantitySetPanel } from "./QuantitySetPanel";
 
@@ -13,7 +14,46 @@ interface Props {
   elements: ElementInfo[];
 }
 
-type DetailTab = "mengen" | "abschnitte" | "dokumente";
+type DetailTab = "mengen" | "abschnitte" | "dokumente" | "id";
+
+// ── Identity check result (display-only, not persisted) ───────────────────────
+
+interface IdentityCheckResult {
+  checkedAt: string;
+  guidOk: boolean | null; // null = element not found in current model
+  volumeOk: boolean;
+  positionOk: boolean;
+  sizeOk: boolean;
+  posDelta: number;
+  currentGuid?: string;
+  currentVolume?: number;
+}
+
+function runIdentityCheck(
+  identity: ElementIdentity,
+  currentGuid: string | undefined,
+  q: ElementQuantities,
+): IdentityCheckResult {
+  const volRel = Math.abs(identity.volume - q.volume) / Math.max(identity.volume, 1e-6);
+  const cx = (q.bboxCenterX ?? 0), cy = (q.bboxCenterY ?? 0), cz = (q.bboxCenterZ ?? 0);
+  const posDelta = Math.sqrt(
+    (cx - identity.bboxCenterX) ** 2 +
+    (cy - identity.bboxCenterY) ** 2 +
+    (cz - identity.bboxCenterZ) ** 2,
+  );
+  return {
+    checkedAt: new Date().toISOString(),
+    guidOk:     currentGuid === undefined ? null : currentGuid === identity.guid,
+    volumeOk:   volRel < 0.01,
+    positionOk: posDelta <= 0.05,
+    sizeOk:     Math.abs(q.bboxX - identity.bboxSizeX) <= 0.01 &&
+                Math.abs(q.bboxY - identity.bboxSizeY) <= 0.01 &&
+                Math.abs(q.bboxZ - identity.bboxSizeZ) <= 0.01,
+    posDelta,
+    currentGuid,
+    currentVolume: q.volume,
+  };
+}
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
@@ -141,6 +181,7 @@ export function BillingPanel({ elements }: Props) {
     addDocument, removeDocument,
     importData, exportData, setQuantities,
     addQuantityItem, updateQuantityItem, removeQuantityItem, mergeQuantityItems,
+    setIdentity,
   } = useBillingStore();
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -163,8 +204,16 @@ export function BillingPanel({ elements }: Props) {
   const [pendingIfc, setPendingIfc] = useState<string | null>(null);
   const [liveQuantities, setLiveQuantities] = useState<ElementQuantities | null>(null);
 
-  const bcRef      = useRef<BroadcastChannel | null>(null);
+  // Identity / tamper-detection state
+  const [checkResults, setCheckResults] = useState<Record<string, IdentityCheckResult>>({});
+  const [postImportIdentityCount, setPostImportIdentityCount] = useState(0);
+  const pendingSnapshotRef = useRef<string | null>(null);
+  const pendingChecksRef   = useRef<Set<string>>(new Set());
+
+  const bcRef        = useRef<BroadcastChannel | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const elementsRef  = useRef(elements);
+  elementsRef.current = elements;
 
   useEffect(() => { setVizActive(moduleActive); }, [moduleActive]);
 
@@ -179,9 +228,8 @@ export function BillingPanel({ elements }: Props) {
       if (msg.t === "moduleActive") setVizActive(msg.active);
       if (msg.t === "selectEntry")  { setSelectedKey(msg.key); setLiveQuantities(null); setTab("mengen"); }
       if (msg.t === "quantities") {
-        setPendingGeo(null);
+        setPendingGeo(prev => prev === msg.key ? null : prev);
         setLiveQuantities(msg.data);
-        // Auto-convert legacy quantities into quantitySet geo items
         if (msg.key && msg.data) {
           const q = msg.data;
           const dims = [q.bboxX, q.bboxY, q.bboxZ].sort((a, b) => a - b);
@@ -193,6 +241,39 @@ export function BillingPanel({ elements }: Props) {
           if (dims[0] > 0)       items.push({ id: "_gt", type: "thickness", label: "Kleinste Ausdehnung",    value: dims[0],       unit: "m",  source: "geometry" });
           mergeQuantityItems(msg.key, items, "geometry");
           setQuantities(msg.key, q);
+
+          // Identity snapshot
+          if (pendingSnapshotRef.current === msg.key) {
+            const entry = useBillingStore.getState().entries[msg.key];
+            if (entry) {
+              const identity: ElementIdentity = {
+                guid: entry.guid,
+                bboxCenterX: q.bboxCenterX ?? 0,
+                bboxCenterY: q.bboxCenterY ?? 0,
+                bboxCenterZ: q.bboxCenterZ ?? 0,
+                bboxSizeX: q.bboxX,
+                bboxSizeY: q.bboxY,
+                bboxSizeZ: q.bboxZ,
+                volume: q.volume,
+                capturedAt: new Date().toISOString(),
+              };
+              setIdentity(msg.key, identity);
+            }
+            pendingSnapshotRef.current = null;
+          }
+
+          // Identity check
+          if (pendingChecksRef.current.has(msg.key)) {
+            pendingChecksRef.current.delete(msg.key);
+            const entry = useBillingStore.getState().entries[msg.key];
+            if (entry?.identity) {
+              const currentGuid = elementsRef.current.find(e => e.key === msg.key)?.guid;
+              setCheckResults(prev => ({
+                ...prev,
+                [msg.key]: runIdentityCheck(entry.identity!, currentGuid, q),
+              }));
+            }
+          }
         }
       }
       if (msg.t === "ifcQuantities") {
@@ -233,6 +314,8 @@ export function BillingPanel({ elements }: Props) {
         const data = JSON.parse(ev.target?.result as string) as BillingExport;
         if (data.version === 1 && Array.isArray(data.entries)) {
           importData(data);
+          const withIdentity = data.entries.filter(e => e.identity).length;
+          if (withIdentity > 0) setPostImportIdentityCount(withIdentity);
           setImportError("");
         } else {
           setImportError("Ungültiges Format – keine gültige 5D-Export-Datei.");
@@ -273,6 +356,26 @@ export function BillingPanel({ elements }: Props) {
     setPendingGeo(key);
     setLiveQuantities(null);
     bcRef.current?.postMessage({ t: "requestQuantities", key } satisfies BillingMsg);
+  };
+
+  const handleSnapshot = (key: string) => {
+    pendingSnapshotRef.current = key;
+    bcRef.current?.postMessage({ t: "requestQuantities", key } satisfies BillingMsg);
+  };
+
+  const handleCheck = (key: string) => {
+    pendingChecksRef.current.add(key);
+    bcRef.current?.postMessage({ t: "requestQuantities", key } satisfies BillingMsg);
+  };
+
+  const handleCheckAll = () => {
+    for (const entry of Object.values(entries)) {
+      if (entry.identity) {
+        pendingChecksRef.current.add(entry.key);
+        bcRef.current?.postMessage({ t: "requestQuantities", key: entry.key } satisfies BillingMsg);
+      }
+    }
+    setPostImportIdentityCount(0);
   };
 
   const handleRequestIfc = (key: string) => {
@@ -340,6 +443,24 @@ export function BillingPanel({ elements }: Props) {
         </div>
       )}
 
+      {postImportIdentityCount > 0 && (
+        <div className="px-4 py-2 text-xs bg-amber-400/10 border-b border-amber-400/20 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 text-amber-400">
+            <ShieldAlert size={13} />
+            <span>{postImportIdentityCount} Einträge mit Fingerabdruck importiert — Integrität prüfen?</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleCheckAll}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-amber-400/20 hover:bg-amber-400/30 text-amber-400 transition-colors"
+            >
+              <ShieldCheck size={11} />Alle prüfen
+            </button>
+            <button onClick={() => setPostImportIdentityCount(0)} className="text-amber-400/60 hover:text-amber-400 transition-colors"><X size={12} /></button>
+          </div>
+        </div>
+      )}
+
       {/* Body */}
       <div className="flex flex-1 min-h-0">
 
@@ -397,6 +518,10 @@ export function BillingPanel({ elements }: Props) {
               docTitle={docTitle} setDocTitle={setDocTitle}
               docUrl={docUrl}     setDocUrl={setDocUrl}
               latestDegree={latestDegree(selectedKey)}
+              onSnapshot={() => handleSnapshot(selectedKey)}
+              onCheck={() => handleCheck(selectedKey)}
+              pendingSnapshot={pendingSnapshotRef.current === selectedKey}
+              checkResult={checkResults[selectedKey] ?? null}
             />
           )}
         </div>
@@ -461,23 +586,29 @@ interface DetailProps {
   docTitle: string; setDocTitle(v: string): void;
   docUrl: string;   setDocUrl(v: string): void;
   latestDegree: number;
+  onSnapshot(): void;
+  onCheck(): void;
+  pendingSnapshot: boolean;
+  checkResult: IdentityCheckResult | null;
 }
 
 function TrackedDetailView(props: DetailProps) {
   const {
-    selectedKey, entry, tab, onTabChange,
+    selectedKey, entry, tab, onTabChange, elements,
     pendingGeo, pendingIfc,
     onRemoveEntry, onRequestGeo, onRequestIfc, onStartMeasure,
     onAddQuantityItem, onUpdateQuantityItem, onRemoveQuantityItem,
-    latestDegree,
+    latestDegree, onSnapshot, onCheck, pendingSnapshot, checkResult,
   } = props;
 
   const qCount = entry.quantitySet?.items.length ?? 0;
+  const hasIdentity = !!entry.identity;
 
-  const tabs: { id: DetailTab; label: string; badge?: number }[] = [
+  const tabs: { id: DetailTab; label: string; badge?: number; warn?: boolean }[] = [
     { id: "mengen",     label: "Mengen",     badge: qCount || undefined },
     { id: "abschnitte", label: "Abschnitte", badge: entry.stages.length || undefined },
     { id: "dokumente",  label: "Dokumente",  badge: entry.documents.length || undefined },
+    { id: "id",         label: "ID",         warn: hasIdentity && checkResult !== null && !(checkResult.guidOk !== false && checkResult.volumeOk && checkResult.positionOk && checkResult.sizeOk) },
   ];
 
   return (
@@ -516,12 +647,13 @@ function TrackedDetailView(props: DetailProps) {
             key={t.id}
             onClick={() => onTabChange(t.id)}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2 text-xs transition-colors",
+              "flex items-center gap-1.5 px-4 py-2 text-xs transition-colors relative",
               tab === t.id
                 ? "text-primary border-b-2 border-primary bg-primary/5"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
+            {t.id === "id" && <Fingerprint size={11} />}
             {t.label}
             {t.badge !== undefined && (
               <span className={cn(
@@ -530,6 +662,9 @@ function TrackedDetailView(props: DetailProps) {
               )}>
                 {t.badge}
               </span>
+            )}
+            {t.warn && (
+              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-red-500" />
             )}
           </button>
         ))}
@@ -591,6 +726,185 @@ function TrackedDetailView(props: DetailProps) {
 
       {tab === "dokumente" && (
         <DocsTab entry={entry} {...props} />
+      )}
+
+      {tab === "id" && (
+        <IdTab
+          entry={entry}
+          currentElement={elements.find(e => e.key === selectedKey)}
+          onSnapshot={onSnapshot}
+          onCheck={onCheck}
+          pendingSnapshot={pendingSnapshot}
+          checkResult={checkResult}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── ID / Fingerprint tab ──────────────────────────────────────────────────────
+
+function IdTab({
+  entry, currentElement, onSnapshot, onCheck, pendingSnapshot, checkResult,
+}: {
+  entry: ReturnType<typeof useBillingStore.getState>["entries"][string];
+  currentElement: ElementInfo | undefined;
+  onSnapshot(): void;
+  onCheck(): void;
+  pendingSnapshot: boolean;
+  checkResult: IdentityCheckResult | null;
+}) {
+  const f = (n: number) => n.toFixed(3).replace(".", ",");
+  const fmtDate = (s: string) => new Date(s).toLocaleString("de-AT", { dateStyle: "short", timeStyle: "short" });
+
+  const { identity } = entry;
+  const allOk = checkResult
+    ? (checkResult.guidOk !== false && checkResult.volumeOk && checkResult.positionOk && checkResult.sizeOk)
+    : null;
+
+  const CheckRow = ({ ok, label, stored, current }: { ok: boolean | null; label: string; stored?: string; current?: string }) => (
+    <div className={cn(
+      "flex items-start gap-2 px-3 py-2 rounded-md text-xs",
+      ok === null  ? "bg-muted/30 text-muted-foreground" :
+      ok           ? "bg-green-500/10 text-green-400" :
+                     "bg-red-500/10 text-red-400",
+    )}>
+      <div className="mt-0.5 shrink-0">
+        {ok === null  ? <ShieldOff size={12} />  :
+         ok           ? <ShieldCheck size={12} /> :
+                        <ShieldAlert size={12} />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-medium">{label}</p>
+        {!ok && stored !== undefined && (
+          <div className="text-[10px] mt-0.5 opacity-80 space-y-0.5">
+            <p>Gespeichert: <span className="font-mono">{stored}</span></p>
+            {current !== undefined && <p>Aktuell: <span className="font-mono">{current}</span></p>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-4">
+
+      {/* GUID */}
+      <section className="space-y-1.5">
+        <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">IFC Global ID</h4>
+        <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-md">
+          <code className="text-xs font-mono flex-1 break-all text-foreground">{entry.guid}</code>
+          {currentElement && currentElement.guid !== entry.guid && (
+            <span className="text-[9px] text-red-400 shrink-0">⚠ GUID geändert</span>
+          )}
+        </div>
+        {currentElement?.guid && currentElement.guid !== entry.guid && (
+          <div className="text-[10px] text-red-400 px-1">
+            Aktuell im Modell: <code className="font-mono">{currentElement.guid}</code>
+          </div>
+        )}
+      </section>
+
+      {/* Fingerprint */}
+      <section className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Fingerabdruck</h4>
+          <div className="flex gap-1.5">
+            {identity && (
+              <button
+                onClick={onCheck}
+                disabled={pendingSnapshot}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors disabled:opacity-40"
+              >
+                {pendingSnapshot ? <RefreshCw size={10} className="animate-spin" /> : <ShieldCheck size={10} />}
+                Prüfen
+              </button>
+            )}
+            <button
+              onClick={onSnapshot}
+              disabled={pendingSnapshot}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-muted hover:bg-muted/80 text-muted-foreground border border-border transition-colors disabled:opacity-40"
+            >
+              {pendingSnapshot ? <RefreshCw size={10} className="animate-spin" /> : <Fingerprint size={10} />}
+              {identity ? "Neu erfassen" : "Erfassen"}
+            </button>
+          </div>
+        </div>
+
+        {!identity ? (
+          <p className="text-xs text-muted-foreground px-1">
+            Noch kein Fingerabdruck gespeichert. Klicke "Erfassen" um Lage, Abmessungen und Volumen des Elements im aktuell geladenen Modell zu sichern.
+          </p>
+        ) : (
+          <div className="space-y-1 text-xs">
+            <p className="text-[10px] text-muted-foreground px-1">
+              Erfasst: {fmtDate(identity.capturedAt)}
+            </p>
+            <div className="bg-muted/30 rounded-md overflow-hidden">
+              <table className="w-full text-[11px]">
+                <tbody>
+                  <tr className="border-b border-border/40">
+                    <td className="px-3 py-1.5 text-muted-foreground w-28">Zentrum X/Y/Z</td>
+                    <td className="px-3 py-1.5 font-mono tabular-nums">
+                      {f(identity.bboxCenterX)} / {f(identity.bboxCenterY)} / {f(identity.bboxCenterZ)} m
+                    </td>
+                  </tr>
+                  <tr className="border-b border-border/40">
+                    <td className="px-3 py-1.5 text-muted-foreground">Abm. X/Y/Z</td>
+                    <td className="px-3 py-1.5 font-mono tabular-nums">
+                      {f(identity.bboxSizeX)} / {f(identity.bboxSizeY)} / {f(identity.bboxSizeZ)} m
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-3 py-1.5 text-muted-foreground">Volumen</td>
+                    <td className="px-3 py-1.5 font-mono tabular-nums">{f(identity.volume)} m³</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Check results */}
+      {checkResult && identity && (
+        <section className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Prüfergebnis</h4>
+            <span className="text-[10px] text-muted-foreground/60">{fmtDate(checkResult.checkedAt)}</span>
+            {allOk !== null && (
+              <span className={cn(
+                "ml-auto text-[10px] font-semibold px-2 py-0.5 rounded",
+                allOk ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+              )}>
+                {allOk ? "✓ OK" : "⚠ Abweichung"}
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <CheckRow
+              ok={checkResult.guidOk}
+              label="IFC Global ID"
+              stored={identity.guid}
+              current={checkResult.currentGuid}
+            />
+            <CheckRow
+              ok={checkResult.volumeOk}
+              label="Volumen"
+              stored={`${f(identity.volume)} m³`}
+              current={checkResult.currentVolume !== undefined ? `${f(checkResult.currentVolume)} m³` : undefined}
+            />
+            <CheckRow
+              ok={checkResult.positionOk}
+              label={`Lage (Δ ${checkResult.posDelta < 0.001 ? "<0,001" : f(checkResult.posDelta)} m)`}
+            />
+            <CheckRow
+              ok={checkResult.sizeOk}
+              label="Abmessungen"
+            />
+          </div>
+        </section>
       )}
     </div>
   );

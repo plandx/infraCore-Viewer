@@ -18,10 +18,27 @@ export interface DocumentRef {
 export interface ElementQuantities {
   volume: number;       // m³
   surfaceArea: number;  // m²
-  bboxX: number;        // m
-  bboxY: number;        // m
-  bboxZ: number;        // m
+  bboxX: number;        // size X  m
+  bboxY: number;        // size Y  m
+  bboxZ: number;        // size Z  m
+  bboxCenterX?: number; // world-space center
+  bboxCenterY?: number;
+  bboxCenterZ?: number;
   computedAt: string;
+}
+
+// ── Element identity fingerprint ─────────────────────────────────────────────
+
+export interface ElementIdentity {
+  guid: string;
+  bboxCenterX: number;
+  bboxCenterY: number;
+  bboxCenterZ: number;
+  bboxSizeX: number;
+  bboxSizeY: number;
+  bboxSizeZ: number;
+  volume: number;
+  capturedAt: string;
 }
 
 // ── Extended quantity model ──────────────────────────────────────────────────
@@ -42,6 +59,7 @@ export interface BillingEntry {
   documents: DocumentRef[];
   quantities?: ElementQuantities;   // legacy
   quantitySet?: import("./quantityTypes").QuantitySet;  // extended
+  identity?: ElementIdentity;       // tamper-detection fingerprint
   createdAt: string;
 }
 

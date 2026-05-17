@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { BillingEntry, BillingExport, BillingStage, DocumentRef, ElementQuantities } from "./types";
+import type { BillingEntry, BillingExport, BillingStage, DocumentRef, ElementIdentity, ElementQuantities } from "./types";
 import type { QuantityItem, QuantitySet } from "./quantityTypes";
 
 const LS_KEY = "infracore-billing-v1";
@@ -46,6 +46,7 @@ interface BillingStore {
   updateQuantityItem(key: string, itemId: string, patch: Partial<QuantityItem>): void;
   removeQuantityItem(key: string, itemId: string): void;
   mergeQuantityItems(key: string, items: QuantityItem[], source: QuantityItem["source"]): void;
+  setIdentity(key: string, identity: ElementIdentity): void;
   _applySync(entries: Record<string, BillingEntry>): void;
 }
 
@@ -160,6 +161,10 @@ export const useBillingStore = create<BillingStore>((set, get) => {
       const entry = get().entries[key]; if (!entry) return;
       const kept = (entry.quantitySet?.items ?? []).filter(i => i.source !== source);
       updateEntry(key, { quantitySet: { items: [...kept, ...items], updatedAt: new Date().toISOString() } });
+    },
+
+    setIdentity(key, identity) {
+      updateEntry(key, { identity });
     },
 
     _applySync(entries) {

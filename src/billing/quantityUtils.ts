@@ -35,8 +35,10 @@ export function computeQuantities(meshes: THREE.Mesh[]): ElementQuantities {
     }
   }
 
-  const size = new THREE.Vector3();
+  const size   = new THREE.Vector3();
+  const center = new THREE.Vector3();
   bbox.getSize(size);
+  bbox.getCenter(center);
 
   return {
     volume: Math.abs(volume),
@@ -44,6 +46,9 @@ export function computeQuantities(meshes: THREE.Mesh[]): ElementQuantities {
     bboxX: size.x,
     bboxY: size.y,
     bboxZ: size.z,
+    bboxCenterX: center.x,
+    bboxCenterY: center.y,
+    bboxCenterZ: center.z,
     computedAt: new Date().toISOString(),
   };
 }
