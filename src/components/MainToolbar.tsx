@@ -171,7 +171,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
 
   // ── App reset ─────────────────────────────────────────────────────────────
   const handleResetApp = useCallback(() => {
-    if (!window.confirm("Alle geladenen Modelle entfernen und App zurücksetzen?\n\n5D-Abrechnungsdaten bleiben erhalten.")) return;
+    if (!window.confirm("Alle geladenen Modelle entfernen und App zurücksetzen?\n\nAuch alle 5D-Abrechnungsdaten werden gelöscht.")) return;
     const st = useModelStore.getState();
     for (const id of st.models.keys()) st.removeModel(id);
     st.showAll();
@@ -186,6 +186,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
     st.setListPanelOpen(false);
     st.setSmartViewsPanelOpen(false);
     st.setQTOPanelOpen(false);
+    useBillingStore.getState().clearAll();
   }, []);
 
   // ── Misc ──────────────────────────────────────────────────────────────────

@@ -47,6 +47,7 @@ interface BillingStore {
   removeQuantityItem(key: string, itemId: string): void;
   mergeQuantityItems(key: string, items: QuantityItem[], source: QuantityItem["source"]): void;
   setIdentity(key: string, identity: ElementIdentity): void;
+  clearAll(): void;
   _applySync(entries: Record<string, BillingEntry>): void;
 }
 
@@ -165,6 +166,11 @@ export const useBillingStore = create<BillingStore>((set, get) => {
 
     setIdentity(key, identity) {
       updateEntry(key, { identity });
+    },
+
+    clearAll() {
+      const empty: Record<string, BillingEntry> = {};
+      persist(empty); broadcast(empty); set({ entries: empty });
     },
 
     _applySync(entries) {
