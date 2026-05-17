@@ -4,20 +4,22 @@ import type {
   LineSegment,
   CurveSegment,
   TransitionSegment,
+  ProfileGeometry,
   ProfileVertex,
   ProfileCurve,
   ProfileTangent,
-  ProfileGeometry,
   StationEquation,
   SampledPoint,
   Alignment,
   ParsedLandXml,
 } from "./types";
 
+// ── Constants ─────────────────────────────────────────────────────────────────
 const EPS = 1e-9;
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+// ── Math helpers ──────────────────────────────────────────────────────────────
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -25,158 +27,114 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 function dist2D(a: AlignCoord, b: AlignCoord): number {
-  return Math.hypot((b.x || 0) - (a.x || 0), (b.y || 0) - (a.y || 0));
+  return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-function normalizeAngleRad(value: number): number {
-  let r = value;
+// Wrap angle to (-π, π]
+function wrapAngle(r: number): number {
   while (r <= -Math.PI) r += 2 * Math.PI;
   while (r > Math.PI) r -= 2 * Math.PI;
   return r;
 }
 
-function xmlChildren(node: Element | null | undefined): Element[] {
-  return Array.from(node?.children || []);
+// ── XML helpers ───────────────────────────────────────────────────────────────
+function children(node: Element | null | undefined): Element[] {
+  return Array.from(node?.children ?? []);
 }
 
-function allByLocalName(node: Element | null | undefined, localName: string): Element[] {
-  return xmlChildren(node).filter(c => c.localName === localName);
+function byTag(node: Element | null | undefined, tag: string): Element[] {
+  return children(node).filter(c => c.localName === tag);
 }
 
-function firstByLocalName(node: Element | null | undefined, localName: string): Element | null {
-  return xmlChildren(node).find(c => c.localName === localName) || null;
+function firstTag(node: Element | null | undefined, tag: string): Element | null {
+  return children(node).find(c => c.localName === tag) ?? null;
 }
 
-function getAttrNum(el: Element | null | undefined, name: string, fallback: number | null = null): number | null {
-  const raw = el?.getAttribute?.(name);
-  if (raw === null || raw === undefined || raw === "") return fallback;
-  const num = Number(String(raw).replace(",", "."));
-  return Number.isFinite(num) ? num : fallback;
+function attrNum(el: Element | null | undefined, name: string): number | null {
+  const raw = el?.getAttribute(name);
+  if (!raw) return null;
+  const n = Number(raw.replace(",", "."));
+  return Number.isFinite(n) ? n : null;
 }
 
-function parseCoordText(text: string | null | undefined): AlignCoord | null {
+// LandXML coordinate nodes: text content is "N E" or "N E Z"
+// (Northing first, Easting second — per LandXML 1.2 spec)
+function parseCoord(text: string | null | undefined): AlignCoord | null {
   if (!text) return null;
-  const values = text
-    .trim()
-    .split(/\s+/)
-    .map(Number)
-    .filter(Number.isFinite);
-  if (values.length < 2) return null;
-  return { y: values[0], x: values[1], z: values.length >= 3 ? values[2] : null };
+  const vals = text.trim().split(/\s+/).map(Number);
+  if (vals.length < 2 || !Number.isFinite(vals[0]) || !Number.isFinite(vals[1])) return null;
+  return {
+    y: vals[0], // Northing
+    x: vals[1], // Easting
+    z: vals.length >= 3 && Number.isFinite(vals[2]) ? vals[2] : null,
+  };
 }
 
-function parseCoordNode(parent: Element | null | undefined, name: string): AlignCoord | null {
-  const node = firstByLocalName(parent, name);
-  return node ? parseCoordText(node.textContent) : null;
+function coordNode(parent: Element | null | undefined, tag: string): AlignCoord | null {
+  const el = firstTag(parent, tag);
+  return el ? parseCoord(el.textContent) : null;
 }
 
-function lineDirectionFromPoints(
-  start: AlignCoord | null,
-  end: AlignCoord | null,
-  fallbackRad = 0
-): number {
-  if (!start || !end) return fallbackRad;
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  if (Math.abs(dx) <= EPS && Math.abs(dy) <= EPS) return fallbackRad;
-  return Math.atan2(dy, dx);
+// LandXML direction: clockwise azimuth from North, in degrees
+// → math angle: counterclockwise from East, in radians
+function azmToRad(azimuthDeg: number): number {
+  return wrapAngle(Math.PI / 2 - azimuthDeg * (Math.PI / 180));
 }
 
-function xmlDirectionToMathRad(value: number): number | null {
-  if (!Number.isFinite(value)) return null;
-  return normalizeAngleRad((Math.PI / 2) - (value * Math.PI) / 180);
+// Direction from two points (math radians, CCW from East)
+function bearing(from: AlignCoord, to: AlignCoord): number {
+  return Math.atan2(to.y - from.y, to.x - from.x);
 }
 
-function xmlAngleDeltaToRad(value: number): number | null {
-  if (!Number.isFinite(value)) return null;
-  return Math.abs(value) * (Math.PI / 180);
+// ── Station equations ─────────────────────────────────────────────────────────
+function parseStaEquations(alignEl: Element): StationEquation[] {
+  return byTag(alignEl, "StaEquation").flatMap(eq => {
+    const staAhead = attrNum(eq, "staAhead");
+    const staBack  = attrNum(eq, "staBack");
+    const staInt   = attrNum(eq, "staInternal") ?? staBack;
+    if (staAhead === null || staBack === null || staInt === null) return [];
+    return [{ staInternal: staInt, staAhead, staBack, delta: staAhead - staBack }];
+  });
 }
 
-export function stationInternalToDisplay(
-  stationEquations: StationEquation[],
-  internalStation: number
-): number {
-  let station = internalStation;
-  for (const eq of stationEquations || []) {
-    if (internalStation >= eq.staInternal - 1e-9) station += eq.delta;
+export function stationToDisplay(eqs: StationEquation[], internalSta: number): number {
+  let sta = internalSta;
+  for (const eq of eqs) {
+    if (internalSta >= eq.staInternal - EPS) sta += eq.delta;
   }
-  return station;
+  return sta;
 }
 
-export function stationDisplayToInternal(
-  stationEquations: StationEquation[],
-  displayStation: number
-): number {
-  let cumulativeDelta = 0;
-  for (const eq of stationEquations || []) {
-    const displayThreshold = eq.staInternal + cumulativeDelta;
-    if (displayStation >= displayThreshold - 1e-9) cumulativeDelta += eq.delta;
+export function displayToInternal(eqs: StationEquation[], displaySta: number): number {
+  let delta = 0;
+  for (const eq of eqs) {
+    if (displaySta >= eq.staInternal + delta - EPS) delta += eq.delta;
   }
-  return displayStation - cumulativeDelta;
+  return displaySta - delta;
 }
 
-function inferRotationFromPoints(
-  center: AlignCoord,
-  start: AlignCoord,
-  end: AlignCoord
-): "cw" | "ccw" {
-  const cross =
-    (start.x - center.x) * (end.y - center.y) -
-    (start.y - center.y) * (end.x - center.x);
-  return cross < 0 ? "cw" : "ccw";
-}
+// Backwards-compatible aliases used by AlignmentPanel
+export const stationInternalToDisplay = stationToDisplay;
+export const stationDisplayToInternal = displayToInternal;
 
-function inferCurveCenterFromGeometry(
-  start: AlignCoord,
-  end: AlignCoord,
-  radius: number,
-  rot: "cw" | "ccw",
-  dirStartRad: number | null = null
-): AlignCoord | null {
-  const chord = dist2D(start, end);
-  if (!(Number.isFinite(radius) && radius > chord / 2)) return null;
-  const midX = (start.x + end.x) / 2;
-  const midY = (start.y + end.y) / 2;
-  const halfChord = chord / 2;
-  const offset = Math.sqrt(Math.max(0, radius * radius - halfChord * halfChord));
-  const chordAngle = Math.atan2(end.y - start.y, end.x - start.x);
-  let nx = -Math.sin(chordAngle);
-  let ny = Math.cos(chordAngle);
-  if (Number.isFinite(dirStartRad!)) {
-    const tangent = { x: Math.cos(dirStartRad!), y: Math.sin(dirStartRad!) };
-    const centerLeft = { x: midX + nx * offset, y: midY + ny * offset };
-    const radialLeft = { x: centerLeft.x - start.x, y: centerLeft.y - start.y };
-    const crossLeft = tangent.x * radialLeft.y - tangent.y * radialLeft.x;
-    const expectedPositive = rot !== "cw";
-    if (crossLeft > 0 !== expectedPositive) {
-      nx *= -1;
-      ny *= -1;
-    }
-  } else if (rot === "cw") {
-    nx *= -1;
-    ny *= -1;
-  }
-  return { x: midX + nx * offset, y: midY + ny * offset, z: null };
-}
-
-function parseLineSegment(
+// ── Segment parsers ───────────────────────────────────────────────────────────
+function parseLine(
   el: Element,
   staStart: number,
   prevEnd: AlignCoord | null,
-  prevTangentRad: number
+  prevTan: number
 ): LineSegment | null {
-  const lenAttr = getAttrNum(el, "length");
-  const start = parseCoordNode(el, "Start") || prevEnd;
-  const end = parseCoordNode(el, "End");
+  const start = coordNode(el, "Start") ?? prevEnd;
+  const end   = coordNode(el, "End");
   if (!start || !end) return null;
-  const length = lenAttr ?? dist2D(start, end);
+  const lenAttr = attrNum(el, "length");
+  const length  = lenAttr ?? dist2D(start, end);
   if (length < EPS) return null;
-  const dirAttrRaw = getAttrNum(el, "dir");
-  const tangentStartRad =
-    dirAttrRaw !== null
-      ? xmlDirectionToMathRad(dirAttrRaw) ?? lineDirectionFromPoints(start, end, prevTangentRad)
-      : lineDirectionFromPoints(start, end, prevTangentRad);
-  const tangentEndRad = lineDirectionFromPoints(start, end, tangentStartRad);
+
+  const dirAttr = attrNum(el, "dir");
+  const tan = dirAttr !== null ? azmToRad(dirAttr) : bearing(start, end);
+  const tanEnd = bearing(start, end); // always from geometry for exit tangent
+
   return {
     type: "Line",
     staStart,
@@ -184,98 +142,154 @@ function parseLineSegment(
     length,
     start,
     end,
-    tangentStartRad,
-    tangentEndRad,
+    tangentStartRad: tan,
+    tangentEndRad: tanEnd,
     typeLabel: "Gerade",
   };
+  void prevTan;
 }
 
-function parseCurveSegment(
+function parseCurve(
   el: Element,
   staStart: number,
   prevEnd: AlignCoord | null,
-  prevTangentRad: number
+  prevTan: number
 ): CurveSegment | null {
-  const lenAttr = getAttrNum(el, "length");
-  const radius = getAttrNum(el, "radius") ?? getAttrNum(el, "rot");
-  const rot: "cw" | "ccw" =
-    (el.getAttribute("rot") || "ccw").toLowerCase() === "cw" ? "cw" : "ccw";
-  const start = parseCoordNode(el, "Start") || prevEnd;
-  const end = parseCoordNode(el, "End");
-  let center = parseCoordNode(el, "Center");
+  const start = coordNode(el, "Start") ?? prevEnd;
+  const end   = coordNode(el, "End");
   if (!start || !end) return null;
-  const realRadius = getAttrNum(el, "radius") ?? (center ? dist2D(start, center) : null);
-  if (!realRadius || realRadius < EPS) return null;
-  const length = lenAttr ?? (realRadius * (getAttrNum(el, "delta") ?? 0) * (Math.PI / 180));
+
+  const radius = attrNum(el, "radius");
+  if (!radius || radius < EPS) return null;
+
+  const rot: "cw" | "ccw" =
+    (el.getAttribute("rot") ?? "").toLowerCase() === "cw" ? "cw" : "ccw";
+  const sign = rot === "cw" ? -1 : 1; // math sign of curvature
+
+  // Arc length from attribute or from delta angle
+  const lenAttr   = attrNum(el, "length");
+  const deltaAttr = attrNum(el, "delta"); // arc delta in degrees (always positive in LandXML)
+
+  // Find center: prefer explicit, otherwise infer from start/end/radius
+  let center = coordNode(el, "Center");
   if (!center) {
-    center = inferCurveCenterFromGeometry(start, end, realRadius, rot, prevTangentRad);
+    center = inferCenter(start, end, radius, rot, prevTan);
+    if (!center) return null;
   }
-  if (!center) return null;
-  const inferredRot = inferRotationFromPoints(center, start, end);
-  const actualRot: "cw" | "ccw" =
-    el.getAttribute("rot") ? rot : inferredRot;
+
+  // a0 = angle from center to start (math radians)
   const a0 = Math.atan2(start.y - center.y, start.x - center.x);
-  const dirXmlRaw = getAttrNum(el, "dir");
-  const tangentStartRad =
-    dirXmlRaw !== null
-      ? xmlDirectionToMathRad(dirXmlRaw) ?? prevTangentRad
-      : prevTangentRad;
-  const deltaAttr = getAttrNum(el, "delta");
+
+  // Sweep angle (always positive)
   let geomDelta: number;
   if (deltaAttr !== null) {
-    geomDelta = xmlAngleDeltaToRad(deltaAttr) ?? 0;
+    geomDelta = Math.abs(deltaAttr) * (Math.PI / 180);
+  } else if (lenAttr !== null) {
+    geomDelta = lenAttr / radius;
   } else {
     const chord = dist2D(start, end);
-    geomDelta = 2 * Math.asin(clamp(chord / (2 * realRadius), -1, 1));
+    geomDelta = 2 * Math.asin(clamp(chord / (2 * radius), -1, 1));
   }
-  const sign = actualRot === "cw" ? -1 : 1;
-  const tangentEndRad = normalizeAngleRad(tangentStartRad + sign * geomDelta);
-  const realLength = lenAttr ?? realRadius * geomDelta;
+
+  const length = lenAttr ?? radius * geomDelta;
+  if (length < EPS || geomDelta < EPS) return null;
+
+  // Tangent at start: perpendicular to radius (sign = rot direction)
+  const tangentStartRad = wrapAngle(a0 + sign * Math.PI / 2);
+  const tangentEndRad   = wrapAngle(a0 + sign * geomDelta + sign * Math.PI / 2);
+
   return {
     type: "Curve",
     staStart,
-    staEnd: staStart + realLength,
-    length: realLength,
+    staEnd: staStart + length,
+    length,
     start,
     end,
     center,
-    radius: realRadius,
+    radius,
     geomDelta,
-    rot: actualRot,
+    rot,
     a0,
     tangentStartRad,
     tangentEndRad,
     typeLabel: "Bogen",
   };
+  void prevTan;
 }
 
-function parseTransitionSegment(
+// Infer arc center from start/end/radius/rotation
+function inferCenter(
+  start: AlignCoord,
+  end: AlignCoord,
+  radius: number,
+  rot: "cw" | "ccw",
+  prevTanRad: number
+): AlignCoord | null {
+  const chord = dist2D(start, end);
+  if (chord > 2 * radius + EPS) return null;
+  const midX = (start.x + end.x) / 2;
+  const midY = (start.y + end.y) / 2;
+  const half = chord / 2;
+  const h = Math.sqrt(Math.max(0, radius * radius - half * half));
+  // Normal to chord
+  const chordAngle = Math.atan2(end.y - start.y, end.x - start.x);
+  let nx = -Math.sin(chordAngle);
+  let ny =  Math.cos(chordAngle);
+
+  // Use prevTanRad to disambiguate which side the center is on
+  if (Number.isFinite(prevTanRad)) {
+    const tx = Math.cos(prevTanRad), ty = Math.sin(prevTanRad);
+    // For CCW: center is to the left of travel → cross(tangent, center-start) > 0
+    const cx1 = midX + nx * h, cy1 = midY + ny * h;
+    const cross = tx * (cy1 - start.y) - ty * (cx1 - start.x);
+    const wantLeft = rot === "ccw";
+    if ((cross > 0) !== wantLeft) { nx = -nx; ny = -ny; }
+  } else if (rot === "cw") {
+    nx = -nx; ny = -ny;
+  }
+
+  return { x: midX + nx * h, y: midY + ny * h, z: null };
+}
+
+function parseSpiral(
   el: Element,
   staStart: number,
   prevEnd: AlignCoord | null,
-  prevTangentRad: number
+  prevTan: number
 ): TransitionSegment | null {
-  const lenAttr = getAttrNum(el, "length");
-  const start = parseCoordNode(el, "Start") || prevEnd;
-  const end = parseCoordNode(el, "End");
-  if (!start || !end) return null;
-  const length = lenAttr ?? dist2D(start, end);
-  if (length < EPS) return null;
-  const spiralType = el.getAttribute("spiralType") || "clothoid";
-  const dirXmlRaw = getAttrNum(el, "dirStart") ?? getAttrNum(el, "dir");
-  const tangentStartRad =
-    dirXmlRaw !== null
-      ? xmlDirectionToMathRad(dirXmlRaw) ?? lineDirectionFromPoints(start, end, prevTangentRad)
-      : lineDirectionFromPoints(start, end, prevTangentRad);
-  const dirEndRaw = getAttrNum(el, "dirEnd");
-  const tangentEndRad =
-    dirEndRaw !== null
-      ? xmlDirectionToMathRad(dirEndRaw) ?? tangentStartRad
-      : tangentStartRad;
+  const start = coordNode(el, "Start") ?? prevEnd;
+  const end   = coordNode(el, "End");
+  const length = attrNum(el, "length");
+  if (!start || !end || !length || length < EPS) return null;
+
+  const spiralType = el.getAttribute("spiralType") ?? "clothoid";
   const rot: "cw" | "ccw" =
-    (el.getAttribute("rot") || "").toLowerCase() === "cw" ? "cw" : "ccw";
-  const radiusStartRaw = getAttrNum(el, "radiusStart") ?? getAttrNum(el, "radiusIn");
-  const radiusEndRaw   = getAttrNum(el, "radiusEnd")   ?? getAttrNum(el, "radiusOut");
+    (el.getAttribute("rot") ?? "").toLowerCase() === "cw" ? "cw" : "ccw";
+  const sign = rot === "cw" ? -1 : 1;
+
+  // Parse radii (infinite radius = tangent connection = 0 curvature)
+  const rStartRaw = attrNum(el, "radiusStart") ?? attrNum(el, "radiusIn");
+  const rEndRaw   = attrNum(el, "radiusEnd")   ?? attrNum(el, "radiusOut");
+
+  // Signed curvatures at start and end
+  // Infinity radius → 0 curvature (tangent)
+  const k0 = (rStartRaw !== null && rStartRaw > EPS && rStartRaw < 1e8)
+    ? sign / rStartRaw : 0;
+  const k1 = (rEndRaw !== null && rEndRaw > EPS && rEndRaw < 1e8)
+    ? sign / rEndRaw : 0;
+
+  // Entry tangent: from explicit attribute, else from previous segment
+  const dirStartRaw = attrNum(el, "dirStart") ?? attrNum(el, "dir");
+  const tangentStartRad = dirStartRaw !== null ? azmToRad(dirStartRaw) : prevTan;
+
+  // Exit tangent: from explicit attribute, else computed from curvatures
+  // θ_end = θ_start + ∫₀ᴸ κ(s) ds  where κ(s) = k0 + (k1-k0)/L · s
+  // ∫ = k0·L + (k1-k0)/2·L = (k0+k1)/2 · L
+  const dirEndRaw = attrNum(el, "dirEnd");
+  const tangentEndRad = dirEndRaw !== null
+    ? azmToRad(dirEndRaw)
+    : wrapAngle(tangentStartRad + (k0 + k1) / 2 * length);
+
   return {
     type: "Transition",
     staStart,
@@ -284,202 +298,305 @@ function parseTransitionSegment(
     start,
     end,
     spiralType,
+    rot,
+    k0,
+    k1,
     tangentStartRad,
     tangentEndRad,
-    rot,
-    radiusStart: radiusStartRaw !== null && radiusStartRaw > EPS ? radiusStartRaw : undefined,
-    radiusEnd:   radiusEndRaw   !== null && radiusEndRaw   > EPS ? radiusEndRaw   : undefined,
     typeLabel: "Spirale",
   };
 }
 
-function parseProfileGeometry(alignEl: Element): ProfileGeometry {
-  const emptyResult: ProfileGeometry = {
-    profileName: "",
-    vertices: [],
-    curves: [],
-    tangents: [],
-    rawGrades: [],
-  };
+// ── Clothoid (Euler spiral) integration ───────────────────────────────────────
+// For κ(s) = k0 + (k1-k0)/L · s, the heading is:
+//   θ(s) = θ₀ + k0·s + (k1-k0)/(2L)·s²
+// Position offset from start:
+//   [dx, dy] = ∫₀ˢ [cos θ(t), sin θ(t)] dt
+//
+// We compute this via Fresnel integrals after completing the square.
 
-  const profAlignEl = firstByLocalName(firstByLocalName(alignEl, "Profile"), "ProfAlign");
+// Fresnel integrals: C(x) = ∫₀ˣ cos(π/2·t²) dt, S(x) = ∫₀ˣ sin(π/2·t²) dt
+// Taylor series — accurate to < 0.01 mm for |x| < 4 (covers all road spirals)
+function fresnel(x: number): [number, number] {
+  if (x === 0) return [0, 0];
+  const s = x < 0 ? -1 : 1;
+  const a = Math.abs(x);
+  const pih = Math.PI / 2;
+  const a2 = a * a, a4 = a2 * a2;
+  let C = 0, S = 0, pa = a, pp = 1, fac = 1, sgn = 1;
+  for (let n = 0; n <= 30; n++) {
+    if (n > 0) { pa *= a4; pp *= pih * pih; fac *= (2*n-1)*(2*n); sgn = -sgn; }
+    const ct = sgn * pp * pa / ((4*n+1) * fac);
+    const st = sgn * pp * pih * pa * a2 / ((4*n+3) * fac * (2*n+1));
+    C += ct; S += st;
+    if (Math.abs(ct) < 1e-17 && Math.abs(st) < 1e-17) break;
+  }
+  return [s * C, s * S];
+}
+
+// ∫₀ˢ [cos(θ₀ + A·t²), sin(θ₀ + A·t²)] dt  (A = (k1-k0)/(2L))
+function fresnelIntegral(theta0: number, A: number, s: number): [number, number] {
+  if (Math.abs(s) < EPS) return [0, 0];
+  if (Math.abs(A) < 1e-12) {
+    // Straight line or constant curvature (handled below)
+    return [Math.cos(theta0) * s, Math.sin(theta0) * s];
+  }
+  const absA = Math.abs(A);
+  const scale = Math.sqrt(Math.PI / (2 * absA));
+  const u = Math.abs(s) * Math.sqrt(2 * absA / Math.PI);
+  const [Cu, Su] = fresnel(u);
+  const ct = Math.cos(theta0), st = Math.sin(theta0);
+  let dx: number, dy: number;
+  if (A > 0) {
+    dx = scale * (ct * Cu - st * Su);
+    dy = scale * (st * Cu + ct * Su);
+  } else {
+    dx = scale * (ct * Cu + st * Su);
+    dy = scale * (st * Cu - ct * Su);
+  }
+  const sg = s < 0 ? -1 : 1;
+  return [sg * dx, sg * dy];
+}
+
+// Full clothoid offset: κ(t) = k0 + (k1-k0)/L · t  (linear curvature variation)
+// Returns [Δx, Δy] from start after arc-length s
+function clothoidOffset(theta0: number, k0: number, k1: number, L: number, s: number): [number, number] {
+  if (Math.abs(s) < EPS) return [0, 0];
+
+  // Constant curvature: arc
+  const A = (k1 - k0) / (2 * L);
+  if (Math.abs(A) < 1e-12) {
+    if (Math.abs(k0) < 1e-12) {
+      return [Math.cos(theta0) * s, Math.sin(theta0) * s];
+    }
+    const da = k0 * s;
+    return [
+      (Math.sin(theta0 + da) - Math.sin(theta0)) / k0,
+      (Math.cos(theta0) - Math.cos(theta0 + da)) / k0,
+    ];
+  }
+
+  // Complete the square: θ(t) = θ'₀ + A·(t + τ)²  where τ = k0/(2A)
+  const tau    = k0 / (2 * A);
+  const theta0s = theta0 - A * tau * tau;
+  const [x1, y1] = fresnelIntegral(theta0s, A, s + tau);
+  const [x0, y0] = fresnelIntegral(theta0s, A, tau);
+  return [x1 - x0, y1 - y0];
+}
+
+// ── Segment sampling ──────────────────────────────────────────────────────────
+function sampleSeg(seg: AlignmentSegment, t: number): SampledPoint {
+  t = clamp(t, 0, 1);
+
+  if (seg.type === "Line") {
+    return {
+      x: lerp(seg.start.x, seg.end.x, t),
+      y: lerp(seg.start.y, seg.end.y, t),
+      z: seg.start.z !== null && seg.end.z !== null
+        ? lerp(seg.start.z, seg.end.z, t) : null,
+      tangentRad: seg.tangentStartRad,
+    };
+  }
+
+  if (seg.type === "Curve") {
+    const s = t === 1 ? 1 : t; // avoid float imprecision at end
+    const sign = seg.rot === "cw" ? -1 : 1;
+    const angle = seg.a0 + sign * s * seg.geomDelta;
+    return {
+      x: seg.center.x + seg.radius * Math.cos(angle),
+      y: seg.center.y + seg.radius * Math.sin(angle),
+      z: seg.start.z !== null && seg.end.z !== null
+        ? lerp(seg.start.z, seg.end.z, t) : null,
+      tangentRad: wrapAngle(angle + sign * Math.PI / 2),
+    };
+  }
+
+  if (seg.type === "Transition") {
+    const s = t * seg.length;
+    const [dx, dy] = clothoidOffset(seg.tangentStartRad, seg.k0, seg.k1, seg.length, s);
+    const theta = wrapAngle(seg.tangentStartRad + seg.k0 * s + (seg.k1 - seg.k0) / (2 * seg.length) * s * s);
+    return {
+      x: seg.start.x + dx,
+      y: seg.start.y + dy,
+      z: seg.start.z !== null && seg.end.z !== null
+        ? lerp(seg.start.z, seg.end.z, t) : null,
+      tangentRad: theta,
+    };
+  }
+
+  const _: never = seg;
+  void _;
+  return { x: 0, y: 0, z: null, tangentRad: 0 };
+}
+
+// ── Profile parsing ───────────────────────────────────────────────────────────
+function parseProfile(alignEl: Element): ProfileGeometry {
+  const empty: ProfileGeometry = { profileName: "", vertices: [], curves: [], tangents: [] };
+
+  // ProfAlign (design profile with PVIs)
+  const profAlignEl = firstTag(firstTag(alignEl, "Profile"), "ProfAlign");
   if (profAlignEl) {
     const profileName =
-      profAlignEl.getAttribute("name") ||
-      firstByLocalName(alignEl, "Profile")?.getAttribute("name") ||
-      "";
-    const vertices: ProfileVertex[] = [];
-    const curves: ProfileCurve[] = [];
+      profAlignEl.getAttribute("name") ??
+      firstTag(alignEl, "Profile")?.getAttribute("name") ?? "";
 
-    for (const child of xmlChildren(profAlignEl)) {
-      const ln = child.localName;
-      if (ln === "PVI") {
-        const text = child.textContent?.trim();
-        if (text) {
-          const parts = text.split(/\s+/).map(Number);
-          if (parts.length >= 2) {
-            vertices.push({
-              type: "PVI",
-              sta: parts[0],
-              elev: parts[1],
-              curveLength: parts[2] ?? 0,
-            });
-          }
-        }
-      } else if (ln === "ParaCurve" || ln === "CircCurve") {
-        const staAttr = getAttrNum(child, "sta");
-        const elevAttr = getAttrNum(child, "elev");
-        const lenAttr = getAttrNum(child, "length") ?? getAttrNum(child, "len");
-        if (staAttr !== null && elevAttr !== null && lenAttr !== null) {
+    const vertices: ProfileVertex[] = [];
+    for (const child of children(profAlignEl)) {
+      const tag = child.localName;
+      if (tag === "PVI") {
+        const parts = (child.textContent ?? "").trim().split(/\s+/).map(Number);
+        if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
           vertices.push({
-            type: ln === "ParaCurve" ? "ParaCurve" : "CircCurve",
-            sta: staAttr,
-            elev: elevAttr,
-            curveLength: lenAttr,
-            radius: getAttrNum(child, "radius") ?? undefined,
+            type: "PVI",
+            sta: parts[0],
+            elev: parts[1],
+            curveLength: Number.isFinite(parts[2]) ? parts[2] : 0,
+          });
+        }
+      } else if (tag === "ParaCurve" || tag === "CircCurve") {
+        const sta  = attrNum(child, "sta");
+        const elev = attrNum(child, "elev");
+        const len  = attrNum(child, "length") ?? attrNum(child, "len");
+        if (sta !== null && elev !== null && len !== null) {
+          vertices.push({
+            type: tag === "ParaCurve" ? "ParaCurve" : "CircCurve",
+            sta,
+            elev,
+            curveLength: len,
+            radius: attrNum(child, "radius") ?? undefined,
           });
         }
       }
     }
 
-    if (vertices.length < 2) return emptyResult;
-
-    const rawGrades: number[] = [];
-    for (let i = 0; i < vertices.length - 1; i++) {
-      const dSta = vertices[i + 1].sta - vertices[i].sta;
-      const dElev = vertices[i + 1].elev - vertices[i].elev;
-      rawGrades.push(dSta > EPS ? dElev / dSta : 0);
-    }
-
-    const tangents: ProfileTangent[] = [];
-    for (let i = 0; i < vertices.length - 1; i++) {
-      tangents.push({
-        index: i,
-        startSta: vertices[i].sta,
-        endSta: vertices[i + 1].sta,
-        startElev: vertices[i].elev,
-        grade: rawGrades[i],
-      });
-    }
-
-    for (let i = 0; i < vertices.length; i++) {
-      const v = vertices[i];
-      if (v.curveLength > EPS) {
-        const g1 = i > 0 ? rawGrades[i - 1] : 0;
-        const g2 = i < rawGrades.length ? rawGrades[i] : 0;
-        const halfLen = v.curveLength / 2;
-        const bvc = v.sta - halfLen;
-        const evc = v.sta + halfLen;
-        const yBVC = v.elev - g1 * halfLen;
-        const yEVC = v.elev + g2 * halfLen;
-        const A = g2 - g1;
-        const isCirc = v.type === "CircCurve";
-        curves.push({
-          index: curves.length,
-          model: isCirc ? "circular" : "parabolic",
-          sta: v.sta,
-          elev: v.elev,
-          length: v.curveLength,
-          bvc,
-          evc,
-          g1,
-          g2,
-          A,
-          yBVC,
-          yEVC,
-          radius: v.radius,
-          center: isCirc && v.radius !== undefined
-            ? { x: v.sta, y: v.elev + (A < 0 ? v.radius : -v.radius), z: null }
-            : undefined,
-          ySign: isCirc ? (A < 0 ? 1 : -1) : undefined,
-        });
-      }
-    }
-
-    return { profileName, vertices, curves, tangents, rawGrades };
+    if (vertices.length < 2) return empty;
+    return buildProfileGeom(profileName, vertices);
   }
 
+  // ProfSurf / PntList2D (surface profile, no vertical curves)
   const profSurfEl =
-    firstByLocalName(firstByLocalName(alignEl, "Profile"), "ProfSurf") ||
-    firstByLocalName(firstByLocalName(alignEl, "Profile"), "PntList2D");
-
+    firstTag(firstTag(alignEl, "Profile"), "ProfSurf") ??
+    firstTag(firstTag(alignEl, "Profile"), "PntList2D");
   if (profSurfEl) {
-    const pntListEl =
-      profSurfEl.localName === "PntList2D"
-        ? profSurfEl
-        : firstByLocalName(profSurfEl, "PntList2D");
-    if (!pntListEl) return emptyResult;
-    const text = pntListEl.textContent?.trim() || "";
-    const nums = text.split(/\s+/).map(Number).filter(Number.isFinite);
-    if (nums.length < 4) return emptyResult;
+    const pntEl = profSurfEl.localName === "PntList2D"
+      ? profSurfEl
+      : firstTag(profSurfEl, "PntList2D");
+    if (!pntEl) return empty;
+    const nums = (pntEl.textContent ?? "").trim().split(/\s+/).map(Number).filter(Number.isFinite);
+    if (nums.length < 4) return empty;
     const vertices: ProfileVertex[] = [];
     for (let i = 0; i + 1 < nums.length; i += 2) {
       vertices.push({ type: "PVI", sta: nums[i], elev: nums[i + 1], curveLength: 0 });
     }
-    if (vertices.length < 2) return emptyResult;
-    const rawGrades: number[] = [];
-    for (let i = 0; i < vertices.length - 1; i++) {
-      const dSta = vertices[i + 1].sta - vertices[i].sta;
-      const dElev = vertices[i + 1].elev - vertices[i].elev;
-      rawGrades.push(dSta > EPS ? dElev / dSta : 0);
-    }
-    const tangents: ProfileTangent[] = [];
-    for (let i = 0; i < vertices.length - 1; i++) {
-      tangents.push({
-        index: i,
-        startSta: vertices[i].sta,
-        endSta: vertices[i + 1].sta,
-        startElev: vertices[i].elev,
-        grade: rawGrades[i],
-      });
-    }
-    const profileName =
-      profSurfEl.getAttribute("name") ||
-      firstByLocalName(alignEl, "Profile")?.getAttribute("name") ||
-      "Surface";
-    return { profileName, vertices, curves: [], tangents, rawGrades };
+    if (vertices.length < 2) return empty;
+    return buildProfileGeom(
+      profSurfEl.getAttribute("name") ?? firstTag(alignEl, "Profile")?.getAttribute("name") ?? "Surface",
+      vertices
+    );
   }
 
-  return emptyResult;
+  return empty;
 }
 
-export function evaluateProfile(profileGeom: ProfileGeometry, station: number): number | null {
-  if (!profileGeom || profileGeom.vertices.length < 2) return null;
-  const { vertices, curves, tangents } = profileGeom;
-  const first = vertices[0];
-  const last = vertices[vertices.length - 1];
-  if (station < first.sta - EPS) {
-    if (tangents.length > 0) {
-      const t = tangents[0];
-      return t.startElev + t.grade * (station - t.startSta);
+function buildProfileGeom(profileName: string, vertices: ProfileVertex[]): ProfileGeometry {
+  // Compute grades between consecutive PVIs
+  const grades: number[] = [];
+  for (let i = 0; i < vertices.length - 1; i++) {
+    const ds = vertices[i + 1].sta - vertices[i].sta;
+    const de = vertices[i + 1].elev - vertices[i].elev;
+    grades.push(ds > EPS ? de / ds : 0);
+  }
+
+  // Build tangent segments
+  const tangents: ProfileTangent[] = [];
+  for (let i = 0; i < vertices.length - 1; i++) {
+    tangents.push({
+      startSta: vertices[i].sta,
+      endSta: vertices[i + 1].sta,
+      startElev: vertices[i].elev,
+      grade: grades[i],
+    });
+  }
+
+  // Build vertical curves at PVIs with curveLength > 0
+  const curves: ProfileCurve[] = [];
+  for (let i = 0; i < vertices.length; i++) {
+    const v = vertices[i];
+    if (v.curveLength < EPS) continue;
+    const g1 = i > 0 ? grades[i - 1] : 0;
+    const g2 = i < grades.length ? grades[i] : 0;
+    const halfL = v.curveLength / 2;
+    const bvc = v.sta - halfL;
+    const evc = v.sta + halfL;
+    const yBVC = v.elev - g1 * halfL;
+    const A = g2 - g1;
+    const isCirc = v.type === "CircCurve";
+    const curve: ProfileCurve = {
+      model: isCirc ? "circular" : "parabolic",
+      bvc,
+      evc,
+      g1,
+      g2,
+      A,
+      length: v.curveLength,
+      yBVC,
+    };
+    if (isCirc && v.radius !== undefined) {
+      // Circle center: at PVI station, offset by radius in the direction that makes it tangent
+      const ySign = A < 0 ? 1 : -1; // center above sag, below crest
+      curve.radius = v.radius;
+      curve.centerSta = v.sta;
+      curve.centerElev = v.elev + ySign * v.radius;
+      curve.ySign = ySign;
     }
-    return null;
+    curves.push(curve);
+  }
+
+  return { profileName, vertices, curves, tangents };
+}
+
+// ── Profile evaluation ────────────────────────────────────────────────────────
+// station must be in DISPLAY station format (same as vertex sta values)
+export function evaluateProfile(profileGeom: ProfileGeometry, station: number): number | null {
+  const { vertices, curves, tangents } = profileGeom;
+  if (vertices.length < 2) return null;
+
+  const first = vertices[0];
+  const last  = vertices[vertices.length - 1];
+
+  // Extrapolate beyond range using end tangents
+  if (station < first.sta - EPS) {
+    if (tangents.length === 0) return null;
+    const t = tangents[0];
+    return t.startElev + t.grade * (station - t.startSta);
   }
   if (station > last.sta + EPS) {
-    if (tangents.length > 0) {
-      const t = tangents[tangents.length - 1];
-      return t.startElev + t.grade * (station - t.startSta);
-    }
-    return null;
+    if (tangents.length === 0) return null;
+    const t = tangents[tangents.length - 1];
+    return t.startElev + t.grade * (station - t.startSta);
   }
 
-  for (const curve of curves) {
-    if (station >= curve.bvc - EPS && station <= curve.evc + EPS) {
-      const x = station - curve.bvc;
-      if (curve.model === "parabolic") {
-        return curve.yBVC + curve.g1 * x + (curve.A / (2 * curve.length)) * x * x;
-      } else if (curve.model === "circular" && curve.radius !== undefined && curve.center) {
-        const r = curve.radius;
-        const dSta = station - curve.center.x;
-        const inner = r * r - dSta * dSta;
-        if (inner < 0) {
-          return curve.yBVC + curve.g1 * x + (curve.A / (2 * curve.length)) * x * x;
-        }
-        return curve.center.y + (curve.ySign ?? 1) * Math.sqrt(inner);
+  // Check vertical curves first (they override the tangent zone)
+  for (const c of curves) {
+    if (station < c.bvc - EPS || station > c.evc + EPS) continue;
+    const x = station - c.bvc;
+    if (c.model === "parabolic") {
+      return c.yBVC + c.g1 * x + (c.A / (2 * c.length)) * x * x;
+    }
+    // Circular
+    if (c.radius !== undefined && c.centerSta !== undefined && c.centerElev !== undefined) {
+      const dSta = station - c.centerSta;
+      const inner = c.radius * c.radius - dSta * dSta;
+      if (inner < 0) {
+        // Fallback to parabola (shouldn't happen for valid data)
+        return c.yBVC + c.g1 * x + (c.A / (2 * c.length)) * x * x;
       }
+      return c.centerElev + (c.ySign ?? 1) * Math.sqrt(inner);
     }
+    return c.yBVC + c.g1 * x + (c.A / (2 * c.length)) * x * x;
   }
 
+  // Tangent segment
   for (const t of tangents) {
     if (station >= t.startSta - EPS && station <= t.endSta + EPS) {
       return t.startElev + t.grade * (station - t.startSta);
@@ -488,320 +605,189 @@ export function evaluateProfile(profileGeom: ProfileGeometry, station: number): 
   return null;
 }
 
-// ── Fresnel integrals via Taylor series ──────────────────────────────────────
-// C(x) = ∫₀ˣ cos(π/2·t²)dt, S(x) = ∫₀ˣ sin(π/2·t²)dt
-// Uses 24-term Taylor series — accurate to <0.1 mm for |x| < 3,
-// which covers all practical road/rail clothoid parameters.
-function fresnelCS(x: number): [number, number] {
-  if (x === 0) return [0, 0];
-  const sgn = x < 0 ? -1 : 1;
-  const ax = Math.abs(x);
-  const pih = Math.PI / 2;
-  const x2 = ax * ax;
-  const x4 = x2 * x2;
-  let C = 0, S = 0;
-  let powX = ax;      // x^(4n+1)
-  let powP = 1;       // (π/2)^(2n)
-  let fact = 1;       // (2n)!
-  let sgnN = 1;       // (-1)^n
-  for (let n = 0; n <= 24; n++) {
-    if (n > 0) {
-      powX *= x4;
-      powP *= pih * pih;
-      fact *= (2 * n - 1) * (2 * n);
-      sgnN = -sgnN;
-    }
-    const ct = sgnN * powP * powX / ((4 * n + 1) * fact);
-    const st = sgnN * powP * pih * powX * x2 / ((4 * n + 3) * fact * (2 * n + 1));
-    C += ct;
-    S += st;
-    if (Math.abs(ct) < 1e-16 && Math.abs(st) < 1e-16) break;
-  }
-  return [sgn * C, sgn * S];
-}
-
-// Compute ∫₀ˢ cos(θ₀ + A·t²)dt and ∫₀ˢ sin(θ₀ + A·t²)dt analytically.
-// A > 0: increasing curvature (standard clothoid).
-// A < 0: decreasing curvature (reverse clothoid).
-// A = 0: straight line (constant heading θ₀).
-function fresnelIntegral(theta0: number, A: number, s: number): [number, number] {
-  if (Math.abs(s) < EPS) return [0, 0];
-  const sgnS = s < 0 ? -1 : 1;
-  const as = Math.abs(s);
-  if (Math.abs(A) < 1e-12) {
-    return [sgnS * Math.cos(theta0) * as, sgnS * Math.sin(theta0) * as];
-  }
-  const absA = Math.abs(A);
-  const scale = Math.sqrt(Math.PI / (2 * absA));
-  const u = as * Math.sqrt(2 * absA / Math.PI);
-  const [Cu, Su] = fresnelCS(u);
-  const cosT = Math.cos(theta0);
-  const sinT = Math.sin(theta0);
-  let dx: number, dy: number;
-  if (A > 0) {
-    dx = scale * (cosT * Cu - sinT * Su);
-    dy = scale * (sinT * Cu + cosT * Su);
-  } else {
-    // cos(θ₀ − |A|t²) = cosT·cos(|A|t²) + sinT·sin(|A|t²)
-    dx = scale * (cosT * Cu + sinT * Su);
-    dy = scale * (sinT * Cu - cosT * Su);
-  }
-  return [sgnS * dx, sgnS * dy];
-}
-
-// Arc-length displacement on a clothoid with linearly varying curvature.
-// κ(t) = k0 + (k1−k0)·t/L   →   θ(t) = θ₀ + k0·t + α·t²  where α=(k1−k0)/(2L)
-// Uses shifted Fresnel integrals for the general k0≠0 case.
-function clothoidOffset(
-  theta0: number, k0: number, k1: number, L: number, s: number
-): [number, number] {
-  if (Math.abs(s) < EPS) return [0, 0];
-  const alpha = (k1 - k0) / (2 * L);
-  if (Math.abs(alpha) < 1e-12) {
-    // Degenerate: constant curvature
-    if (Math.abs(k0) < 1e-12) {
-      return [Math.cos(theta0) * s, Math.sin(theta0) * s];
-    }
-    const dA = k0 * s;
-    return [
-      (Math.sin(theta0 + dA) - Math.sin(theta0)) / k0,
-      (-Math.cos(theta0 + dA) + Math.cos(theta0)) / k0,
-    ];
-  }
-  // Complete the square: θ(t) = θ'₀ + α·(t+τ)²  where τ=k0/(2α), θ'₀=θ₀−α·τ²
-  const tau = k0 / (2 * alpha);
-  const theta0s = theta0 - alpha * tau * tau;
-  // ∫₀ˢ cos(θ'₀+α·(t+τ)²) dt = ∫_τ^(s+τ) ... = integral(s+τ) − integral(τ)
-  const [dx1, dy1] = fresnelIntegral(theta0s, alpha, s + tau);
-  const [dx0, dy0] = fresnelIntegral(theta0s, alpha, tau);
-  return [dx1 - dx0, dy1 - dy0];
-}
-
-function sampleSegment(seg: AlignmentSegment, t: number): SampledPoint {
-  t = clamp(t, 0, 1);
-  if (seg.type === "Line") {
-    const x = lerp(seg.start.x, seg.end.x, t);
-    const y = lerp(seg.start.y, seg.end.y, t);
-    const z =
-      seg.start.z !== null && seg.end.z !== null
-        ? lerp(seg.start.z, seg.end.z, t)
-        : null;
-    return { x, y, z, tangentRad: seg.tangentStartRad };
-  }
-  if (seg.type === "Curve") {
-    const sign = seg.rot === "cw" ? -1 : 1;
-    const angle = seg.a0 + sign * t * seg.geomDelta;
-    const x = seg.center.x + seg.radius * Math.cos(angle);
-    const y = seg.center.y + seg.radius * Math.sin(angle);
-    const tangentRad = normalizeAngleRad(angle + sign * (Math.PI / 2));
-    const z =
-      seg.start.z !== null && seg.end.z !== null
-        ? lerp(seg.start.z, seg.end.z, t)
-        : null;
-    return { x, y, z, tangentRad };
-  }
-  if (seg.type === "Transition") {
-    const L = seg.length;
-    const dTheta = normalizeAngleRad(seg.tangentEndRad - seg.tangentStartRad);
-    // Signed curvature: +CCW, -CW. Constraint: (k0+k1)/2·L = dTheta
-    const rotSign = seg.rot === "cw" ? -1 : (dTheta < 0 ? -1 : 1);
-    let k0: number, k1: number;
-    if (seg.radiusStart !== undefined && seg.radiusEnd !== undefined) {
-      k0 = rotSign / seg.radiusStart;
-      k1 = rotSign / seg.radiusEnd;
-    } else if (seg.radiusStart !== undefined) {
-      k0 = rotSign / seg.radiusStart;
-      k1 = 2 * dTheta / L - k0;
-    } else if (seg.radiusEnd !== undefined) {
-      k1 = rotSign / seg.radiusEnd;
-      k0 = 2 * dTheta / L - k1;
-    } else {
-      k0 = 0;
-      k1 = 2 * dTheta / L;
-    }
-    const targetS = t * L;
-    const [dx, dy] = clothoidOffset(seg.tangentStartRad, k0, k1, L, targetS);
-    const endTheta = seg.tangentStartRad + k0 * targetS + (k1 - k0) / (2 * L) * targetS * targetS;
-    const z =
-      seg.start.z !== null && seg.end.z !== null
-        ? lerp(seg.start.z, seg.end.z, t)
-        : null;
-    return { x: seg.start.x + dx, y: seg.start.y + dy, z, tangentRad: normalizeAngleRad(endTheta) };
-  }
-  const _: never = seg;
-  void _;
-  return { x: 0, y: 0, z: null, tangentRad: 0 };
-}
-
-function findSegmentForStation(
+// ── Alignment sampling ────────────────────────────────────────────────────────
+function findSeg(
   segments: AlignmentSegment[],
-  internalStation: number
+  internalSta: number
 ): { seg: AlignmentSegment; t: number } | null {
   for (const seg of segments) {
-    if (internalStation >= seg.staStart - EPS && internalStation <= seg.staEnd + EPS) {
-      const t = seg.length > EPS ? (internalStation - seg.staStart) / seg.length : 0;
-      return { seg, t: clamp(t, 0, 1) };
+    if (internalSta >= seg.staStart - EPS && internalSta <= seg.staEnd + EPS) {
+      return {
+        seg,
+        t: clamp(seg.length > EPS ? (internalSta - seg.staStart) / seg.length : 0, 0, 1),
+      };
     }
   }
   if (segments.length > 0) {
-    if (internalStation < segments[0].staStart) {
-      return { seg: segments[0], t: 0 };
-    }
+    if (internalSta < segments[0].staStart) return { seg: segments[0], t: 0 };
     const last = segments[segments.length - 1];
-    if (internalStation > last.staEnd) {
-      return { seg: last, t: 1 };
-    }
+    if (internalSta > last.staEnd) return { seg: last, t: 1 };
   }
   return null;
 }
 
-function sampleAtInternalStation(
+// Sample alignment at a given DISPLAY station.
+// Returns null if no segments exist.
+export function sampleAtDisplayStation(
   alignment: Alignment,
-  internalStation: number
+  displaySta: number
 ): SampledPoint | null {
   if (alignment.segments.length === 0) return null;
-  const found = findSegmentForStation(alignment.segments, internalStation);
+
+  const internalSta = displayToInternal(alignment.stationEquations, displaySta);
+  const found = findSeg(alignment.segments, internalSta);
   if (!found) return null;
-  const pt = sampleSegment(found.seg, found.t);
+
+  const pt = sampleSeg(found.seg, found.t);
+  pt.station = displaySta;
+
+  // Apply profile elevation (overrides CoordGeom Z)
   if (alignment.zSource === "profile" && alignment.profileGeom.vertices.length >= 2) {
-    const displaySta = stationInternalToDisplay(alignment.stationEquations, internalStation);
-    const elev = evaluateProfile(alignment.profileGeom, displaySta);
-    pt.z = elev;
+    pt.z = evaluateProfile(alignment.profileGeom, displaySta);
   }
-  pt.internalStation = internalStation;
-  pt.station = stationInternalToDisplay(alignment.stationEquations, internalStation);
+
   return pt;
 }
 
-export function sampleAtDisplayStation(
-  alignment: Alignment,
-  displayStation: number
-): SampledPoint | null {
-  const internalStation = stationDisplayToInternal(alignment.stationEquations, displayStation);
-  return sampleAtInternalStation(alignment, internalStation);
-}
+// Generate a sequence of display stations for rendering.
+// Transitions get proportionally more points for accurate clothoid rendering.
+export function buildStationSeries(alignment: Alignment, basePts: number): number[] {
+  const series: number[] = [];
+  const totalLen = alignment.length;
+  if (totalLen < EPS || basePts < 2) return series;
 
-function parseStationEquations(alignEl: Element): StationEquation[] {
-  const eqs: StationEquation[] = [];
-  for (const eq of allByLocalName(alignEl, "StaEquation")) {
-    const staAhead = getAttrNum(eq, "staAhead");
-    const staBack = getAttrNum(eq, "staBack");
-    const staInternal = getAttrNum(eq, "staInternal");
-    if (staAhead === null || staBack === null) continue;
-    const internalVal = staInternal ?? staBack;
-    eqs.push({
-      staAhead,
-      staBack,
-      staInternal: internalVal,
-      delta: staAhead - staBack,
-    });
+  // Assign point budget per segment proportional to length, minimum 8 per transition
+  for (let si = 0; si < alignment.segments.length; si++) {
+    const seg = alignment.segments[si];
+    const segDisplayStart = stationToDisplay(alignment.stationEquations, seg.staStart);
+    const segDisplayEnd   = stationToDisplay(alignment.stationEquations, seg.staEnd);
+    const segLen = segDisplayEnd - segDisplayStart;
+
+    const minPts = seg.type === "Transition" ? 24 : 2;
+    const nPts = Math.max(minPts, Math.round(basePts * segLen / totalLen));
+
+    for (let i = 0; i < nPts; i++) {
+      const t = i / (nPts - 1 + EPS);
+      series.push(lerp(segDisplayStart, segDisplayEnd, clamp(t, 0, 1)));
+    }
+    // Always include exact end station
+    if (si < alignment.segments.length - 1) {
+      series.push(segDisplayEnd);
+    }
   }
-  return eqs;
+
+  // Add alignment end
+  series.push(alignment.staEnd);
+
+  // Deduplicate and sort
+  series.sort((a, b) => a - b);
+  const deduped: number[] = [];
+  for (const s of series) {
+    if (deduped.length === 0 || s - deduped[deduped.length - 1] > EPS) {
+      deduped.push(s);
+    }
+  }
+  return deduped;
 }
 
+// ── Main parser ───────────────────────────────────────────────────────────────
 function parseAlignment(
   alignEl: Element,
   fileName: string,
-  id: number,
-  colors: string[]
+  id: number
 ): Alignment | null {
-  const name = alignEl.getAttribute("name") || `Alignment_${id}`;
-  const staStartAttr = getAttrNum(alignEl, "staStart");
-  const staEndAttr = getAttrNum(alignEl, "staEnd") ?? getAttrNum(alignEl, "length");
-  const stationEquations = parseStationEquations(alignEl);
-  const profileGeom = parseProfileGeometry(alignEl);
-  const coordGeomEl = firstByLocalName(alignEl, "CoordGeom");
+  const name = alignEl.getAttribute("name") ?? `Alignment_${id}`;
+  const staStartAttr = attrNum(alignEl, "staStart");
+  const staEndAttr   = attrNum(alignEl, "staEnd") ?? attrNum(alignEl, "length");
+
+  const stationEquations = parseStaEquations(alignEl);
+  const profileGeom = parseProfile(alignEl);
+
+  // Parse segments from CoordGeom
+  const coordGeomEl = firstTag(alignEl, "CoordGeom");
   const segments: AlignmentSegment[] = [];
   let cursor: AlignCoord | null = null;
-  let prevTangentRad = 0;
-  let runningStation = staStartAttr ?? 0;
+  let prevTan = 0;
+  let runSta = staStartAttr ?? 0;
 
   if (coordGeomEl) {
-    for (const child of xmlChildren(coordGeomEl)) {
-      const ln = child.localName;
+    for (const child of children(coordGeomEl)) {
+      const tag = child.localName;
       let seg: AlignmentSegment | null = null;
-      if (ln === "Line") {
-        seg = parseLineSegment(child, runningStation, cursor, prevTangentRad);
-      } else if (ln === "Curve") {
-        seg = parseCurveSegment(child, runningStation, cursor, prevTangentRad);
-      } else if (ln === "Spiral") {
-        seg = parseTransitionSegment(child, runningStation, cursor, prevTangentRad);
+      if (tag === "Line") {
+        seg = parseLine(child, runSta, cursor, prevTan);
+      } else if (tag === "Curve") {
+        seg = parseCurve(child, runSta, cursor, prevTan);
+      } else if (tag === "Spiral") {
+        seg = parseSpiral(child, runSta, cursor, prevTan);
       }
       if (seg) {
         segments.push(seg);
         cursor = seg.end;
-        prevTangentRad = seg.tangentEndRad;
-        runningStation = seg.staEnd;
+        prevTan = seg.tangentEndRad;
+        runSta = seg.staEnd;
       }
     }
-  }
 
-  if (segments.length === 0) {
-    const pntListEl = firstByLocalName(firstByLocalName(alignEl, "CoordGeom"), "PntList3D") ||
-      firstByLocalName(firstByLocalName(alignEl, "CoordGeom"), "IrregularLine");
-    if (pntListEl) {
-      const text = pntListEl.textContent?.trim() || "";
-      const nums = text.split(/\s+/).map(Number).filter(Number.isFinite);
-      const step = nums.length % 3 === 0 ? 3 : 2;
-      for (let i = 0; i + step - 1 < nums.length; i += step) {
-        const pt: AlignCoord =
-          step === 3
+    // Fallback: PntList3D / IrregularLine (polyline)
+    if (segments.length === 0) {
+      const pntEl =
+        firstTag(coordGeomEl, "PntList3D") ??
+        firstTag(coordGeomEl, "IrregularLine");
+      if (pntEl) {
+        const nums = (pntEl.textContent ?? "").trim().split(/\s+/).map(Number).filter(Number.isFinite);
+        const step = nums.length % 3 === 0 ? 3 : 2;
+        for (let i = 0; i + step - 1 < nums.length; i += step) {
+          const pt: AlignCoord = step === 3
             ? { y: nums[i], x: nums[i + 1], z: nums[i + 2] }
             : { y: nums[i], x: nums[i + 1], z: null };
-        if (cursor) {
-          const seg: LineSegment = {
-            type: "Line",
-            staStart: runningStation,
-            staEnd: runningStation + dist2D(cursor, pt),
-            length: dist2D(cursor, pt),
-            start: cursor,
-            end: pt,
-            tangentStartRad: lineDirectionFromPoints(cursor, pt, prevTangentRad),
-            tangentEndRad: lineDirectionFromPoints(cursor, pt, prevTangentRad),
-            typeLabel: "Gerade",
-          };
-          if (seg.length > EPS) {
-            segments.push(seg);
-            prevTangentRad = seg.tangentEndRad;
-            runningStation = seg.staEnd;
+          if (cursor) {
+            const d = dist2D(cursor, pt);
+            if (d > EPS) {
+              const tan = bearing(cursor, pt);
+              const seg: LineSegment = {
+                type: "Line",
+                staStart: runSta,
+                staEnd: runSta + d,
+                length: d,
+                start: cursor,
+                end: pt,
+                tangentStartRad: tan,
+                tangentEndRad: tan,
+                typeLabel: "Gerade",
+              };
+              segments.push(seg);
+              prevTan = tan;
+              runSta = seg.staEnd;
+            }
           }
+          cursor = pt;
         }
-        cursor = pt;
       }
     }
   }
 
-  const internalStaStart = staStartAttr ?? (segments[0]?.staStart ?? 0);
-  const internalStaEnd =
-    staEndAttr !== null
-      ? staStartAttr !== null
-        ? staStartAttr + staEndAttr
-        : staEndAttr
-      : segments[segments.length - 1]?.staEnd ?? internalStaStart;
+  if (segments.length === 0) return null;
 
-  const displayStaStart = stationInternalToDisplay(stationEquations, internalStaStart);
-  const displayStaEnd = stationInternalToDisplay(stationEquations, internalStaEnd);
+  const internalStaStart = staStartAttr ?? segments[0].staStart;
+  const internalStaEnd   = (() => {
+    if (staEndAttr !== null) {
+      return staStartAttr !== null ? staStartAttr + staEndAttr : staEndAttr;
+    }
+    return segments[segments.length - 1].staEnd;
+  })();
+
+  const displayStaStart = stationToDisplay(stationEquations, internalStaStart);
+  const displayStaEnd   = stationToDisplay(stationEquations, internalStaEnd);
 
   const hasZCoord = segments.some(s => s.start.z !== null || s.end.z !== null);
   const hasProfile = profileGeom.vertices.length >= 2;
-  const zSource: "profile" | "coordgeom" | "none" = hasProfile
-    ? "profile"
-    : hasZCoord
-    ? "coordgeom"
-    : "none";
-  const zStatus =
-    zSource === "profile"
-      ? `Profil: ${profileGeom.profileName}`
-      : zSource === "coordgeom"
-      ? "Z aus CoordGeom"
-      : "Kein Z";
-
-  const desc = alignEl.getAttribute("desc") || "";
-  const isSubAxis =
-    desc.toLowerCase().includes("sub") ||
-    name.toLowerCase().includes("sub") ||
-    name.toLowerCase().includes("offset") ||
-    name.toLowerCase().includes("nebenachse");
+  const zSource: Alignment["zSource"] = hasProfile ? "profile" : hasZCoord ? "coordgeom" : "none";
+  const zStatus = zSource === "profile"
+    ? `Profil: ${profileGeom.profileName}`
+    : zSource === "coordgeom"
+    ? "Z aus CoordGeom"
+    : "Kein Z";
 
   return {
     id,
@@ -810,25 +796,16 @@ function parseAlignment(
     displayName: name,
     staStart: displayStaStart,
     staEnd: displayStaEnd,
+    length: displayStaEnd - displayStaStart,
     internalStaStart,
     internalStaEnd,
-    length: displayStaEnd - displayStaStart,
     segments,
     profileGeom,
     stationEquations,
     hasZValues: hasZCoord || hasProfile,
     zSource,
     zStatus,
-    isMain: !isSubAxis,
-    isSubAxis,
-    parentId: undefined,
-    sourceMainName: "",
-    offsetH: 0,
-    offsetX: 0,
-    offsetTag: "",
   };
-
-  void colors;
 }
 
 export function parseLandXmlText(
@@ -836,29 +813,20 @@ export function parseLandXmlText(
   fileName: string,
   nextIdStart = 0
 ): ParsedLandXml {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlText, "application/xml");
-  const parseError = doc.querySelector("parsererror");
-  if (parseError) {
-    console.warn("LandXML parse error:", parseError.textContent);
+  const doc = new DOMParser().parseFromString(xmlText, "application/xml");
+  if (doc.querySelector("parsererror")) {
     return { alignments: [], nextId: nextIdStart };
   }
 
   const root = doc.documentElement;
-  const alignmentsEl =
-    firstByLocalName(root, "Alignments") ||
-    root;
+  const alignmentsEl = firstTag(root, "Alignments") ?? root;
+  const alignEls = byTag(alignmentsEl, "Alignment");
 
-  const alignEls = allByLocalName(alignmentsEl, "Alignment");
   const alignments: Alignment[] = [];
   let nextId = nextIdStart;
-
-  for (const alignEl of alignEls) {
-    const align = parseAlignment(alignEl, fileName, nextId, []);
-    if (align) {
-      alignments.push(align);
-      nextId++;
-    }
+  for (const el of alignEls) {
+    const a = parseAlignment(el, fileName, nextId);
+    if (a) { alignments.push(a); nextId++; }
   }
 
   return { alignments, nextId };
@@ -868,9 +836,7 @@ export function generateStationSeries(alignment: Alignment, interval: number): n
   if (interval <= 0) return [];
   const series: number[] = [];
   const start = Math.ceil(alignment.staStart / interval) * interval;
-  for (let sta = start; sta <= alignment.staEnd + EPS; sta += interval) {
-    series.push(sta);
-  }
+  for (let s = start; s <= alignment.staEnd + EPS; s += interval) series.push(s);
   if (series.length === 0 || Math.abs(series[series.length - 1] - alignment.staEnd) > EPS) {
     series.push(alignment.staEnd);
   }

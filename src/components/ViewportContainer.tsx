@@ -21,7 +21,7 @@ import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorP
 import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
 import { useAlignmentStore } from "../alignment/alignmentStore";
 import { AlignmentPanel } from "../alignment/AlignmentPanel";
-import { sampleAtDisplayStation } from "../alignment/landXmlParser";
+import { sampleAtDisplayStation, buildStationSeries } from "../alignment/landXmlParser";
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -427,13 +427,15 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       const { files, visibleIds, colors, geoOrigin } = useAlignmentStore.getState();
 
-      // Use the IFC model's originOffset so alignment axes and IFC geometry
-      // share the same scene origin. The offset axes match the IFC coordinate
-      // convention 1:1 (no Y/Z swap applied by the loader), so:
-      //   ox = originOffset.x → Easting subtracted from p.x
-      //   oy = originOffset.y → Northing subtracted from p.y (used in -(p.y-oy))
-      //   oz = originOffset.z → Elevation subtracted from p.z
-      // Falls back to geoOrigin (first alignment start point) when no model loaded.
+      // Determine scene origin to subtract from LandXML coordinates.
+      // LandXML coordinate convention:   x = Easting,  y = Northing,  z = Elevation
+      // Three.js scene convention:        X = Easting,  Y = Elevation, Z = -Northing
+      //
+      // When an IFC model is loaded we use its originOffset as the geographic
+      // reference (it is the bounding-box centre of the raw IFC geometry and
+      // carries the same Easting/Elevation/Northing components depending on
+      // which Y-up vs Z-up convention the IFC file uses).
+      // When no IFC is loaded we use geoOrigin = first segment start point.
       const ifc = useModelStore.getState().models[0];
       let ox: number, oy: number, oz: number;
       if (ifc) {
@@ -441,9 +443,9 @@ export function ViewportContainer({ onElementClick }: Props) {
         oy = ifc.originOffset.y;
         oz = ifc.originOffset.z;
       } else if (geoOrigin) {
-        ox = geoOrigin.x;
-        oy = geoOrigin.y;
-        oz = geoOrigin.z ?? 0;
+        ox = geoOrigin.x; // Easting
+        oy = geoOrigin.y; // Northing
+        oz = geoOrigin.z; // Elevation
       } else {
         ox = 0; oy = 0; oz = 0;
       }
@@ -451,11 +453,14 @@ export function ViewportContainer({ onElementClick }: Props) {
       for (const file of files) {
         for (const alignment of file.alignments) {
           if (!visibleIds.has(alignment.id)) continue;
-          const numPts = Math.min(2000, Math.max(50, Math.ceil(alignment.length / 2)));
-          const step = (alignment.staEnd - alignment.staStart) / Math.max(1, numPts - 1);
+
+          // Build a station series that assigns extra points to transition
+          // segments so clothoid curves render smoothly without visible kinks.
+          const basePts = Math.min(2000, Math.max(60, Math.ceil(alignment.length / 2)));
+          const stations = buildStationSeries(alignment, basePts);
+
           const pts: THREE.Vector3[] = [];
-          for (let i = 0; i < numPts; i++) {
-            const sta = alignment.staStart + i * step;
+          for (const sta of stations) {
             const p = sampleAtDisplayStation(alignment, sta);
             if (!p) continue;
             // LandXML: X=Easting, Y=Northing, Z=Elevation → Three.js: X=East, Y=Elev, Z=-North

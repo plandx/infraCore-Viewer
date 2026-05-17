@@ -27,6 +27,8 @@ interface AlignmentStore {
   selectedId: number | null;
   visibleIds: Set<number>;
   colors: Record<number, string>;
+  // Geographic origin used for Three.js scene offset when no IFC is loaded.
+  // x = Easting, y = Northing, z = Elevation of first alignment's first point.
   geoOrigin: { x: number; y: number; z: number } | null;
   panelOpen: boolean;
 
@@ -49,39 +51,41 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
     const text = await file.text();
     const parsed = parseLandXmlText(text, file.name, moduleNextId);
     moduleNextId = parsed.nextId;
-
     if (parsed.alignments.length === 0) return;
 
     const newColors: Record<number, string> = {};
     const newVisibleIds = new Set(get().visibleIds);
-
     for (const align of parsed.alignments) {
       newColors[align.id] = PALETTE[paletteIndex % PALETTE.length];
       paletteIndex++;
       newVisibleIds.add(align.id);
     }
 
-    const newFile: AlignFile = {
-      id: crypto.randomUUID(),
-      fileName: file.name,
-      alignments: parsed.alignments,
-    };
-
     set(state => {
       let geoOrigin = state.geoOrigin;
       if (!geoOrigin) {
-        const firstSeg = parsed.alignments[0].segments[0];
+        // Use the first segment's start coordinates as the geographic reference.
+        // We always take x/y from the geometry so the alignment is placed at
+        // a sane distance from the Three.js origin (otherwise national-grid
+        // coordinates in the millions cause float32 precision loss).
+        const firstAlign = parsed.alignments[0];
+        const firstSeg = firstAlign.segments[0];
         if (firstSeg) {
           geoOrigin = {
             x: firstSeg.start.x,
             y: firstSeg.start.y,
-            z: firstSeg.start.z ?? 0,
+            z: firstSeg.start.z ?? firstAlign.profileGeom.vertices[0]?.elev ?? 0,
           };
-        } else if (parsed.alignments[0].profileGeom.vertices.length > 0) {
-          const v = parsed.alignments[0].profileGeom.vertices[0];
-          geoOrigin = { x: 0, y: 0, z: v.elev };
         }
+        // If there are no segments (shouldn't happen — parseLandXmlText returns
+        // null for segment-less alignments), leave geoOrigin null.
       }
+
+      const newFile: AlignFile = {
+        id: crypto.randomUUID(),
+        fileName: file.name,
+        alignments: parsed.alignments,
+      };
 
       return {
         files: [...state.files, newFile],
@@ -101,45 +105,33 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
       const newFiles = state.files.filter(f => f.id !== fileId);
       const newColors = { ...state.colors };
       const newVisibleIds = new Set(state.visibleIds);
-
       for (const id of removedIds) {
         delete newColors[id];
         newVisibleIds.delete(id);
       }
 
-      const selectedId = state.selectedId !== null && removedIds.has(state.selectedId)
-        ? null
-        : state.selectedId;
-
-      const geoOrigin = newFiles.length === 0 ? null : state.geoOrigin;
-
       return {
         files: newFiles,
         colors: newColors,
         visibleIds: newVisibleIds,
-        selectedId,
-        geoOrigin,
+        selectedId:
+          state.selectedId !== null && removedIds.has(state.selectedId)
+            ? null
+            : state.selectedId,
+        geoOrigin: newFiles.length === 0 ? null : state.geoOrigin,
       };
     });
   },
 
   toggleVisible: (id: number) => {
     set(state => {
-      const newVisibleIds = new Set(state.visibleIds);
-      if (newVisibleIds.has(id)) {
-        newVisibleIds.delete(id);
-      } else {
-        newVisibleIds.add(id);
-      }
-      return { visibleIds: newVisibleIds };
+      const next = new Set(state.visibleIds);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return { visibleIds: next };
     });
   },
 
-  selectAlignment: (id: number | null) => {
-    set({ selectedId: id });
-  },
+  selectAlignment: (id: number | null) => set({ selectedId: id }),
 
-  togglePanel: () => {
-    set(state => ({ panelOpen: !state.panelOpen }));
-  },
+  togglePanel: () => set(state => ({ panelOpen: !state.panelOpen })),
 }));

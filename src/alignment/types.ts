@@ -1,16 +1,19 @@
+// LandXML coordinate convention: all Start/End/Center nodes are (Northing, Easting[, Elevation])
+// We store: x = Easting, y = Northing, z = Elevation (or null when not given)
+
 export interface AlignCoord {
-  x: number;
-  y: number;
-  z: number | null;
+  x: number; // Easting
+  y: number; // Northing
+  z: number | null; // Elevation
 }
 
 export interface BaseSegment {
-  staStart: number;
-  staEnd: number;
+  staStart: number; // internal station at segment start
+  staEnd: number;   // internal station at segment end
   length: number;
   start: AlignCoord;
   end: AlignCoord;
-  tangentStartRad: number;
+  tangentStartRad: number; // math radians, CCW from East
   tangentEndRad: number;
   typeLabel: string;
 }
@@ -23,53 +26,52 @@ export interface CurveSegment extends BaseSegment {
   type: "Curve";
   center: AlignCoord;
   radius: number;
-  geomDelta: number;
+  geomDelta: number; // total sweep angle (positive, always)
   rot: "cw" | "ccw";
-  a0: number;
+  a0: number; // start angle from center (math radians)
 }
 
 export interface TransitionSegment extends BaseSegment {
   type: "Transition";
   spiralType: string;
-  rot?: "cw" | "ccw";
-  radiusStart?: number;
-  radiusEnd?: number;
+  rot: "cw" | "ccw";
+  // signed curvatures at start/end (positive = CCW, negative = CW)
+  k0: number; // = 0 for entry from tangent, or ±1/radiusStart
+  k1: number; // = ±1/radiusEnd for entry to arc, or 0 for exit to tangent
+  typeLabel: string;
 }
 
 export type AlignmentSegment = LineSegment | CurveSegment | TransitionSegment;
 
 export interface ProfileVertex {
-  type: string;
-  sta: number;
+  type: "PVI" | "ParaCurve" | "CircCurve";
+  sta: number;   // display station
   elev: number;
   curveLength: number;
   radius?: number;
 }
 
 export interface ProfileCurve {
-  index: number;
   model: "parabolic" | "circular";
-  sta: number;
-  elev: number;
+  bvc: number; // begin vertical curve (display station)
+  evc: number; // end vertical curve (display station)
+  g1: number;  // incoming grade
+  g2: number;  // outgoing grade
+  A: number;   // g2 - g1
   length: number;
-  bvc: number;
-  evc: number;
-  g1: number;
-  g2: number;
-  A: number;
-  yBVC: number;
-  yEVC: number;
+  yBVC: number; // elevation at BVC
+  // circular only:
   radius?: number;
-  center?: AlignCoord;
+  centerSta?: number; // station of circle center
+  centerElev?: number;
   ySign?: number;
 }
 
 export interface ProfileTangent {
-  index: number;
-  startSta: number;
+  startSta: number; // display station
   endSta: number;
   startElev: number;
-  grade: number;
+  grade: number; // m/m (rise over run)
 }
 
 export interface ProfileGeometry {
@@ -77,23 +79,21 @@ export interface ProfileGeometry {
   vertices: ProfileVertex[];
   curves: ProfileCurve[];
   tangents: ProfileTangent[];
-  rawGrades: number[];
 }
 
 export interface StationEquation {
-  staAhead: number;
-  staBack: number;
   staInternal: number;
-  delta: number;
+  staAhead: number;  // display station after the equation
+  staBack: number;   // display station before the equation
+  delta: number;     // = staAhead - staBack, added to convert internal→display
 }
 
 export interface SampledPoint {
-  x: number;
-  y: number;
-  z: null | number;
-  tangentRad: number;
-  internalStation?: number;
-  station?: number;
+  x: number;    // Easting
+  y: number;    // Northing
+  z: number | null; // Elevation (null = no height info)
+  tangentRad: number; // math radians
+  station?: number;   // display station
 }
 
 export interface Alignment {
@@ -101,24 +101,19 @@ export interface Alignment {
   fileName: string;
   name: string;
   displayName: string;
+  // All stations in display format:
   staStart: number;
   staEnd: number;
+  length: number;
+  // Internal stations (differ from display only when StaEquations are present):
   internalStaStart: number;
   internalStaEnd: number;
-  length: number;
   segments: AlignmentSegment[];
   profileGeom: ProfileGeometry;
   stationEquations: StationEquation[];
   hasZValues: boolean;
   zSource: "profile" | "coordgeom" | "none";
   zStatus: string;
-  isMain: boolean;
-  isSubAxis: boolean;
-  parentId?: number;
-  sourceMainName: string;
-  offsetH: number;
-  offsetX: number;
-  offsetTag: string;
 }
 
 export interface ParsedLandXml {
