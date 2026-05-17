@@ -119,6 +119,8 @@ export function ViewportContainer({ onElementClick }: Props) {
   const [inspSelEdges,      setInspSelEdges]      = useState<Set<number>>(new Set());
   const [inspShowMesh,   setInspShowMesh]   = useState(false);
   const [inspShowLabels, setInspShowLabels] = useState(false);
+  const [inspMaxBend,    setInspMaxBend]    = useState(35);
+  const inspMaxBendRef = useRef(35);
   const inspMeshesRef = useRef<THREE.Mesh[]>([]); // IFC meshes of the inspected element
   const [inspLabels,   setInspLabels]   = useState<Array<{
     id: number; text: string; x: number; y: number;
@@ -514,6 +516,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       needsRenderRef.current = true;
       return;
     }
+    picker.connectedEdgeMaxBend = inspMaxBendRef.current;
     pickerRef.current = picker;
 
     scene.traverse((obj) => {
@@ -1583,6 +1586,12 @@ export function ViewportContainer({ onElementClick }: Props) {
           onToggleShowMesh={() => setInspShowMesh(v => !v)}
           showLabels={inspShowLabels}
           onToggleShowLabels={() => setInspShowLabels(v => !v)}
+          maxBend={inspMaxBend}
+          onMaxBendChange={v => {
+            setInspMaxBend(v);
+            inspMaxBendRef.current = v;
+            if (pickerRef.current) pickerRef.current.connectedEdgeMaxBend = v;
+          }}
           onClose={() => {
             pickerRef.current?.dispose();
             pickerRef.current = null;

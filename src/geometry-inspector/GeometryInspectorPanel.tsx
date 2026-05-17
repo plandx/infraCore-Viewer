@@ -24,6 +24,8 @@ interface Props {
   onToggleShowMesh:    () => void;
   showLabels:          boolean;
   onToggleShowLabels:  () => void;
+  maxBend:             number;
+  onMaxBendChange:     (v: number) => void;
   onClose:             () => void;
   onClearSelection:    () => void;
   onOpen5D?:           () => void;
@@ -184,6 +186,7 @@ export function GeometryInspectorPanel({
   pickMode, onPickModeChange,
   showMesh, onToggleShowMesh,
   showLabels, onToggleShowLabels,
+  maxBend, onMaxBendChange,
   onClose, onClearSelection, onOpen5D,
 }: Props) {
   const [saved, setSaved] = useState(false);
@@ -366,6 +369,25 @@ export function GeometryInspectorPanel({
           {" "}+ Mehrfachauswahl
         </p>
       </div>
+
+      {/* Edge-mode: bend angle slider */}
+      {pickMode === "edge" && (
+        <div className="px-3 py-1.5 border-b border-border/50 bg-muted/10 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-muted-foreground/70 shrink-0">Knick-Grenze</span>
+            <input
+              type="range"
+              min={5} max={90} step={5}
+              value={maxBend}
+              onChange={e => onMaxBendChange(Number(e.target.value))}
+              className="flex-1 h-1 accent-primary cursor-pointer"
+            />
+            <span className="text-[9px] font-mono tabular-nums text-primary w-6 text-right shrink-0">
+              {maxBend}°
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Element list + saved section */}
       <div className="flex-1 overflow-y-auto min-h-0">
