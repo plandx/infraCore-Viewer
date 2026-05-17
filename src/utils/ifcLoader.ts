@@ -381,10 +381,16 @@ export async function loadAllElementProperties(
   expressIds: number[],
   onProgress?: (done: number, total: number) => void
 ): Promise<Map<number, FlatElementProps>> {
-  const { api, modelId } = await getOrOpenPropModel(file);
+  // Open a dedicated temporary model — keeps it isolated from the viewer's
+  // open model and the per-element propModelCache to avoid WASM heap pressure.
+  const buffer = await file.arrayBuffer();
+  const data = new Uint8Array(buffer);
+  const api = await getIfcApi();
+  const modelId = api.OpenModel(data, { COORDINATE_TO_ORIGIN: false });
 
   const result = new Map<number, FlatElementProps>();
 
+  try {
   for (let i = 0; i < expressIds.length; i++) {
     const eid = expressIds[i];
     const flat: FlatElementProps = {};
@@ -424,6 +430,9 @@ export async function loadAllElementProperties(
 
     result.set(eid, flat);
     onProgress?.(i + 1, expressIds.length);
+  }
+  } finally {
+    api.CloseModel(modelId);
   }
 
   return result;
@@ -593,7 +602,7 @@ const ELEMENT_LABELS: Partial<Record<number, string>> = {
  * This ensures no IFC class is silently dropped — unknown types use their class name as label.
  */
 const CANDIDATE_TYPE_CODES: Map<number, string> = (() => {
-  const skip = /TYPE$|MEASURE$|ENUM$|VALUE$|SELECT$|PROPERT|QUANT|RELAT|OWNER|UNIT$|UNITS$|RESOURCE|CONSTRAINT|APPROVAL|CLASSIF|DOCUMENT|LIBRARY|MATERIAL|PROFILE|STYLE|REPRESENT|GEOMETRY|CURVE|SURFACE|SOLID|LOOP|SHELL|FACE|EDGE|VERTEX|POINT|VECTOR|DIRECTION|PLACEMENT|AXIS|TRANSFORM|CONVERSION|REFERENCE|PRESEN|CONNEC|COORDIN|OCCUPANT|PERSON|ORGAN|POSTAL|TELECOM|ADDRESS|ROLE|ACTOR|TASK|WORK|SCHEDULE|SEQUENCE|CALENDAR|COST|BUDGET|PERMIT|PROC|CONTROL|PERFORM|RISK|ACTION|REQUEST|ORDER/;
+  const skip = /TYPE$|MEASURE$|ENUM$|VALUE$|SELECT$|PROPERT|QUANT|RELAT|OWNER|UNIT$|UNITS$|RESOURCE|CONSTRAINT|APPROVAL|CLASSIF|DOCUMENT|LIBRARY|MATERIAL|PROFILE|STYLE|REPRESENT|GEOMETRY|CURVE|SURFACE|SOLID|LOOP|SHELL|FACE|EDGE|VERTEX|POINT|VECTOR|DIRECTION|PLACEMENT|AXIS|TRANSFORM|CONVERSION|REFERENCE|PRESEN|CONNEC|COORDIN|OCCUPANT|PERSON|ORGAN|POSTAL|TELECOM|ADDRESS|ROLE|ACTOR|TASK|WORK|SCHEDULE|SEQUENCE|CALENDAR|COST|BUDGET|PERMIT|PROC|CONTROL|PERFORM|RISK|ACTION|REQUEST|ORDER|IFCSITE$|IFCBUILDING$|IFCBUILDINGSTOREY$|IFCBUILDINGROOM$|IFCSPACE$|IFCZONE$|IFCGRID$|IFCANNOTATION$|IFCVIRTUALELEMENT$|IFCSPATIAL|STRUCTURALMEMBER$|STRUCTURALSURFACE$|STRUCTURALCURVE$|STRUCTURALPOINT$|STRUCTURALCONNECT/;
   const result = new Map<number, string>();
   for (const [name, code] of Object.entries(WebIFC) as [string, unknown][]) {
     if (typeof code !== "number") continue;

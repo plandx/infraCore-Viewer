@@ -1,10 +1,9 @@
 import { useState, useCallback, useRef } from "react";
-import { Tag, List, Hash, Code, Copy, Check, Eye, EyeOff, ScanLine, PencilLine, Download, X, Loader2, ScanEye } from "lucide-react";
+import { Tag, List, Hash, Code, Copy, Check, Eye, EyeOff, ScanLine, PencilLine, Download, X, Loader2, ScanEye, Filter } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { IFC_CLASS_NAMES } from "../utils/ifcClassNames";
 import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
-import { loadAllElementProperties } from "../utils/ifcLoader";
 import type { PropOverride, FlatElementProps } from "../types/ifc";
 
 type Tab = "attributes" | "properties" | "quantities" | "raw";
@@ -46,77 +45,40 @@ export function PropertiesPanel() {
   const propertyOverrides   = useModelStore((s) => s.propertyOverrides);
   const applyPropertyEdits  = useModelStore((s) => s.applyPropertyEdits);
   const loadedProperties    = useModelStore((s) => s.loadedProperties);
-  const setLoadedProperties = useModelStore((s) => s.setLoadedProperties);
   const isolateEntries      = useModelStore((s) => s.isolateEntries);
   const hideElements        = useModelStore((s) => s.hideElements);
-  const [isolatingKey, setIsolatingKey] = useState<string | null>(null);
-  const [hidingKey, setHidingKey]       = useState<string | null>(null);
-  const [loadProgress, setLoadProgress] = useState<number | null>(null);
+  // Filter selection: which property + value the user pinned for isolate/hide actions
+  const [filterProp, setFilterProp] = useState<{ key: string; value: string; label: string } | null>(null);
+  const [filterBusy, setFilterBusy] = useState<"isolate" | "hide" | null>(null);
 
-  const resolveProps = useCallback(async (): Promise<Map<string, Map<number, FlatElementProps>>> => {
-    if (loadedProperties) return loadedProperties;
-    const result = new Map<string, Map<number, FlatElementProps>>();
-    const keySet = new Set<string>();
-    let total = 0;
-    models.forEach((m) => { for (const els of Object.values(m.elementsByType)) total += els.length; });
-    let base = 0;
-    setLoadProgress(0);
-    for (const [modelId, m] of models.entries()) {
-      if (!m.file) continue;
-      const ids: number[] = [];
-      for (const els of Object.values(m.elementsByType))
-        for (const el of els) ids.push(el.expressId);
-      const map = await loadAllElementProperties(m.file, ids, (done) =>
-        setLoadProgress(Math.round(((base + done) / total) * 100))
-      );
-      base += ids.length;
-      map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
-      result.set(modelId, map);
-    }
-    const sorted = Array.from(keySet).sort((a, b) => {
-      const ad = a.includes("."), bd = b.includes(".");
-      if (ad !== bd) return ad ? 1 : -1;
-      return a.localeCompare(b);
+  const handleIsolateSimilar = useCallback((key: string, value: string) => {
+    if (!loadedProperties) return;
+    setFilterBusy("isolate");
+    const entries: Array<{ modelId: string; expressId: number }> = [];
+    loadedProperties.forEach((modelMap, modelId) => {
+      modelMap.forEach((flatProps, expressId) => {
+        if (renderVal(flatProps[key]) === value) entries.push({ modelId, expressId });
+      });
     });
-    setLoadedProperties(result, sorted);
-    setLoadProgress(null);
-    return result;
-  }, [loadedProperties, setLoadedProperties, models]);
+    if (entries.length > 0) isolateEntries(entries);
+    setFilterBusy(null);
+  }, [loadedProperties, isolateEntries]);
 
-  const handleIsolateSimilar = useCallback(async (key: string, value: string) => {
-    setIsolatingKey(key);
-    try {
-      const props = await resolveProps();
-      const entries: Array<{ modelId: string; expressId: number }> = [];
-      props.forEach((modelMap, modelId) => {
-        modelMap.forEach((flatProps, expressId) => {
-          if (renderVal(flatProps[key]) === value) entries.push({ modelId, expressId });
-        });
+  const handleHideSimilar = useCallback((key: string, value: string) => {
+    if (!loadedProperties) return;
+    setFilterBusy("hide");
+    const byModel = new Map<string, number[]>();
+    loadedProperties.forEach((modelMap, modelId) => {
+      modelMap.forEach((flatProps, expressId) => {
+        if (renderVal(flatProps[key]) === value) {
+          if (!byModel.has(modelId)) byModel.set(modelId, []);
+          byModel.get(modelId)!.push(expressId);
+        }
       });
-      if (entries.length > 0) isolateEntries(entries);
-    } finally {
-      setIsolatingKey(null);
-    }
-  }, [resolveProps, isolateEntries]);
-
-  const handleHideSimilar = useCallback(async (key: string, value: string) => {
-    setHidingKey(key);
-    try {
-      const props = await resolveProps();
-      const byModel = new Map<string, number[]>();
-      props.forEach((modelMap, modelId) => {
-        modelMap.forEach((flatProps, expressId) => {
-          if (renderVal(flatProps[key]) === value) {
-            if (!byModel.has(modelId)) byModel.set(modelId, []);
-            byModel.get(modelId)!.push(expressId);
-          }
-        });
-      });
-      byModel.forEach((ids, modelId) => hideElements(modelId, ids));
-    } finally {
-      setHidingKey(null);
-    }
-  }, [resolveProps, hideElements]);
+    });
+    byModel.forEach((ids, modelId) => hideElements(modelId, ids));
+    setFilterBusy(null);
+  }, [loadedProperties, hideElements]);
 
   if (!selected) {
     return (
@@ -259,16 +221,40 @@ export function PropertiesPanel() {
         ))}
       </div>
 
-      {/* Property load progress bar */}
-      {loadProgress !== null && (
-        <div className="px-3 py-1.5 border-b border-border/50 bg-muted/20 shrink-0">
-          <div className="flex items-center gap-2">
-            <Loader2 size={10} className="animate-spin text-primary shrink-0" />
-            <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
-              <div className="h-full bg-primary rounded-full transition-all duration-100" style={{ width: `${loadProgress}%` }} />
-            </div>
-            <span className="text-[9px] font-mono tabular-nums text-muted-foreground w-7 text-right shrink-0">{loadProgress}%</span>
-          </div>
+      {/* Filter action bar */}
+      {filterProp ? (
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-primary/30 bg-primary/5 shrink-0">
+          <Filter size={10} className="text-primary shrink-0" />
+          <span className="text-[10px] text-primary font-mono truncate flex-1" title={`${filterProp.label} = ${filterProp.value}`}>
+            {filterProp.label} = <strong>{filterProp.value}</strong>
+          </span>
+          <button
+            disabled={!loadedProperties || filterBusy !== null}
+            onClick={() => handleIsolateSimilar(filterProp.key, filterProp.value)}
+            title={loadedProperties ? "Alle mit diesem Wert isolieren" : "Properties zuerst in SmartViews laden"}
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-primary/15 hover:bg-primary/25 text-primary border border-primary/25 disabled:opacity-40 transition-colors shrink-0"
+          >
+            {filterBusy === "isolate" ? <Loader2 size={9} className="animate-spin" /> : <ScanEye size={9} />}
+            Isolieren
+          </button>
+          <button
+            disabled={!loadedProperties || filterBusy !== null}
+            onClick={() => handleHideSimilar(filterProp.key, filterProp.value)}
+            title={loadedProperties ? "Alle mit diesem Wert ausblenden" : "Properties zuerst in SmartViews laden"}
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-muted hover:bg-muted/80 text-muted-foreground border border-border disabled:opacity-40 transition-colors shrink-0"
+          >
+            {filterBusy === "hide" ? <Loader2 size={9} className="animate-spin" /> : <EyeOff size={9} />}
+            Ausblenden
+          </button>
+          <button onClick={() => setFilterProp(null)} className="text-muted-foreground/60 hover:text-muted-foreground transition-colors shrink-0 ml-0.5">
+            <X size={11} />
+          </button>
+        </div>
+      ) : !loadedProperties && (
+        <div className="px-3 py-1 border-b border-border/30 shrink-0">
+          <p className="text-[10px] text-muted-foreground/60">
+            Zeile anklicken → Filteraktionen. Properties laden via <span className="text-primary">SmartViews</span>.
+          </p>
         </div>
       )}
 
@@ -279,10 +265,8 @@ export function PropertiesPanel() {
             properties={selected.properties}
             overrides={overrides}
             onEdit={onEdit}
-            onIsolateSimilar={handleIsolateSimilar}
-            isolatingKey={isolatingKey}
-            onHideSimilar={handleHideSimilar}
-            hidingKey={hidingKey}
+            onSelectProp={setFilterProp}
+            activePropKey={filterProp?.key ?? null}
           />
         )}
         {activeTab === "properties" && (
@@ -290,10 +274,8 @@ export function PropertiesPanel() {
             psets={selected.psets.filter(p => !p.name.startsWith("Qto_"))}
             overrides={overrides}
             onEdit={onEdit}
-            onIsolateSimilar={handleIsolateSimilar}
-            isolatingKey={isolatingKey}
-            onHideSimilar={handleHideSimilar}
-            hidingKey={hidingKey}
+            onSelectProp={setFilterProp}
+            activePropKey={filterProp?.key ?? null}
           />
         )}
         {activeTab === "quantities" && (
@@ -302,10 +284,8 @@ export function PropertiesPanel() {
             overrides={overrides}
             onEdit={onEdit}
             emptyMsg="Keine Mengen vorhanden"
-            onIsolateSimilar={handleIsolateSimilar}
-            isolatingKey={isolatingKey}
-            onHideSimilar={handleHideSimilar}
-            hidingKey={hidingKey}
+            onSelectProp={setFilterProp}
+            activePropKey={filterProp?.key ?? null}
           />
         )}
         {activeTab === "raw" && (
@@ -325,16 +305,16 @@ function PanelHeader({ children }: { children?: React.ReactNode }) {
   );
 }
 
+type SelectPropFn = (p: { key: string; value: string; label: string } | null) => void;
+
 function AttributesTab({
-  properties, overrides, onEdit, onIsolateSimilar, isolatingKey, onHideSimilar, hidingKey,
+  properties, overrides, onEdit, onSelectProp, activePropKey,
 }: {
   properties: Record<string, unknown>;
   overrides: Record<string, PropOverride>;
   onEdit: (key: string, value: string, ifcType?: number) => void;
-  onIsolateSimilar: (key: string, value: string) => void;
-  isolatingKey: string | null;
-  onHideSimilar: (key: string, value: string) => void;
-  hidingKey: string | null;
+  onSelectProp: SelectPropFn;
+  activePropKey: string | null;
 }) {
   const ifcTypeCode = typeof properties.type === "number" ? properties.type : null;
   const ifcTypeName = ifcTypeCode ? lookupIfcTypeName(ifcTypeCode) : null;
@@ -359,31 +339,29 @@ function AttributesTab({
           )}
         </tbody>
       </table>
-      <PropTable rows={entries} overrides={overrides} onEdit={onEdit} onIsolateSimilar={onIsolateSimilar} isolatingKey={isolatingKey} onHideSimilar={onHideSimilar} hidingKey={hidingKey} />
+      <PropTable rows={entries} overrides={overrides} onEdit={onEdit} onSelectProp={onSelectProp} activePropKey={activePropKey} />
     </div>
   );
 }
 
 function PropertySetsTab({
   psets, overrides, onEdit, emptyMsg = "Keine Eigenschaften vorhanden",
-  onIsolateSimilar, isolatingKey, onHideSimilar, hidingKey,
+  onSelectProp, activePropKey,
 }: {
   psets: { name: string; properties: { name: string; value: unknown; type: string }[] }[];
   overrides: Record<string, PropOverride>;
   onEdit: (key: string, value: string, ifcType?: number) => void;
   emptyMsg?: string;
-  onIsolateSimilar: (key: string, value: string) => void;
-  isolatingKey: string | null;
-  onHideSimilar: (key: string, value: string) => void;
-  hidingKey: string | null;
+  onSelectProp: SelectPropFn;
+  activePropKey: string | null;
 }) {
   if (!psets.length) return <EmptyState msg={emptyMsg} />;
   return (
     <div>
-      {psets.map((pset) => (
-        <div key={pset.name}>
+      {psets.map((pset, i) => (
+        <div key={`${pset.name}-${i}`}>
           <SectionHeader title={pset.name} count={pset.properties.length} />
-          <PropTable rows={pset.properties} overrides={overrides} psetName={pset.name} onEdit={onEdit} onIsolateSimilar={onIsolateSimilar} isolatingKey={isolatingKey} onHideSimilar={onHideSimilar} hidingKey={hidingKey} />
+          <PropTable rows={pset.properties} overrides={overrides} psetName={pset.name} onEdit={onEdit} onSelectProp={onSelectProp} activePropKey={activePropKey} />
         </div>
       ))}
     </div>
@@ -423,16 +401,14 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
 }
 
 function PropTable({
-  rows, overrides, psetName, onEdit, onIsolateSimilar, isolatingKey, onHideSimilar, hidingKey,
+  rows, overrides, psetName, onEdit, onSelectProp, activePropKey,
 }: {
   rows: { name: string; value: unknown; type?: string }[];
   overrides: Record<string, PropOverride>;
   psetName?: string;
   onEdit: (key: string, value: string, ifcType?: number) => void;
-  onIsolateSimilar: (key: string, value: string) => void;
-  isolatingKey: string | null;
-  onHideSimilar: (key: string, value: string) => void;
-  hidingKey: string | null;
+  onSelectProp: SelectPropFn;
+  activePropKey: string | null;
 }) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -475,10 +451,22 @@ function PropTable({
 
           const displayVal = isOverridden ? override.value : renderVal(r.value);
 
+          const isActive = activePropKey === overrideKey;
+
           return (
-            <tr key={i} className="border-b border-border/30 hover:bg-muted/20 group">
+            <tr
+              key={i}
+              className={cn(
+                "border-b border-border/30 hover:bg-muted/20 cursor-pointer group",
+                isActive && "bg-primary/8 hover:bg-primary/12"
+              )}
+              onClick={() => {
+                if (isEditing) return;
+                onSelectProp(isActive ? null : { key: overrideKey, value: displayVal, label: psetName ? `${psetName}.${r.name}` : r.name });
+              }}
+            >
               <td
-                className="px-3 py-1.5 text-muted-foreground w-2/5 align-top font-medium truncate max-w-0"
+                className={cn("px-3 py-1.5 w-2/5 align-top font-medium truncate max-w-0", isActive ? "text-primary" : "text-muted-foreground")}
                 title={r.name}
               >
                 {r.name}
@@ -509,16 +497,8 @@ function PropTable({
                         <option key={t.code} value={t.code}>{t.label}</option>
                       ))}
                     </select>
-                    <button
-                      className="shrink-0 p-0.5 rounded hover:bg-green-500/20 text-green-400"
-                      title="Bestätigen (Enter)"
-                      onClick={confirmEdit}
-                    ><Check size={11} /></button>
-                    <button
-                      className="shrink-0 p-0.5 rounded hover:bg-muted/60 text-muted-foreground"
-                      title="Abbrechen (Esc)"
-                      onClick={cancelEdit}
-                    ><X size={11} /></button>
+                    <button className="shrink-0 p-0.5 rounded hover:bg-green-500/20 text-green-400" title="Bestätigen (Enter)" onClick={confirmEdit}><Check size={11} /></button>
+                    <button className="shrink-0 p-0.5 rounded hover:bg-muted/60 text-muted-foreground" title="Abbrechen (Esc)" onClick={cancelEdit}><X size={11} /></button>
                   </div>
                 ) : (
                   <div className="flex items-start gap-1">
@@ -531,43 +511,19 @@ function PropTable({
                               {IFC_EDIT_TYPES.find((t) => t.code === override.ifcType)?.label ?? `type:${override.ifcType}`}
                             </span>
                           )}
-                          <span className="text-muted-foreground/50 line-through text-[10px]">
-                            {renderVal(r.value)}
-                          </span>
+                          <span className="text-muted-foreground/50 line-through text-[10px]">{renderVal(r.value)}</span>
                         </div>
                       ) : (
-                        <span className="text-foreground">{displayVal}</span>
+                        <span className={isActive ? "text-primary font-medium" : "text-foreground"}>{displayVal}</span>
                       )}
                     </div>
-                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0 mt-0.5">
+                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" onClick={e => e.stopPropagation()}>
                       <button
                         className="toolbar-button p-0.5 text-muted-foreground/60 hover:text-amber-400"
                         title="Bearbeiten"
                         onClick={() => startEdit(overrideKey, isOverridden ? override.value : renderVal(r.value), override?.ifcType ?? detectedType)}
-                      >
-                        <PencilLine size={11} />
-                      </button>
+                      ><PencilLine size={11} /></button>
                       <CopyButton value={displayVal} />
-                      <button
-                        className="toolbar-button p-0.5 text-muted-foreground/60 hover:text-primary"
-                        title="Ähnliche Elemente isolieren"
-                        disabled={isolatingKey !== null || hidingKey !== null}
-                        onClick={() => onIsolateSimilar(overrideKey, displayVal)}
-                      >
-                        {isolatingKey === overrideKey
-                          ? <Loader2 size={11} className="animate-spin" />
-                          : <ScanEye size={11} />}
-                      </button>
-                      <button
-                        className="toolbar-button p-0.5 text-muted-foreground/60 hover:text-destructive"
-                        title="Ähnliche Elemente ausblenden"
-                        disabled={isolatingKey !== null || hidingKey !== null}
-                        onClick={() => onHideSimilar(overrideKey, displayVal)}
-                      >
-                        {hidingKey === overrideKey
-                          ? <Loader2 size={11} className="animate-spin" />
-                          : <EyeOff size={11} />}
-                      </button>
                     </div>
                   </div>
                 )}
