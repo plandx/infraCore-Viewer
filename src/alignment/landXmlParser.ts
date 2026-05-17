@@ -577,7 +577,7 @@ function clothoidOffset(
   return [dx1 - dx0, dy1 - dy0];
 }
 
-
+function sampleSegment(seg: AlignmentSegment, t: number): SampledPoint {
   t = clamp(t, 0, 1);
   if (seg.type === "Line") {
     const x = lerp(seg.start.x, seg.end.x, t);
