@@ -440,36 +440,182 @@ export async function loadAllElementProperties(
 // Spatial structure + element-type extraction
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** IFC types that represent elements (not spatial containers) */
-const ELEMENT_TYPES: Record<number, string> = {
-  [WebIFC.IFCWALL]:              "Wand",
-  [WebIFC.IFCWALLSTANDARDCASE]: "Wand",
-  [WebIFC.IFCBEAM]:              "Träger",
-  [WebIFC.IFCCOLUMN]:            "Stütze",
-  [WebIFC.IFCSLAB]:              "Decke/Platte",
-  [WebIFC.IFCDOOR]:              "Tür",
-  [WebIFC.IFCWINDOW]:            "Fenster",
-  [WebIFC.IFCROOF]:              "Dach",
-  [WebIFC.IFCSTAIR]:             "Treppe",
-  [WebIFC.IFCSTAIRFLIGHT]:       "Treppenflug",
-  [WebIFC.IFCRAILING]:           "Geländer",
-  [WebIFC.IFCSPACE]:             "Raum",
-  [WebIFC.IFCPLATE]:             "Platte",
-  [WebIFC.IFCMEMBER]:            "Bauteil",
-  [WebIFC.IFCFOOTING]:           "Fundament",
-  [WebIFC.IFCPILE]:              "Pfahl",
-  [WebIFC.IFCCOVERING]:          "Verkleidung",
-  [WebIFC.IFCFURNISHINGELEMENT]: "Möbel",
-  [WebIFC.IFCFLOWSEGMENT]:       "Leitungssegment",
-  [WebIFC.IFCPIPESEGMENT]:       "Rohr",
-  [WebIFC.IFCDUCTFITTING]:       "Lüftungsformstück",
-  [WebIFC.IFCDUCTSEGMENT]:       "Lüftungskanal",
-  [WebIFC.IFCCABLEFITTING]:      "Kabelformstück",
-  [WebIFC.IFCCABLESEGMENT]:      "Kabel",
-  [WebIFC.IFCBUILDINGELEMENTPROXY]: "Generisches Element",
-  [WebIFC.IFCCIVILELEMENT]:      "Infrastrukturelement",
-  [WebIFC.IFCTRANSPORTELEMENT]:  "Fördertechnik",
+/**
+ * German display labels for well-known IFC types.
+ * Types NOT listed here fall back to their IFC class name (e.g. "IfcTendonAnchor").
+ * This map is for UX quality only — completeness is handled by CANDIDATE_TYPE_CODES.
+ */
+const ELEMENT_LABELS: Partial<Record<number, string>> = {
+  // Walls
+  [WebIFC.IFCWALL]:                    "Wand",
+  [WebIFC.IFCWALLSTANDARDCASE]:        "Wand",
+  [WebIFC.IFCWALLELEMENTEDCASE]:       "Wand",
+  [WebIFC.IFCCURTAINWALL]:             "Vorhangfassade",
+  // Slabs / Plates
+  [WebIFC.IFCSLAB]:                    "Decke/Platte",
+  [WebIFC.IFCSLABSTANDARDCASE]:        "Decke/Platte",
+  [WebIFC.IFCSLABELEMENTEDCASE]:       "Decke/Platte",
+  [WebIFC.IFCPLATE]:                   "Platte",
+  [WebIFC.IFCPLATESTANDARDCASE]:       "Platte",
+  // Beams / Columns / Members
+  [WebIFC.IFCBEAM]:                    "Träger",
+  [WebIFC.IFCBEAMSTANDARDCASE]:        "Träger",
+  [WebIFC.IFCCOLUMN]:                  "Stütze",
+  [WebIFC.IFCCOLUMNSTANDARDCASE]:      "Stütze",
+  [WebIFC.IFCMEMBER]:                  "Stabwerk",
+  [WebIFC.IFCMEMBERSTANDARDCASE]:      "Stabwerk",
+  // Openings / Doors / Windows
+  [WebIFC.IFCDOOR]:                    "Tür",
+  [WebIFC.IFCDOORSTANDARDCASE]:        "Tür",
+  [WebIFC.IFCWINDOW]:                  "Fenster",
+  [WebIFC.IFCWINDOWSTANDARDCASE]:      "Fenster",
+  [WebIFC.IFCOPENINGELEMENT]:          "Öffnung",
+  [WebIFC.IFCVOIDINGFEATURE]:          "Aussparung",
+  // Roof / Stair / Railing
+  [WebIFC.IFCROOF]:                    "Dach",
+  [WebIFC.IFCSTAIR]:                   "Treppe",
+  [WebIFC.IFCSTAIRFLIGHT]:             "Treppenflug",
+  [WebIFC.IFCRAILING]:                 "Geländer",
+  [WebIFC.IFCRAMP]:                    "Rampe",
+  [WebIFC.IFCRAMPFLIGHT]:              "Rampenflucht",
+  // Foundation / Earthworks
+  [WebIFC.IFCFOOTING]:                 "Fundament",
+  [WebIFC.IFCPILE]:                    "Pfahl",
+  [WebIFC.IFCEARTHWORKSCUT]:           "Erdschnitt",
+  [WebIFC.IFCEARTHWORKSFILL]:          "Erdaufschüttung",
+  // Reinforcement
+  [WebIFC.IFCREINFORCINGBAR]:          "Bewehrungsstab",
+  [WebIFC.IFCREINFORCINGMESH]:         "Bewehrungsmatte",
+  [WebIFC.IFCREINFORCINGELEMENT]:      "Bewehrung",
+  [WebIFC.IFCTENDON]:                  "Spannglied",
+  [WebIFC.IFCTENDONANCHOR]:            "Spanngliedanker",
+  [WebIFC.IFCTENDONCONDUIT]:           "Spanngliedhüllrohr",
+  // Coverings / Cladding
+  [WebIFC.IFCCOVERING]:                "Verkleidung",
+  [WebIFC.IFCSHADINGDEVICE]:           "Verschattung",
+  // Spaces / Zones
+  [WebIFC.IFCSPACE]:                   "Raum",
+  [WebIFC.IFCZONE]:                    "Zone",
+  [WebIFC.IFCEXTERNALSPATIALELEMENT]:  "Außenraum",
+  [WebIFC.IFCSPATIALZONE]:             "Raumzone",
+  // Furniture / Equipment
+  [WebIFC.IFCFURNISHINGELEMENT]:       "Möbel",
+  [WebIFC.IFCSYSTEMFURNITUREELEMENT]:  "Systemmöbel",
+  [WebIFC.IFCMEDICALDEVICE]:           "Medizingerät",
+  // MEP — Piping / Ducts
+  [WebIFC.IFCPIPESEGMENT]:             "Rohr",
+  [WebIFC.IFCPIPEFITTING]:             "Rohrformstück",
+  [WebIFC.IFCDUCTSEGMENT]:             "Lüftungskanal",
+  [WebIFC.IFCDUCTFITTING]:             "Lüftungsformstück",
+  [WebIFC.IFCDUCTSILENCER]:            "Schalldämpfer",
+  [WebIFC.IFCFLOWSEGMENT]:             "Leitungssegment",
+  [WebIFC.IFCFLOWFITTING]:             "Leitungsformstück",
+  // MEP — Cables
+  [WebIFC.IFCCABLESEGMENT]:            "Kabel",
+  [WebIFC.IFCCABLEFITTING]:            "Kabelformstück",
+  [WebIFC.IFCCABLECARRIERSEGMENT]:     "Kabeltragsystem",
+  [WebIFC.IFCCABLECARRIERFITTING]:     "Kabeltragsystem-Formstück",
+  // MEP — Terminals / Fixtures
+  [WebIFC.IFCAIRTERMINAL]:             "Luftauslass",
+  [WebIFC.IFCAIRTERMINALBOX]:          "Luftdosierbox",
+  [WebIFC.IFCLAMP]:                    "Klemme",
+  [WebIFC.IFCLIGHTFIXTURE]:            "Leuchte",
+  [WebIFC.IFCLAMP]:                    "Lampe",
+  [WebIFC.IFCOUTLET]:                  "Steckdose",
+  [WebIFC.IFCSANITARYTERMINAL]:        "Sanitärobjekt",
+  [WebIFC.IFCSTACKTERMINAL]:           "Lüftungsdachaufsatz",
+  [WebIFC.IFCFIRESUPPRESSIONTERMINAL]: "Feuerlöschanlage",
+  [WebIFC.IFCWASTETERMINAL]:           "Ablauf",
+  [WebIFC.IFCELECTRICAPPLIANCE]:       "Elektrogerät",
+  // MEP — Controllers / Sensors
+  [WebIFC.IFCALARM]:                   "Alarm",
+  [WebIFC.IFCACTUATOR]:                "Stellantrieb",
+  [WebIFC.IFCSENSOR]:                  "Sensor",
+  [WebIFC.IFCCONTROLLER]:              "Regler",
+  [WebIFC.IFCPROTECTIVEDEVICE]:        "Schutzgerät",
+  [WebIFC.IFCSWITCHINGDEVICE]:         "Schalter",
+  [WebIFC.IFCELECTRICTIMECONTROL]:     "Zeitschalter",
+  [WebIFC.IFCJUNCTIONBOX]:             "Verteilerkasten",
+  [WebIFC.IFCELECTRICDISTRIBUTIONBOARD]: "Schaltschrank",
+  // MEP — HVAC Equipment
+  [WebIFC.IFCAIRTOAIRHEATRECOVERY]:    "Wärmetauscher",
+  [WebIFC.IFCBOILER]:                  "Kessel",
+  [WebIFC.IFCBURNER]:                  "Brenner",
+  [WebIFC.IFCCHILLER]:                 "Kältemaschine",
+  [WebIFC.IFCCOIL]:                    "Wärmetauscher-Coil",
+  [WebIFC.IFCCONDENSER]:               "Kondensator",
+  [WebIFC.IFCCOOLEDBEAM]:              "Kühldecke",
+  [WebIFC.IFCCOOLINGTOWER]:            "Kühlturm",
+  [WebIFC.IFCDAMPER]:                  "Klappe",
+  [WebIFC.IFCELECTRICGENERATOR]:       "Generator",
+  [WebIFC.IFCELECTRICMOTOR]:           "Elektromotor",
+  [WebIFC.IFCENGINE]:                  "Motor",
+  [WebIFC.IFCEVAPORATIVECOOLER]:       "Verdunstungskühler",
+  [WebIFC.IFCEVAPORATOR]:              "Verdampfer",
+  [WebIFC.IFCFAN]:                     "Ventilator",
+  [WebIFC.IFCFILTER]:                  "Filter",
+  [WebIFC.IFCFLOWMETER]:               "Durchflussmesser",
+  [WebIFC.IFCHEATEXCHANGER]:           "Wärmetauscher",
+  [WebIFC.IFCHUMIDIFIER]:              "Befeuchter",
+  [WebIFC.IFCINTERCEPTOR]:             "Abscheider",
+  [WebIFC.IFCMOTORCONNECTION]:         "Motoranschluss",
+  [WebIFC.IFCPUMP]:                    "Pumpe",
+  [WebIFC.IFCSOLARDEVICE]:             "Solaranlage",
+  [WebIFC.IFCSPACEHEATER]:             "Heizkörper",
+  [WebIFC.IFCTANK]:                    "Tank",
+  [WebIFC.IFCTRANSFORMER]:             "Transformator",
+  [WebIFC.IFCTUBEBUNDLE]:              "Rohrbündelwärmetauscher",
+  [WebIFC.IFCUNITARYEQUIPMENT]:        "Klimagerät",
+  [WebIFC.IFCVALVE]:                   "Ventil",
+  [WebIFC.IFCVIBRATIONISOLATOR]:       "Schwingungsdämpfer",
+  // Transport
+  [WebIFC.IFCTRANSPORTELEMENT]:        "Fördertechnik",
+  // Civil / Infrastructure
+  [WebIFC.IFCCIVILELEMENT]:            "Infrastrukturelement",
+  [WebIFC.IFCBUILDINGELEMENTPROXY]:    "Generisches Element",
+  [WebIFC.IFCGEOGRAPHICELEMENT]:       "Geographisches Element",
+  [WebIFC.IFCANNOTATION]:              "Annotation",
+  [WebIFC.IFCVIRTUALELEMENT]:          "Virtuelles Element",
+  // Roads / Railways (IFC4.3)
+  [WebIFC.IFCPAVEMENT]:                "Fahrbahndecke",
+  [WebIFC.IFCKERB]:                    "Bordstein",
+  [WebIFC.IFCROAD]:                    "Straße",
+  [WebIFC.IFCRAILWAY]:                 "Bahn",
+  [WebIFC.IFCBRIDGE]:                  "Brücke",
+  [WebIFC.IFCBRIDGEPART]:              "Brückenteil",
+  [WebIFC.IFCFACILITY]:                "Anlage",
+  [WebIFC.IFCFACILITYPART]:            "Anlagenteil",
+  [WebIFC.IFCALIGNMENT]:               "Trasse",
+  [WebIFC.IFCSIGN]:                    "Schild",
+  [WebIFC.IFCSIGNAL]:                  "Signal",
+  [WebIFC.IFCLINEARPOSITIONINGELEMENT]: "Linienpositionierung",
+  // Storage / Misc
+  [WebIFC.IFCELECTRICFLOWSTORAGEDEVICE]: "Stromspeicher",
+  [WebIFC.IFCSTORAGESHELF]:            "Regal",
 };
+
+/**
+ * All WebIFC type codes that could represent physical/spatial elements.
+ * Generated at module load from WebIFC exports, excluding obvious non-element categories.
+ * This ensures no IFC class is silently dropped — unknown types use their class name as label.
+ */
+const CANDIDATE_TYPE_CODES: Map<number, string> = (() => {
+  const skip = /TYPE$|MEASURE$|ENUM$|VALUE$|SELECT$|PROPERT|QUANT|RELAT|OWNER|UNIT$|UNITS$|RESOURCE|CONSTRAINT|APPROVAL|CLASSIF|DOCUMENT|LIBRARY|MATERIAL|PROFILE|STYLE|REPRESENT|GEOMETRY|CURVE|SURFACE|SOLID|LOOP|SHELL|FACE|EDGE|VERTEX|POINT|VECTOR|DIRECTION|PLACEMENT|AXIS|TRANSFORM|CONVERSION|REFERENCE|PRESEN|CONNEC|COORDIN|OCCUPANT|PERSON|ORGAN|POSTAL|TELECOM|ADDRESS|ROLE|ACTOR|TASK|WORK|SCHEDULE|SEQUENCE|CALENDAR|COST|BUDGET|PERMIT|PROC|CONTROL|PERFORM|RISK|ACTION|REQUEST|ORDER/;
+  const result = new Map<number, string>();
+  for (const [name, code] of Object.entries(WebIFC) as [string, unknown][]) {
+    if (typeof code !== "number") continue;
+    if (!name.startsWith("IFC")) continue;
+    if (skip.test(name)) continue;
+    // Convert IFCTENDONANCHOR → IfcTendonAnchor for display
+    const className = name.charAt(0) + name.slice(1).toLowerCase().replace(/_/g, "").replace(
+      /([a-z])([A-Z])/g, "$1$2"
+    );
+    // Use title-case IFC name: IFCTENDONANCHOR → Ifc + Tendon + Anchor
+    const display = "Ifc" + name.slice(3).charAt(0) + name.slice(4).toLowerCase();
+    result.set(code, display);
+  }
+  return result;
+})();
 
 function getLabel(line: Record<string, unknown> | null): string {
   if (!line) return "";
@@ -509,11 +655,14 @@ async function extractStructure(
   }
 
   // ── 2. Elements by type ──────────────────────────────────────────────────
-  for (const [typeNum, label] of Object.entries(ELEMENT_TYPES)) {
+  // Iterate ALL candidate IFC type codes (not a fixed hand-curated subset).
+  // German labels are used where known; otherwise the IFC class name is the group key.
+  for (const [typeCode, fallbackName] of CANDIDATE_TYPE_CODES) {
     try {
-      const ids = api.GetLineIDsWithType(modelId, Number(typeNum));
+      const ids = api.GetLineIDsWithType(modelId, typeCode);
       if (ids.size() === 0) continue;
 
+      const label = (ELEMENT_LABELS as Record<number, string | undefined>)[typeCode] ?? fallbackName;
       const nodes: ElementNode[] = [];
       for (let i = 0; i < ids.size(); i++) {
         const eid = ids.get(i);
@@ -528,7 +677,7 @@ async function extractStructure(
         elementsByType[label] = (elementsByType[label] ?? []).concat(nodes);
       }
     } catch {
-      // type not in this model — skip silently
+      // type not present in this model — skip silently
     }
   }
 
