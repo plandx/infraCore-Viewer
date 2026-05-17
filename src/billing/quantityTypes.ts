@@ -29,6 +29,8 @@ export interface QuantityItem {
   source: QuantitySource;
   note?: string;
   isDeduction?: boolean;
+  /** Set by GeometryInspector to track which geometric selection created this item. */
+  inspectorGeom?: "face" | "boundary" | "edge";
 }
 
 export interface QuantitySet {

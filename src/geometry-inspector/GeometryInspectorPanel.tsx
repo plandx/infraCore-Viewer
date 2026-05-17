@@ -200,9 +200,9 @@ export function GeometryInspectorPanel({
   const storedItems = useBillingStore(s =>
     billingKey ? (s.entries[billingKey]?.quantitySet?.items ?? EMPTY_ITEMS) : EMPTY_ITEMS
   );
-  const savedAreaItems      = storedItems.filter(i => AREA_TYPES_SET.has(i.type));
-  const savedPerimeterItems = storedItems.filter(i => PERIMETER_TYPES_SET.has(i.type));
-  const savedLengthItems    = storedItems.filter(i => LENGTH_TYPES_SET.has(i.type));
+  const savedFaceItems     = storedItems.filter(i => i.inspectorGeom === "face"     || (!i.inspectorGeom && AREA_TYPES_SET.has(i.type)));
+  const savedBoundaryItems = storedItems.filter(i => i.inspectorGeom === "boundary" || (!i.inspectorGeom && PERIMETER_TYPES_SET.has(i.type)));
+  const savedEdgeItems     = storedItems.filter(i => i.inspectorGeom === "edge"     || (!i.inspectorGeom && LENGTH_TYPES_SET.has(i.type) && !PERIMETER_TYPES_SET.has(i.type)));
 
   const handleDeleteItem = (id: string) => {
     if (!billingKey) return;
@@ -229,6 +229,7 @@ export function GeometryInspectorPanel({
         value: totalArea,
         unit: QUANTITY_META[type].unit,
         isDeduction: type === "openingArea",
+        inspectorGeom: "face",
       });
     }
 
@@ -239,6 +240,7 @@ export function GeometryInspectorPanel({
         label: (boundaryLabels[b.id] ?? "").trim() || `Umrandung ${i + 1} (Inspektor)`,
         value: b.totalLength,
         unit: QUANTITY_META[type].unit,
+        inspectorGeom: "boundary",
       });
     });
 
@@ -249,6 +251,7 @@ export function GeometryInspectorPanel({
         label: edgeLabel.trim() || (selEdges.length === 1 ? "Kante (Inspektor)" : `${selEdges.length} Kanten (Inspektor)`),
         value: totalEdgeLength,
         unit: QUANTITY_META[type].unit,
+        inspectorGeom: "edge",
       });
     }
 
@@ -259,9 +262,9 @@ export function GeometryInspectorPanel({
 
   // Tab badge: saved count per tab
   const tabSavedCount: Record<PickMode, number> = {
-    face:     savedAreaItems.length,
-    boundary: savedPerimeterItems.length,
-    edge:     savedLengthItems.length,
+    face:     savedFaceItems.length,
+    boundary: savedBoundaryItems.length,
+    edge:     savedEdgeItems.length,
   };
 
   const tabs: { mode: PickMode; label: string; count: number }[] = [
@@ -369,7 +372,7 @@ export function GeometryInspectorPanel({
               ))
             }
             {billingKey && (
-              <SavedSection items={savedAreaItems} onDelete={handleDeleteItem} />
+              <SavedSection items={savedFaceItems} onDelete={handleDeleteItem} />
             )}
           </>
         )}
@@ -391,7 +394,7 @@ export function GeometryInspectorPanel({
               ))
             }
             {billingKey && (
-              <SavedSection items={savedPerimeterItems} onDelete={handleDeleteItem} />
+              <SavedSection items={savedBoundaryItems} onDelete={handleDeleteItem} />
             )}
           </>
         )}
@@ -413,7 +416,7 @@ export function GeometryInspectorPanel({
               ))
             }
             {billingKey && (
-              <SavedSection items={savedLengthItems} onDelete={handleDeleteItem} />
+              <SavedSection items={savedEdgeItems} onDelete={handleDeleteItem} />
             )}
           </>
         )}
