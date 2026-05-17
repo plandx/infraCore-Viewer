@@ -318,8 +318,7 @@ function MainApp() {
         for (const [ifcType, elements] of Object.entries(m.elementsByType)) {
           for (const el of elements as Array<{ expressId: number; name: string; guid?: string }>) {
             list.push({
-              // Stable key: filename:expressId — survives across sessions
-              key: `${m.name}:${el.expressId}`,
+              key: el.guid ?? `${m.name}:${el.expressId}`,
               guid: el.guid ?? "",
               expressId: el.expressId,
               modelId,
@@ -338,14 +337,17 @@ function MainApp() {
       if (msg.t === "isolateTracked") {
         const entries = useBillingStore.getState().entries;
         const models = useModelStore.getState().models;
-        // Remap stable filename-based keys to current session modelIds
+        // Resolve IFC GlobalId → current session modelId + expressId
         const list: { modelId: string; expressId: number }[] = [];
         for (const e of Object.values(entries)) {
-          const [filename, expStr] = e.key.split(":");
-          const expressId = parseInt(expStr, 10);
-          let modelId = "";
-          models.forEach((m, id) => { if (m.name === filename) modelId = id; });
-          if (modelId) list.push({ modelId, expressId });
+          const guid = e.guid;
+          if (!guid) continue;
+          models.forEach((m, modelId) => {
+            for (const els of Object.values(m.elementsByType)) {
+              const found = (els as Array<{ expressId: number; guid?: string }>).find(el => el.guid === guid);
+              if (found) { list.push({ modelId, expressId: found.expressId }); break; }
+            }
+          });
         }
         if (list.length > 0) useModelStore.getState().isolateEntries(list);
       }

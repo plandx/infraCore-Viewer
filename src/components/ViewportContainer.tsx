@@ -580,15 +580,21 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
 
       if (msg.t === "requestIfcQuantities") {
-        const sessionModels = useModelStore.getState().models;
-        const [filename, expStr] = msg.key.split(":");
-        const expressId = parseInt(expStr, 10);
+        // key is IFC GlobalId — reverse-lookup to find the model file and expressId
+        const guid = msg.key;
         let modelFile: File | null = null;
-        sessionModels.forEach((m) => { if (m.name === filename) modelFile = m.file; });
+        let foundExpressId = 0;
+        useModelStore.getState().models.forEach((m) => {
+          if (modelFile) return;
+          for (const els of Object.values(m.elementsByType)) {
+            const found = (els as { expressId: number; guid?: string }[]).find(e => e.guid === guid);
+            if (found) { modelFile = m.file; foundExpressId = found.expressId; break; }
+          }
+        });
         if (!modelFile) { bc?.postMessage({ t: "ifcQuantities", key: msg.key, items: null } satisfies BillingMsg); return; }
         (async () => {
           try {
-            const { psets } = await loadIFCProperties(modelFile!, expressId);
+            const { psets } = await loadIFCProperties(modelFile!, foundExpressId);
             const items = extractQuantitiesFromPsets(psets);
             bc?.postMessage({ t: "ifcQuantities", key: msg.key, items: items.length > 0 ? items : null } satisfies BillingMsg);
           } catch {
@@ -599,13 +605,19 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
 
       if (msg.t === "startInspection") {
-        const sessionModels = useModelStore.getState().models;
-        const [filename, expStr] = msg.key.split(":");
-        const expressId = parseInt(expStr, 10);
-        let modelId = "";
-        sessionModels.forEach((m, id) => { if (m.name === filename) modelId = id; });
-        if (!modelId) return;
-        startInspectionForElement(modelId, expressId, msg.elementName, msg.key);
+        // key is IFC GlobalId — reverse-lookup to find modelId and expressId
+        const guid = msg.key;
+        let foundModelId = "";
+        let foundExpressId = 0;
+        useModelStore.getState().models.forEach((m, id) => {
+          if (foundModelId) return;
+          for (const els of Object.values(m.elementsByType)) {
+            const found = (els as { expressId: number; guid?: string }[]).find(e => e.guid === guid);
+            if (found) { foundModelId = id; foundExpressId = found.expressId; break; }
+          }
+        });
+        if (!foundModelId) return;
+        startInspectionForElement(foundModelId, foundExpressId, msg.elementName, msg.key);
       }
 
       if (msg.t === "focusElement") {
@@ -727,11 +739,21 @@ export function ViewportContainer({ onElementClick }: Props) {
       list.push(obj);
       newPickable.push(obj);
 
-      const filename = sessionModels.get(modelId)?.name ?? modelId;
-      const bKey = `${filename}:${obj.userData.expressId}`;
-      let bList = newBillingMap.get(bKey);
-      if (!bList) { bList = []; newBillingMap.set(bKey, bList); }
-      bList.push(obj);
+      // Billing mesh map keyed by IFC GlobalId for cross-file identity checks
+      const modelEntry = sessionModels.get(modelId);
+      if (modelEntry) {
+        const eid = obj.userData.expressId as number;
+        let guid = "";
+        for (const els of Object.values(modelEntry.elementsByType)) {
+          const found = (els as { expressId: number; guid?: string }[]).find(e => e.expressId === eid);
+          if (found?.guid) { guid = found.guid; break; }
+        }
+        if (guid) {
+          let bList = newBillingMap.get(guid);
+          if (!bList) { bList = []; newBillingMap.set(guid, bList); }
+          bList.push(obj);
+        }
+      }
     });
     meshIndexRef.current = newIndex;
     edgeLinesRef.current = newEdges;
@@ -1673,60 +1695,63 @@ export function ViewportContainer({ onElementClick }: Props) {
           }}
           onSelectClass={() => { ctxSelectClass(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
           onSelectStorey={() => { ctxSelectStorey(contextMenu.modelId, contextMenu.expressId); setContextMenu(null); }}
-          inBilling={!!useBillingStore.getState().entries[`${useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId}:${contextMenu.expressId}`]}
+          inBilling={(() => {
+            const guid = Object.values(useModelStore.getState().models.get(contextMenu.modelId)?.elementsByType ?? {}).flat()
+              .find((e: { expressId: number; guid?: string }) => e.expressId === contextMenu.expressId)?.guid ?? "";
+            return !!guid && !!useBillingStore.getState().entries[guid];
+          })()}
           currentDegree={(() => {
-            const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
-            const entry = useBillingStore.getState().entries[`${filename}:${contextMenu.expressId}`];
+            const guid = Object.values(useModelStore.getState().models.get(contextMenu.modelId)?.elementsByType ?? {}).flat()
+              .find((e: { expressId: number; guid?: string }) => e.expressId === contextMenu.expressId)?.guid ?? "";
+            if (!guid) return null;
+            const entry = useBillingStore.getState().entries[guid];
             return entry?.stages.length ? entry.stages[entry.stages.length - 1].degree : null;
           })()}
           menuX={contextMenu.x}
           onAdd5D={() => {
             const model = useModelStore.getState().models.get(contextMenu.modelId);
-            const filename = model?.name ?? contextMenu.modelId;
-            const key = `${filename}:${contextMenu.expressId}`;
             const guid = Object.values(model?.elementsByType ?? {}).flat()
-              .find(e => e.expressId === contextMenu.expressId)?.guid ?? "";
+              .find((e: { expressId: number; guid?: string }) => e.expressId === contextMenu.expressId)?.guid ?? "";
+            if (!guid) { setContextMenu(null); return; }
             useBillingStore.getState().addEntry({
-              key, guid, expressId: contextMenu.expressId, modelId: contextMenu.modelId,
+              key: guid, guid, expressId: contextMenu.expressId, modelId: contextMenu.modelId,
               elementName: contextMenu.elementName, ifcType: contextMenu.ifcType,
             });
-            pendingSelectKeyRef.current = key;
+            pendingSelectKeyRef.current = guid;
             openBillingWindow();
-            // Also send immediately in case the window is already open
             try {
               const bc2 = new BroadcastChannel(BILLING_CHANNEL);
-              bc2.postMessage({ t: "selectEntry", key } satisfies BillingMsg);
+              bc2.postMessage({ t: "selectEntry", key: guid } satisfies BillingMsg);
               bc2.close();
             } catch { /* ignore */ }
             setContextMenu(null);
           }}
           onOpen5D={() => {
-            const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
-            const key = `${filename}:${contextMenu.expressId}`;
-            pendingSelectKeyRef.current = key;
+            const guid = Object.values(useModelStore.getState().models.get(contextMenu.modelId)?.elementsByType ?? {}).flat()
+              .find((e: { expressId: number; guid?: string }) => e.expressId === contextMenu.expressId)?.guid ?? "";
+            if (!guid) { setContextMenu(null); return; }
+            pendingSelectKeyRef.current = guid;
             openBillingWindow();
-            // Also send immediately in case the window is already open
             try {
               const bc2 = new BroadcastChannel(BILLING_CHANNEL);
-              bc2.postMessage({ t: "selectEntry", key } satisfies BillingMsg);
+              bc2.postMessage({ t: "selectEntry", key: guid } satisfies BillingMsg);
               bc2.close();
             } catch { /* ignore */ }
             setContextMenu(null);
           }}
           onSet5DDegree={(degree) => {
             const model = useModelStore.getState().models.get(contextMenu.modelId);
-            const filename = model?.name ?? contextMenu.modelId;
-            const key = `${filename}:${contextMenu.expressId}`;
+            const guid = Object.values(model?.elementsByType ?? {}).flat()
+              .find((e: { expressId: number; guid?: string }) => e.expressId === contextMenu.expressId)?.guid ?? "";
+            if (!guid) { setContextMenu(null); return; }
             const store = useBillingStore.getState();
-            if (!store.entries[key]) {
-              const guid = Object.values(model?.elementsByType ?? {}).flat()
-                .find(e => e.expressId === contextMenu.expressId)?.guid ?? "";
+            if (!store.entries[guid]) {
               store.addEntry({
-                key, guid, expressId: contextMenu.expressId, modelId: contextMenu.modelId,
+                key: guid, guid, expressId: contextMenu.expressId, modelId: contextMenu.modelId,
                 elementName: contextMenu.elementName, ifcType: contextMenu.ifcType,
               });
             }
-            useBillingStore.getState().addStage(key, {
+            useBillingStore.getState().addStage(guid, {
               label: `Stand ${new Date().toLocaleDateString("de-DE")}`,
               date: new Date().toISOString().slice(0, 10),
               degree,
@@ -1737,11 +1762,12 @@ export function ViewportContainer({ onElementClick }: Props) {
           faceNormal={contextMenu.faceNormal}
           hitPoint={contextMenu.hitPoint}
           onStartInspection={() => {
-            const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
+            const guid = Object.values(useModelStore.getState().models.get(contextMenu.modelId)?.elementsByType ?? {}).flat()
+              .find((e: { expressId: number; guid?: string }) => e.expressId === contextMenu.expressId)?.guid ?? "";
             startInspectionForElement(
               contextMenu.modelId, contextMenu.expressId,
               contextMenu.elementName,
-              `${filename}:${contextMenu.expressId}`,
+              guid || null,
               contextMenu.ifcType,
             );
             setContextMenu(null);

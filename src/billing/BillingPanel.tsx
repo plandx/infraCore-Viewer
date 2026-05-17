@@ -398,19 +398,14 @@ export function BillingPanel({ elements }: Props) {
       try {
         const data = JSON.parse(ev.target?.result as string) as BillingExport;
         if (data.version === 1 && Array.isArray(data.entries)) {
-          // GUID-based key remapping: match imported entries to current model by GUID
-          const guidToCurrentKey = new Map<string, string>();
-          for (const el of elementsRef.current) {
-            if (el.guid) guidToCurrentKey.set(el.guid, el.key);
-          }
-          const remapped: BillingEntry[] = data.entries.map(entry => {
-            if (!entry.guid) return entry;
-            const currentKey = guidToCurrentKey.get(entry.guid);
-            if (currentKey && currentKey !== entry.key) return { ...entry, key: currentKey };
+          // Keys are IFC GlobalIds — ensure any legacy filename:expressId entries
+          // are normalized to their GUID (stored in entry.guid)
+          const normalized: BillingEntry[] = data.entries.map(entry => {
+            if (entry.guid && entry.key !== entry.guid) return { ...entry, key: entry.guid };
             return entry;
           });
-          importData({ ...data, entries: remapped });
-          const withIdentity = remapped.filter(e => e.identity).length;
+          importData({ ...data, entries: normalized });
+          const withIdentity = normalized.filter(e => e.identity).length;
           if (withIdentity > 0) {
             setPostImportIdentityCount(withIdentity);
             setShowCheckPanel(true);
