@@ -91,4 +91,5 @@ export type BillingMsg =
   | { t: "requestIfcQuantities"; key: string }
   | { t: "ifcQuantities"; key: string; items: import("./quantityTypes").QuantityItem[] | null }
   | { t: "startInspection"; key: string; elementName: string }
-  | { t: "focusElement"; modelId: string; expressId: number };
+  | { t: "focusElement"; modelId: string; expressId: number }
+  | { t: "isolateElement"; modelId: string; expressId: number };

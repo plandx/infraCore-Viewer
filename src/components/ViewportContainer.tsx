@@ -632,6 +632,13 @@ export function ViewportContainer({ onElementClick }: Props) {
           detail: { modelId: msg.modelId, expressIds: [msg.expressId] },
         }));
       }
+
+      if (msg.t === "isolateElement") {
+        useModelStore.getState().isolateEntries([{ modelId: msg.modelId, expressId: msg.expressId }]);
+        window.dispatchEvent(new CustomEvent("viewer:zoomToElement", {
+          detail: { modelId: msg.modelId, expressIds: [msg.expressId] },
+        }));
+      }
     });
 
     return () => bc?.close();

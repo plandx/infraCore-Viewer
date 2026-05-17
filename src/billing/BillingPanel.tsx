@@ -491,6 +491,12 @@ export function BillingPanel({ elements }: Props) {
     bcRef.current?.postMessage({ t: "focusElement", modelId: el.modelId, expressId: el.expressId } satisfies BillingMsg);
   };
 
+  const handleIsolateElement = (key: string) => {
+    const el = elementsRef.current.find(e => e.key === key);
+    if (!el) return;
+    bcRef.current?.postMessage({ t: "isolateElement", modelId: el.modelId, expressId: el.expressId } satisfies BillingMsg);
+  };
+
   const handleRequestIfc = (key: string) => {
     setPendingIfc(key);
     bcRef.current?.postMessage({ t: "requestIfcQuantities", key } satisfies BillingMsg);
@@ -602,6 +608,7 @@ export function BillingPanel({ elements }: Props) {
             pendingKeys={pendingChecksState}
             onClose={() => setShowCheckPanel(false)}
             onFocus={handleFocusElement}
+            onIsolate={handleIsolateElement}
             onCheck={handleCheck}
             onCheckAll={handleCheckAll}
           />
@@ -664,6 +671,7 @@ export function BillingPanel({ elements }: Props) {
               latestDegree={latestDegree(selectedKey)}
               onSnapshot={() => handleSnapshot(selectedKey)}
               onCheck={() => handleCheck(selectedKey)}
+              onIsolate={() => handleIsolateElement(selectedKey)}
               pendingSnapshot={pendingSnapshotRef.current === selectedKey}
               checkResult={checkResults[selectedKey] ?? null}
             />
@@ -733,6 +741,7 @@ interface DetailProps {
   latestDegree: number;
   onSnapshot(): void;
   onCheck(): void;
+  onIsolate(): void;
   pendingSnapshot: boolean;
   checkResult: IdentityCheckResult | null;
 }
@@ -743,7 +752,7 @@ function TrackedDetailView(props: DetailProps) {
     pendingGeo, pendingIfc,
     onRemoveEntry, onRequestGeo, onRequestIfc, onStartMeasure,
     onAddQuantityItem, onUpdateQuantityItem, onRemoveQuantityItem,
-    latestDegree, onSnapshot, onCheck, pendingSnapshot, checkResult,
+    latestDegree, onSnapshot, onCheck, onIsolate, pendingSnapshot, checkResult,
   } = props;
 
   const qCount = entry.quantitySet?.items.length ?? 0;
@@ -779,9 +788,14 @@ function TrackedDetailView(props: DetailProps) {
             </div>
             <span className="text-[10px] text-muted-foreground font-mono">#{entry.expressId}</span>
           </div>
-          <button onClick={onRemoveEntry} className="text-muted-foreground hover:text-destructive transition-colors shrink-0 p-1" title="Entfernen">
-            <Trash2 size={13} />
-          </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={onIsolate} className="text-muted-foreground hover:text-primary transition-colors p-1" title="Element isolieren">
+              <ScanEye size={13} />
+            </button>
+            <button onClick={onRemoveEntry} className="text-muted-foreground hover:text-destructive transition-colors p-1" title="Entfernen">
+              <Trash2 size={13} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1236,7 +1250,7 @@ function DocsTab({ entry, onAddDoc, onRemoveDoc, docDocId, setDocDocId, docTitle
 
 function CheckPanel({
   entries, checkResults, elements, pendingKeys,
-  onClose, onFocus, onCheck, onCheckAll,
+  onClose, onFocus, onIsolate, onCheck, onCheckAll,
 }: {
   entries: Record<string, BillingEntry>;
   checkResults: Record<string, IdentityCheckResult>;
@@ -1244,6 +1258,7 @@ function CheckPanel({
   pendingKeys: Set<string>;
   onClose(): void;
   onFocus(key: string): void;
+  onIsolate(key: string): void;
   onCheck(key: string): void;
   onCheckAll(): void;
 }) {
@@ -1348,14 +1363,23 @@ function CheckPanel({
 
                 <div className="flex items-center gap-1 shrink-0 mt-0.5">
                   {canFocus && (
-                    <button
-                      onClick={() => onFocus(entry.key)}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-muted hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors border border-border"
-                      title="Im Viewer anzeigen"
-                    >
-                      <ChevronRight size={10} />
-                      Anzeigen
-                    </button>
+                    <>
+                      <button
+                        onClick={() => onIsolate(entry.key)}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-muted hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors border border-border"
+                        title="Element isolieren"
+                      >
+                        <ScanEye size={10} />
+                      </button>
+                      <button
+                        onClick={() => onFocus(entry.key)}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-muted hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors border border-border"
+                        title="Im Viewer anzeigen"
+                      >
+                        <ChevronRight size={10} />
+                        Anzeigen
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={() => onCheck(entry.key)}
