@@ -67,14 +67,15 @@ controls.mouseButtons = {
 | `controlsRef` | `OrbitControls` | Orbit-Steuerung |
 | `highlightRef` | `Mesh` | Aktuell selektiertes Element (Overlay) |
 | `colorMaterialsRef` | `Material[]` | Farb-Overrides aus ColorGroups (für Disposal) |
-| `basketOverlaysRef` | `Mesh[]` | Overlay-Meshes für Korb-Hervorhebung |
-| `basketOverlayMatRef` | `Material` | Shared Highlight-Material für Korb |
-| `basketGhostMatsRef` | `Map<Mesh, Material>` | Original-Materialien vor Ghost-Modus |
+| `colorOverrideMeshesRef` | `Mesh[]` | Meshes mit aktivem Farb-Override (für O(k) Restore) |
 | `basketOutlinesRef` | `LineSegments[]` | Gelbe Edge-Outlines für Korb-Elemente |
-| `sectionVisualsRef` | `Map<string, SectionVisuals>` | planeId → Three.js-Objekte |
-| `dragSectionRef` | `SectionDragState \| null` | Aktiver Schnittebenen-Drag-State |
+| `basketMatsRef` | `Map<Mesh, Material>` | Original-Materialien vor Korb-Override (Restore) |
 | `pickerRef` | `FaceEdgePicker \| null` | Aktiver Geometrie-Inspektor-Picker |
 | `needsRenderRef` | `boolean` | Render-on-Demand Flag |
+| **`meshIndexRef`** | `Map<string, Mesh[]>` | **`"modelId:expressId"` → Meshes** — Kern-Performance-Cache |
+| **`edgeLinesRef`** | `LineSegments[]` | **Alle Kanten-LineSegments** — für O(edges) Edge-Toggle |
+| **`pickableMeshesRef`** | `Mesh[]` | **Alle Raycast-Kandidaten** — kein Traversal beim Klicken |
+| `billingMeshMapRef` | `Map<string, Mesh[]>` | `"filename:expressId"` → Meshes für Billing-Viz |
 
 ---
 
@@ -82,16 +83,23 @@ controls.mouseButtons = {
 
 1. **Init** — Renderer, Szene, Kamera, Controls, Beleuchtung, Grid, Axes, Render-Loop
 2. **Grid/Axes** — `settings.grid/axes` → Sichtbarkeit
-3. **Kanten** — `settings.edges` → `visible` auf allen `isEdge`-Objekten
-4. **Modelle in Szene** — `models` → fügt neue hinzu, entfernt gelöschte; baut `EdgesGeometry`-Overlays (15°)
-5. **Element-Sichtbarkeit** — `hiddenElements, isolatedElements, selectionBasket, basketMode, models` → traversiert Szene, setzt `obj.visible`
-6. **ColorGroup-Overrides** — `colorGroups` → ersetzt Materialien
-7. **Korb-Overrides** — `selectionBasket, basketMode, models` → Overlay-Meshes (highlight) oder Ghost-Materialien
-8. **Korb-Outlines** — `selectionBasket, models` → gelbe `LineSegments` (`EdgesGeometry`, 15°, `0xfbbf24`, `depthTest=false`, `renderOrder=998`)
-9. **Selektion-Highlight** — `selectedElement, hiddenElements, isolatedElements` → amber Overlay-Meshes (`depthTest=false`)
-10. **Schnittebenen-Visuals** — `sectionPlanes` → `syncSectionVisuals()`: entfernt veraltete, erstellt neue
-11. **BroadcastChannel-Listener** — `"infracore-billing"` Kanal: verarbeitet `requestQuantities` und `startInspection`
-12. **viewer:alignToPlane** — Event-Listener
+3. **Kanten** — `settings.edges` → O(edgeLines) via `edgeLinesRef` — kein Traversal
+4. **Modelle in Szene** — `models` → fügt neue hinzu, entfernt gelöschte; baut `EdgesGeometry`-Overlays (15°); **baut danach meshIndexRef, edgeLinesRef, pickableMeshesRef, billingMeshMapRef** in einem einzigen Traversal
+5. **Element-Sichtbarkeit** — `hiddenElements, isolatedElements, selectionBasket, basketMode, models` → O(index) via `meshIndexRef.forEach` — kein Traversal
+6. **ColorGroup-Overrides** — `colorGroups` → O(affected) via `meshIndexRef.get(key)`; Restore O(k) via `colorOverrideMeshesRef`
+7. **Korb-Visuals** — `selectionBasket, basketMode, models` → highlight: O(basket) via `meshIndexRef`; ghost: O(index)
+8. **Selektion-Highlight** — `selectedElement, hiddenElements, isolatedElements` → O(1) via `meshIndexRef.get(key)`
+9. **Inspektor-Mesh-Sichtbarkeit** — `inspShowMesh, inspSession` → direkt auf `inspMeshesRef`
+10. **Schnittebenen** — `sectionPlanes` → `sectionModule.syncPlanes()`
+11. **Billing-Viz-Subscription** — `useBillingStore.subscribe()` — kein React-Dependency
+12. **BroadcastChannel-Listener** — `"infracore-billing"` Kanal
+13. **viewer:alignToPlane** — Event-Listener
+
+### Performance-Invarianten
+
+- **Kein reaktiver Effect darf `scene.traverse()` aufrufen.** Alle reaktiven Effects nutzen ausschließlich die Index-Refs.
+- `scene.traverse()` ist nur erlaubt in: models-Effect (Index-Aufbau), FaceEdgePicker-Setup (Inspector-Tagging), exportGLTF.
+- Neue Features, die per-Element-Zugriff brauchen, müssen `meshIndexRef` nutzen — kein eigenes Traversal hinzufügen.
 
 ---
 
@@ -157,46 +165,42 @@ Normale Element-Selektion und Kontext-Menü sind im Inspektions-Modus deaktivier
 2. Store-Isolierung: `isolatedElements !== null` → nur diese sichtbar
 3. Standard: `!hiddenElements.has(key)`
 
-```typescript
-if (state.basketMode === "isolate" && state.selectionBasket.size > 0) {
-  obj.visible = state.selectionBasket.has(key);
-} else if (state.isolatedElements !== null) {
-  obj.visible = state.isolatedElements.has(key);
-} else {
-  obj.visible = !state.hiddenElements.has(key);
-}
-```
+Implementierung: `meshIndexRef.current.forEach((meshes, key) => { … })` — kein `scene.traverse`.
 
 ---
 
 ## Material-Override-System
 
 ### ColorGroups
-- Speichert Original in `obj.userData.originalMaterial`
-- Erstellt `MeshLambertMaterial(color)`
+- Lookup via `meshIndexRef.get(key)` — O(affected elements)
+- Speichert Override-Meshes in `colorOverrideMeshesRef` für O(k) Restore ohne Traversal
+- Jede Farbe bekommt genau ein `MeshLambertMaterial` (geteilt zwischen Meshes gleicher Gruppe)
 
 ### Korb Hervorheben (highlight)
-- Klonet Meshes als Overlay, `renderOrder = 997`
-- Shared amber Material: `MeshLambertMaterial(0xf59e0b, opacity=0.55, depthTest=false)`
-- `userData.isBasketOverlay = true`
+- Lookup via `meshIndexRef.get(key)` für jeden Korb-Key — O(basket)
+- `MeshStandardMaterial(0xf59e0b)` + gelbe `EdgesGeometry`-Outlines (`renderOrder=998`)
+- Original-Material in `basketMatsRef` gespeichert
 
 ### Korb Ghost
-- Klonet das aktuelle Material, setzt `transparent=true, opacity=0.12`
-- Speichert Original in `basketGhostMatsRef`
+- Iteriert `meshIndexRef` für alle Nicht-Korb-Meshes — O(all)
+- Klonet das aktuelle Material, setzt `transparent=true, opacity=0.10`
+- Original-Material in `basketMatsRef` gespeichert
 
 ### Selektion-Highlight
-- `MeshLambertMaterial(0xf59e0b, opacity=0.45, depthTest=false)`
-- `renderOrder = 999`
-- `userData.isHighlight = true`
+- `meshIndexRef.get("modelId:expressId")` — O(1)
+- `MeshStandardMaterial(0xf59e0b, opacity=0.55, depthTest=false)`
+- `renderOrder = 999`, `userData.isHighlight = true`
 
 ### Kanten (Edges)
 - `EdgesGeometry(geometry, 15°)` + `LineSegments` als Kind jedes Mesh beim Laden
-- `userData.isEdge = true`
-- Toggle via `settings.edges`
+- `userData.isEdge = true`, in `edgeLinesRef` registriert
+- Toggle: `for (line of edgeLinesRef.current) line.visible = vis` — O(edges)
 
-**Raycasting überspringt** alle Meshes mit `isHighlight`, `isBasketOverlay`, `isSectionVisual`.
+### Raycasting
+- Kandidatenliste: `pickableMeshesRef.current.filter(isWorldVisible)` — kein Traversal
+- `Raycaster.intersectObjects(meshes, false)`
 
-Geometrie-Inspektor-Overlays (`inspFace_*`, `inspEdge_pick_*`) werden vom normalen Element-Raycast ebenfalls übersprungen — sie haben dedizierte Raycast-Aufrufe im Picker.
+**Alle Lookup-Operationen** gehen über `meshIndexRef` — kein `scene.traverse()` in reaktiven Pfaden.
 
 ---
 
