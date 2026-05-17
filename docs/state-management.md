@@ -384,6 +384,10 @@ interface ElementIdentity {
 
 Toleranzen bei `runIdentityCheck`: GUID exakt, Volumen ±1%, Lage ±5cm, Abmessungen ±1cm je Achse.
 
+**GUID-basiertes Import-Remapping:** `handleImport` baut eine `Map<guid, currentKey>` aus den aktuell geladenen Elementen. Einträge deren GUID in der aktuellen Modelldatei gefunden wird, aber unter einem anderen Key (anderer Dateiname), werden vor dem `importData()`-Aufruf auf den aktuellen Key umgeschrieben. So funktioniert der Vergleich auch wenn Bauleiter und Bauüberwachung unterschiedliche Dateinamen verwenden.
+
+**Auto-Snapshot:** `handleAddEntry` setzt `pendingSnapshotRef.current = key` und sendet `{ t: "requestQuantities" }` sofort nach dem Anlegen des Eintrags. Der eintreffende `quantities`-Response persistiert dann automatisch die `ElementIdentity`.
+
 ### ElementQuantities (legacy)
 
 ```typescript
@@ -423,6 +427,23 @@ Wird weiterhin von `requestQuantities`/`quantities` BC-Flow genutzt und beim Geo
 | `exportData` | `() => BillingExport` | Gibt alle Einträge als JSON-Snapshot zurück |
 | `setModuleActive` | `(active) => void` | Schaltet 3D-Visualisierung |
 | `_applySync` | `(entries) => void` | Interner Sync-Empfang (kein Broadcast zurück) |
+
+### BillingMsg – BroadcastChannel-Protokoll
+
+| Nachricht | Richtung | Bedeutung |
+|---|---|---|
+| `{ t: "ready" }` | Billing → Main | Billing-Fenster bereit |
+| `{ t: "elements", list }` | Main → Billing | Aktuelle Elementliste nach Modell-Load |
+| `{ t: "moduleActive", active }` | Main ↔ Billing | 3D-Viz-Toggle |
+| `{ t: "dataSync", entries }` | Bilateral | Store-Synchronisation |
+| `{ t: "isolateTracked" }` | Billing → Main | Nur erfasste Objekte isolieren |
+| `{ t: "selectEntry", key }` | Main → Billing | Element im Billing-Panel selektieren |
+| `{ t: "requestQuantities", key }` | Billing → Main | Geometriemengen berechnen |
+| `{ t: "quantities", key, data }` | Main → Billing | Geometriemengen-Antwort (null wenn Element nicht in Szene) |
+| `{ t: "requestIfcQuantities", key }` | Billing → Main | IFC-Pset-Mengen extrahieren |
+| `{ t: "ifcQuantities", key, items }` | Main → Billing | IFC-Pset-Mengen-Antwort |
+| `{ t: "startInspection", key, elementName }` | Billing → Main | Geometrie-Inspektor öffnen |
+| `{ t: "focusElement", modelId, expressId }` | Billing → Main | Element in 3D-Viewer anzeigen/einpassen (löst `viewer:zoomToElement` DOM-Event aus) |
 
 ### Persistenz & Sync
 

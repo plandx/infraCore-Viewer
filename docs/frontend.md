@@ -38,9 +38,9 @@ interface Props {
 ```
 
 Aufbau:
-- **Header**: Titel, Visualisierungs-Toggle, Import-JSON-Button, Export-JSON-Button
-- **Linke Spalte** (272px): Suchfeld + IFC-Typ-Dropdown-Filter + scrollbare Elementliste. Status-Dot, Elementname, IFC-Typ-Chip, Fortschrittsbalken. Hover zeigt „Hinzufügen"-Button. Klick sendet `{ t: "selectEntry", key }`.
-- **Rechte Spalte** — drei Tabs: **Mengen** | **Abschnitte** | **Dokumente**
+- **Header**: Titel, Prüffenster-Toggle (ClipboardCheck, nur sichtbar wenn Einträge mit Fingerabdruck vorhanden), Isolieren-Button, Visualisierungs-Toggle, Import-JSON-Button, Export-JSON-Button
+- **Linke Spalte** (272px): Suchfeld + IFC-Typ-Dropdown + „Nur erfasste"-Toggle + Sortierbutton (Modell/Datum↓/Datum↑) + scrollbare Elementliste.
+- **Rechte Spalte** — vier Tabs: **Mengen** | **Fertigstellungsgrad** | **Dokumente** | **ID**
 
 **Mengen-Tab:**
 - Toolbar mit vier farbcodierten Aktions-Buttons:
@@ -50,9 +50,27 @@ Aufbau:
   - **[Stückzahl +1]** (emerald) — fügt direkt `count`-Item (source: manual) hinzu
 - Inhalt: `<QuantitySetPanel>` (siehe unten)
 
-**Abschnitte-Tab:** Tabelle der Abrechnungsstände (Nr, Bezeichnung, Datum, Grad%, Delta, Löschen); Formular für neuen Stand.
+**Fertigstellungsgrad-Tab:** Tabelle der Abrechnungsstände (Nr, Bezeichnung, Datum, Grad%, Delta, Löschen); Formular für neuen Stand.
 
 **Dokumente-Tab:** Dokumentenliste mit Links; Formular für neues Dokument.
+
+**ID-Tab (Fingerabdruck):**
+- Zeigt IFC-GUID des Eintrags
+- Fingerabdruck-Sektion: Volumen, Schwerpunkt X/Y/Z, Abmessungen X/Y/Z, Erfassungszeitpunkt
+- Buttons: „Erfassen" / „Neu erfassen" (löst `requestQuantities` aus, speichert als `ElementIdentity`) und „Prüfen" (vergleicht aktuelle Geometrie mit gespeichertem Fingerabdruck)
+- Prüfergebnis-Sektion: CheckRows für GUID, Volumen, Lage (Δ m), Abmessungen
+
+**Auto-Snapshot:** Beim Anlegen eines neuen Eintrags via „In 5D-Liste aufnehmen" (`handleAddEntry`) wird sofort ein `requestQuantities`-BC-Aufruf gesendet und `pendingSnapshotRef` gesetzt. Wenn die Geometriemengen zurückkommen, wird der Fingerabdruck automatisch gespeichert.
+
+**GUID-basiertes Import-Remapping:** Beim JSON-Import sucht `handleImport` für jeden Eintrag mit `guid` nach einem aktuell geladenen Element mit derselben GUID. Wird eines gefunden, wird der `key` des Eintrags auf den aktuellen Key remapped. Damit funktioniert der Vergleich auch bei unterschiedlichen Dateinamen zwischen Bauleiter und Bauüberwachung.
+
+**Prüffenster (`CheckPanel`):**
+- Overlay über dem gesamten Panel-Body (`absolute inset-0 z-10`)
+- Listet alle Einträge mit `identity` auf
+- Für jeden Eintrag: Status-Dot (grün/rot/gelb/grau), Elementname, GUID, Abweichungsdetails
+- Buttons: „Anzeigen" (sendet `{ t: "focusElement", modelId, expressId }` → Hauptfenster zoomt auf das Element), „Prüfen" (einzelner Check)
+- Header: Gesamtstatus, „Alle prüfen"-Button
+- Elemente die nicht im aktuellen Modell sind (null-quantities) werden sofort als „nicht gefunden" markiert
 
 ### QuantitySetPanel (`src/billing/QuantitySetPanel.tsx`)
 
