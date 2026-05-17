@@ -354,6 +354,77 @@ Kurzübersicht:
 
 ---
 
+## LandXML-Parser (`alignment/landXmlParser.ts`)
+
+Rein clientseitiger Parser für LandXML 1.2-Achsendaten. Kein Server, kein WASM.
+
+### Koordinaten-Konvention
+
+| LandXML-Konvention | interne Speicherung (`AlignCoord`) | Three.js-Szene |
+|---|---|---|
+| Northing, Easting[, Elevation] | x = Easting, y = Northing, z = Elevation (oder null) | X = Easting−ox, Y = Elevation−oz, Z = −(Northing−oy) |
+
+### Winkeleinheiten
+
+`detectAngularUnit(root)` erkennt die Winkeleinheit pro Datei:
+1. `<Units><Angle unit="...">` — LandXML-Standard
+2. `angularUnit`-Attribut auf `<Metric>` oder `<Imperial>` — typisch für deutsche Software
+3. Heuristik: `dir > 360` → Gon (nur NW-Quadrant erkennbar)
+
+| Einheit | Konversion |
+|---|---|
+| Gon | 1 gon = 0,9°; 400 gon = 360° |
+| Degree | Standard |
+| Radian | direkt |
+
+`azmToRad(value, unit)` konvertiert Azimut (CW von Nord) → Mathematikwinkel (CCW von Ost).
+`absAngleToRad(value, unit)` konvertiert unsigned-Winkel (z. B. Bogendelta).
+
+### Segment-Parser
+
+**`parseLine`** — `<Line>`: Start/End-Koordinaten + optionaler `dir`-Azimut.
+
+**`parseCurve`** — `<Curve>`:
+- Center explizit: validiert Abstand center→start gegen `radius` (5 %+1 m Toleranz); bei Abweichung x/y-Swap versucht. Rotation immer aus Geometrie (`inferRot`). Sweep aus `sweepAngle(a0, a1, rot)`.
+- Center nicht explizit: rot aus Attribut, `inferCenter()`, delta aus `delta`/`length`/Chord.
+
+**`parseSpiral`** — `<Spiral>`:
+- `k0`, `k1` (signierte Krümmungen in rad/m): `sign/radiusStart` bzw. `sign/radiusEnd`; `isInfR` → 0.
+- `sign = rot === "cw" ? -1 : 1`.
+- Rotation: zuerst Attribut `rot`, sonst geometrisch via `inferSpiralRot(start, end, entryTan)` (Kreuzprodukt Tangente × (start→end)).
+- Exit-Tangente: `dirEnd`-Attribut bevorzugt; sonst `tangentStartRad + (k0+k1)/2 * length`.
+
+**`fillSpiralCurvatures`** — füllt `k0`/`k1` nach, wenn beide = 0 (kein Radius im XML); benutzt die `rot` des benachbarten Bogens für das Vorzeichen.
+
+### Clothoid-Sampling
+
+`clothoidOffset(th0, k0, k1, L, s)` berechnet 2-D-Offset ∫₀ˢ (cos θ, sin θ) dt via Fresnel-Integral (Maclaurin-Reihe, 30 Terme).
+
+Sonderfall: konstante Krümmung (`A ≈ 0, k0 ≠ 0`) → analytische Kreisformel.
+
+### Stationsrechnung
+
+Alle Stationen in Segmenten = **interne** Stationen. Anzeige-Stationen entstehen durch `StaEquation`-Einträge.
+
+| Funktion | Richtung |
+|---|---|
+| `stationToDisplay(eqs, sta)` | intern → Anzeige |
+| `displayToStation(eqs, disp)` | Anzeige → intern |
+
+Aliases: `stationInternalToDisplay`, `stationDisplayToInternal`.
+
+### Öffentliche API
+
+| Funktion | Zweck |
+|---|---|
+| `parseLandXmlText(text, fileName, nextId)` | Parst XML-String → `ParsedLandXml` |
+| `evaluateProfile(profileGeom, displaySta)` | Profil-Elevation an Anzeige-Station |
+| `sampleAtDisplayStation(alignment, displaySta)` | XYZ + Tangente an Anzeige-Station |
+| `buildStationSeries(alignment, basePts)` | nicht-uniforme Stationsfolge (Spiralen ≥24 Pkt, Bögen ≥12) |
+| `generateStationSeries(alignment, interval)` | uniforme Station alle `interval` m |
+
+---
+
 ## coordinateUtils.ts
 
 **Pfad:** `src/utils/coordinateUtils.ts`
