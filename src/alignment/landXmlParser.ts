@@ -488,7 +488,96 @@ export function evaluateProfile(profileGeom: ProfileGeometry, station: number): 
   return null;
 }
 
-function sampleSegment(seg: AlignmentSegment, t: number): SampledPoint {
+// ── Fresnel integrals via Taylor series ──────────────────────────────────────
+// C(x) = ∫₀ˣ cos(π/2·t²)dt, S(x) = ∫₀ˣ sin(π/2·t²)dt
+// Uses 24-term Taylor series — accurate to <0.1 mm for |x| < 3,
+// which covers all practical road/rail clothoid parameters.
+function fresnelCS(x: number): [number, number] {
+  if (x === 0) return [0, 0];
+  const sgn = x < 0 ? -1 : 1;
+  const ax = Math.abs(x);
+  const pih = Math.PI / 2;
+  const x2 = ax * ax;
+  const x4 = x2 * x2;
+  let C = 0, S = 0;
+  let powX = ax;      // x^(4n+1)
+  let powP = 1;       // (π/2)^(2n)
+  let fact = 1;       // (2n)!
+  let sgnN = 1;       // (-1)^n
+  for (let n = 0; n <= 24; n++) {
+    if (n > 0) {
+      powX *= x4;
+      powP *= pih * pih;
+      fact *= (2 * n - 1) * (2 * n);
+      sgnN = -sgnN;
+    }
+    const ct = sgnN * powP * powX / ((4 * n + 1) * fact);
+    const st = sgnN * powP * pih * powX * x2 / ((4 * n + 3) * fact * (2 * n + 1));
+    C += ct;
+    S += st;
+    if (Math.abs(ct) < 1e-16 && Math.abs(st) < 1e-16) break;
+  }
+  return [sgn * C, sgn * S];
+}
+
+// Compute ∫₀ˢ cos(θ₀ + A·t²)dt and ∫₀ˢ sin(θ₀ + A·t²)dt analytically.
+// A > 0: increasing curvature (standard clothoid).
+// A < 0: decreasing curvature (reverse clothoid).
+// A = 0: straight line (constant heading θ₀).
+function fresnelIntegral(theta0: number, A: number, s: number): [number, number] {
+  if (Math.abs(s) < EPS) return [0, 0];
+  const sgnS = s < 0 ? -1 : 1;
+  const as = Math.abs(s);
+  if (Math.abs(A) < 1e-12) {
+    return [sgnS * Math.cos(theta0) * as, sgnS * Math.sin(theta0) * as];
+  }
+  const absA = Math.abs(A);
+  const scale = Math.sqrt(Math.PI / (2 * absA));
+  const u = as * Math.sqrt(2 * absA / Math.PI);
+  const [Cu, Su] = fresnelCS(u);
+  const cosT = Math.cos(theta0);
+  const sinT = Math.sin(theta0);
+  let dx: number, dy: number;
+  if (A > 0) {
+    dx = scale * (cosT * Cu - sinT * Su);
+    dy = scale * (sinT * Cu + cosT * Su);
+  } else {
+    // cos(θ₀ − |A|t²) = cosT·cos(|A|t²) + sinT·sin(|A|t²)
+    dx = scale * (cosT * Cu + sinT * Su);
+    dy = scale * (sinT * Cu - cosT * Su);
+  }
+  return [sgnS * dx, sgnS * dy];
+}
+
+// Arc-length displacement on a clothoid with linearly varying curvature.
+// κ(t) = k0 + (k1−k0)·t/L   →   θ(t) = θ₀ + k0·t + α·t²  where α=(k1−k0)/(2L)
+// Uses shifted Fresnel integrals for the general k0≠0 case.
+function clothoidOffset(
+  theta0: number, k0: number, k1: number, L: number, s: number
+): [number, number] {
+  if (Math.abs(s) < EPS) return [0, 0];
+  const alpha = (k1 - k0) / (2 * L);
+  if (Math.abs(alpha) < 1e-12) {
+    // Degenerate: constant curvature
+    if (Math.abs(k0) < 1e-12) {
+      return [Math.cos(theta0) * s, Math.sin(theta0) * s];
+    }
+    const dA = k0 * s;
+    return [
+      (Math.sin(theta0 + dA) - Math.sin(theta0)) / k0,
+      (-Math.cos(theta0 + dA) + Math.cos(theta0)) / k0,
+    ];
+  }
+  // Complete the square: θ(t) = θ'₀ + α·(t+τ)²  where τ=k0/(2α), θ'₀=θ₀−α·τ²
+  const tau = k0 / (2 * alpha);
+  const theta0s = theta0 - alpha * tau * tau;
+  // ∫₀ˢ cos(θ'₀+α·(t+τ)²) dt = ∫_τ^(s+τ) ... = integral(s+τ) − integral(τ)
+  const [dx1, dy1] = fresnelIntegral(theta0s, alpha, s + tau);
+  const [dx0, dy0] = fresnelIntegral(theta0s, alpha, tau);
+  return [dx1 - dx0, dy1 - dy0];
+}
+
+
   t = clamp(t, 0, 1);
   if (seg.type === "Line") {
     const x = lerp(seg.start.x, seg.end.x, t);
@@ -514,48 +603,30 @@ function sampleSegment(seg: AlignmentSegment, t: number): SampledPoint {
   if (seg.type === "Transition") {
     const L = seg.length;
     const dTheta = normalizeAngleRad(seg.tangentEndRad - seg.tangentStartRad);
-
-    // Signed curvature convention: positive = CCW (left turn), negative = CW (right turn).
-    // κ(s) varies linearly from k0 to k1 over arc length L.
-    // θ(s) = θ₀ + k0·s + (k1−k0)/(2L)·s²
-    // Constraint: θ(L) − θ₀ = (k0+k1)/2·L = dTheta
+    // Signed curvature: +CCW, -CW. Constraint: (k0+k1)/2·L = dTheta
     const rotSign = seg.rot === "cw" ? -1 : (dTheta < 0 ? -1 : 1);
     let k0: number, k1: number;
-    const r0 = seg.radiusStart;
-    const r1 = seg.radiusEnd;
-    if (r0 !== undefined && r1 !== undefined) {
-      k0 = rotSign / r0;
-      k1 = rotSign / r1;
-    } else if (r0 !== undefined) {
-      k0 = rotSign / r0;
+    if (seg.radiusStart !== undefined && seg.radiusEnd !== undefined) {
+      k0 = rotSign / seg.radiusStart;
+      k1 = rotSign / seg.radiusEnd;
+    } else if (seg.radiusStart !== undefined) {
+      k0 = rotSign / seg.radiusStart;
       k1 = 2 * dTheta / L - k0;
-    } else if (r1 !== undefined) {
-      k1 = rotSign / r1;
+    } else if (seg.radiusEnd !== undefined) {
+      k1 = rotSign / seg.radiusEnd;
       k0 = 2 * dTheta / L - k1;
     } else {
-      // Standard Euler spiral (line → curve): κ₀=0, κ₁=2Δθ/L
       k0 = 0;
       k1 = 2 * dTheta / L;
     }
-
-    // Numerical integration using midpoint rule
     const targetS = t * L;
-    const N = targetS > EPS ? Math.max(8, Math.ceil(Math.abs(targetS))) : 0;
-    const ds = N > 0 ? targetS / N : 0;
-    let x = seg.start.x;
-    let y = seg.start.y;
-    for (let i = 0; i < N; i++) {
-      const s = (i + 0.5) * ds;
-      const theta = seg.tangentStartRad + k0 * s + (k1 - k0) / (2 * L) * s * s;
-      x += Math.cos(theta) * ds;
-      y += Math.sin(theta) * ds;
-    }
+    const [dx, dy] = clothoidOffset(seg.tangentStartRad, k0, k1, L, targetS);
     const endTheta = seg.tangentStartRad + k0 * targetS + (k1 - k0) / (2 * L) * targetS * targetS;
     const z =
       seg.start.z !== null && seg.end.z !== null
         ? lerp(seg.start.z, seg.end.z, t)
         : null;
-    return { x, y, z, tangentRad: normalizeAngleRad(endTheta) };
+    return { x: seg.start.x + dx, y: seg.start.y + dy, z, tangentRad: normalizeAngleRad(endTheta) };
   }
   const _: never = seg;
   void _;

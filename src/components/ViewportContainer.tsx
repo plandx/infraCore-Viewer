@@ -427,20 +427,23 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       const { files, visibleIds, colors, geoOrigin } = useAlignmentStore.getState();
 
-      // Use IFC model's originOffset as the scene origin so that alignment
-      // axes and IFC geometry share the same coordinate space. originOffset
-      // is in Three.js space: (Easting, Elevation, -Northing).
-      // Fall back to geoOrigin (LandXML start point) when no IFC models are loaded.
+      // Use the IFC model's originOffset so alignment axes and IFC geometry
+      // share the same scene origin. The offset axes match the IFC coordinate
+      // convention 1:1 (no Y/Z swap applied by the loader), so:
+      //   ox = originOffset.x → Easting subtracted from p.x
+      //   oy = originOffset.y → Northing subtracted from p.y (used in -(p.y-oy))
+      //   oz = originOffset.z → Elevation subtracted from p.z
+      // Falls back to geoOrigin (first alignment start point) when no model loaded.
       const ifc = useModelStore.getState().models[0];
       let ox: number, oy: number, oz: number;
       if (ifc) {
-        ox = ifc.originOffset.x;   // Easting
-        oy = ifc.originOffset.y;   // Elevation
-        oz = ifc.originOffset.z;   // -Northing
+        ox = ifc.originOffset.x;
+        oy = ifc.originOffset.y;
+        oz = ifc.originOffset.z;
       } else if (geoOrigin) {
-        ox = geoOrigin.x;          // Easting
-        oy = geoOrigin.z ?? 0;     // Elevation
-        oz = -(geoOrigin.y ?? 0);  // -Northing
+        ox = geoOrigin.x;
+        oy = geoOrigin.y;
+        oz = geoOrigin.z ?? 0;
       } else {
         ox = 0; oy = 0; oz = 0;
       }
@@ -455,9 +458,8 @@ export function ViewportContainer({ onElementClick }: Props) {
             const sta = alignment.staStart + i * step;
             const p = sampleAtDisplayStation(alignment, sta);
             if (!p) continue;
-            // LandXML: X=Easting, Y=Northing, Z=Elevation
-            // Three.js: X=Easting−ox, Y=Elevation−oy, Z=−Northing−oz
-            pts.push(new THREE.Vector3(p.x - ox, (p.z ?? 0) - oy, -p.y - oz));
+            // LandXML: X=Easting, Y=Northing, Z=Elevation → Three.js: X=East, Y=Elev, Z=-North
+            pts.push(new THREE.Vector3(p.x - ox, (p.z ?? 0) - oz, -(p.y - oy)));
           }
           if (pts.length < 2) continue;
           const geo = new THREE.BufferGeometry().setFromPoints(pts);
