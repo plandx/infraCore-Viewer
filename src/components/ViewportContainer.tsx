@@ -202,11 +202,19 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // Track color-override materials for disposal
   const colorMaterialsRef = useRef<THREE.Material[]>([]);
+  // Meshes that have an originalMaterial override applied (for O(k) restore)
+  const colorOverrideMeshesRef = useRef<THREE.Mesh[]>([]);
 
   const basketOutlinesRef = useRef<THREE.LineSegments[]>([]);
 
   // Basket material overrides: stores original material per mesh for restore
   const basketMatsRef = useRef<Map<THREE.Mesh, THREE.Material | THREE.Material[]>>(new Map());
+
+  // ── Mesh index: built once per model-load, used by all per-element effects ──
+  // Key: "modelId:expressId" → avoids O(scene) traversal on every interaction.
+  const meshIndexRef     = useRef<Map<string, THREE.Mesh[]>>(new Map());
+  const edgeLinesRef     = useRef<THREE.LineSegments[]>([]);
+  const pickableMeshesRef = useRef<THREE.Mesh[]>([]);
 
   // Render-on-demand: only draw when something changed
   const needsRenderRef = useRef(true);
@@ -453,33 +461,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     sectionModuleRef.current?.syncPlanes(sectionPlanes);
   }, [sectionPlanes]);
 
-  // ── Billing: rebuild meshMap only when loaded models change ──────────────
-  // Separating this from the viz-update avoids O(scene) traversal on every
-  // billing store mutation (adding entries, stages, quantity items, …).
-  useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-    const meshMap = new Map<string, THREE.Mesh[]>();
-    const sessionModels = useModelStore.getState().models;
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
-      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap ||
-          obj.userData.isEdge || obj.userData.isBillingOverlay) return;
-      let modelId = "";
-      let node: THREE.Object3D | null = obj;
-      while (node) {
-        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
-        node = node.parent;
-      }
-      if (!modelId) return;
-      const filename = sessionModels.get(modelId)?.name ?? modelId;
-      const key = `${filename}:${obj.userData.expressId}`;
-      const list = meshMap.get(key) ?? [];
-      list.push(obj);
-      meshMap.set(key, list);
-    });
-    billingMeshMapRef.current = meshMap;
-  }, [models]);
+  // Billing meshMap is now rebuilt inside the models effect (combined traversal above).
 
   // ── Billing visualizer: subscribe to store, update viz without scene traversal
   useEffect(() => {
@@ -506,18 +488,10 @@ export function ViewportContainer({ onElementClick }: Props) {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // Collect all IFC meshes for this element (skip overlays / highlights)
-    scene.updateMatrixWorld(true);
-    const meshes: THREE.Mesh[] = [];
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
-      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap ||
-          obj.userData.isEdge || obj.userData.isBillingOverlay || obj.userData.isGeometryInspector) return;
-      let objModelId = "";
-      let node: THREE.Object3D | null = obj;
-      while (node) { if (node.userData.modelId) { objModelId = node.userData.modelId as string; break; } node = node.parent; }
-      if (objModelId === modelId && obj.userData.expressId === expressId) meshes.push(obj);
-    });
+    // Look up meshes via index — O(1) instead of O(scene).
+    const meshes = (meshIndexRef.current.get(`${modelId}:${expressId}`) ?? []).filter(
+      (obj) => !obj.userData.isBillingOverlay && !obj.userData.isGeometryInspector
+    );
     if (meshes.length === 0) return;
 
     useModelStore.getState().isolateEntries([{ modelId, expressId }]);
@@ -567,22 +541,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     try { bc = new BroadcastChannel(BILLING_CHANNEL); } catch { return; }
 
     function collectMeshesForKey(key: string): THREE.Mesh[] {
-      const scene = sceneRef.current;
-      if (!scene) return [];
-      const sessionModels = useModelStore.getState().models;
-      scene.updateMatrixWorld(true);
-      const meshes: THREE.Mesh[] = [];
-      scene.traverse((obj) => {
-        if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
-        if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBillingOverlay || obj.userData.isGeometryInspector || obj.userData.isAlignment) return;
-        let modelId = "";
-        let node: THREE.Object3D | null = obj;
-        while (node) { if (node.userData.modelId) { modelId = node.userData.modelId as string; break; } node = node.parent; }
-        if (!modelId) return;
-        const filename = sessionModels.get(modelId)?.name ?? modelId;
-        if (`${filename}:${obj.userData.expressId}` === key) meshes.push(obj);
-      });
-      return meshes;
+      return billingMeshMapRef.current.get(key) ?? [];
     }
 
     bc.addEventListener("message", (ev) => {
@@ -713,29 +672,24 @@ export function ViewportContainer({ onElementClick }: Props) {
       const sceneObj = scene.getObjectByName(`model:${model.id}`);
       if (sceneObj) sceneObj.visible = model.visible;
     });
-    needsRenderRef.current = true;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [models]);
 
-  // ── Edge visibility toggle ────────────────────────────────────────────────
-  useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
+    // Rebuild mesh index + billing meshMap in one pass.
+    // This single O(scene) traversal replaces per-effect traversals in visibility,
+    // highlight, basket, color, raycast — all of which become O(k) lookups.
+    const newIndex  = new Map<string, THREE.Mesh[]>();
+    const newEdges: THREE.LineSegments[] = [];
+    const newPickable: THREE.Mesh[] = [];
+    const newBillingMap = new Map<string, THREE.Mesh[]>();
+    const sessionModels = useModelStore.getState().models;
     scene.traverse((obj) => {
-      if (obj.userData.isEdge) obj.visible = settings.edges;
-    });
-    needsRenderRef.current = true;
-  }, [settings.edges]);
-
-  // ── Element-level visibility (hide/isolate) ───────────────────────────────
-  useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-    const state = useModelStore.getState();
-
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
-      if (!obj.userData.expressId) return;
+      if (obj instanceof THREE.LineSegments && obj.userData.isEdge) {
+        newEdges.push(obj);
+        return;
+      }
+      if (!(obj instanceof THREE.Mesh)) return;
+      if (obj.userData.expressId == null) return;
+      if (obj.userData.isHighlight || obj.userData.isSectionVisual ||
+          obj.userData.isSectionCap || obj.userData.isBillingOverlay) return;
 
       let modelId = "";
       let node: THREE.Object3D | null = obj;
@@ -745,20 +699,60 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
       if (!modelId) return;
 
-      const model = state.models.get(modelId);
-      if (!model || !model.visible) return;
-
       const key = `${modelId}:${obj.userData.expressId}`;
-      if (state.basketMode === "isolate" && state.selectionBasket.size > 0) {
-        obj.visible = state.selectionBasket.has(key) && !state.hiddenElements.has(key);
-      } else if (state.isolatedElements !== null) {
-        obj.visible = state.isolatedElements.has(key) && !state.hiddenElements.has(key);
-      } else {
-        obj.visible = !state.hiddenElements.has(key);
+      let list = newIndex.get(key);
+      if (!list) { list = []; newIndex.set(key, list); }
+      list.push(obj);
+      newPickable.push(obj);
+
+      const filename = sessionModels.get(modelId)?.name ?? modelId;
+      const bKey = `${filename}:${obj.userData.expressId}`;
+      let bList = newBillingMap.get(bKey);
+      if (!bList) { bList = []; newBillingMap.set(bKey, bList); }
+      bList.push(obj);
+    });
+    meshIndexRef.current = newIndex;
+    edgeLinesRef.current = newEdges;
+    pickableMeshesRef.current = newPickable;
+    billingMeshMapRef.current = newBillingMap;
+
+    needsRenderRef.current = true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models]);
+
+  // ── Edge visibility toggle ────────────────────────────────────────────────
+  useEffect(() => {
+    const vis = settings.edges;
+    for (const line of edgeLinesRef.current) line.visible = vis;
+    needsRenderRef.current = true;
+  }, [settings.edges]);
+
+  // ── Element-level visibility (hide/isolate) ───────────────────────────────
+  // O(index entries) instead of O(scene): meshIndexRef keys are "modelId:expressId"
+  useEffect(() => {
+    const state = useModelStore.getState();
+    const { basketMode: bm, selectionBasket: basket, isolatedElements: iso, hiddenElements: hidden } = state;
+    const basketIsolate = bm === "isolate" && basket.size > 0;
+
+    meshIndexRef.current.forEach((meshes, key) => {
+      const colonIdx = key.indexOf(":");
+      const modelId = key.slice(0, colonIdx);
+      const model = state.models.get(modelId);
+      if (!model || !model.visible) {
+        for (const m of meshes) m.visible = false;
+        return;
       }
+      let vis: boolean;
+      if (basketIsolate) {
+        vis = basket.has(key) && !hidden.has(key);
+      } else if (iso !== null) {
+        vis = iso.has(key) && !hidden.has(key);
+      } else {
+        vis = !hidden.has(key);
+      }
+      for (const m of meshes) m.visible = vis;
     });
     needsRenderRef.current = true;
-    // Rebuild section caps to match new visibility
     sectionModuleRef.current?.invalidateCaps();
   // selectionBasket only matters when basketMode === "isolate"; basketMode covers both
   }, [hiddenElements, isolatedElements, models, basketMode,
@@ -774,68 +768,63 @@ export function ViewportContainer({ onElementClick }: Props) {
   }, [inspShowMesh, inspSession, hiddenElements, isolatedElements]);
 
   // ── Color group override ──────────────────────────────────────────────────
+  // O(k) via meshIndexRef: restore only previously overridden meshes, apply only new entries.
   useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-
-    const colorMap = new Map<string, { color: string; opacity: number }>();
-    if (colorGroups && colorGroups.length > 0) {
-      colorGroups.forEach((group) => {
-        if (!group.visible) return;
-        const opacity = group.opacity ?? 1;
-        group.entries.forEach(({ modelId, expressId }) => {
-          colorMap.set(`${modelId}:${expressId}`, { color: group.color, opacity });
-        });
-      });
-    }
-
-    const newMats: THREE.Material[] = [];
-
-    // Single traversal: restore previous overrides and apply new colors
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh)) return;
-
+    // Restore previous overrides using tracked mesh list (no scene traversal)
+    for (const obj of colorOverrideMeshesRef.current) {
       if (obj.userData.originalMaterial !== undefined) {
         obj.material = obj.userData.originalMaterial as THREE.Material;
         obj.userData.originalMaterial = undefined;
       }
+    }
+    colorOverrideMeshesRef.current = [];
+    colorMaterialsRef.current.forEach((m) => m.dispose());
+    colorMaterialsRef.current = [];
 
-      if (colorMap.size === 0 || obj.userData.expressId == null) return;
-      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap) return;
+    if (!colorGroups || colorGroups.length === 0) {
+      needsRenderRef.current = true;
+      return;
+    }
 
-      let modelId = "";
-      let node: THREE.Object3D | null = obj;
-      while (node) {
-        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
-        node = node.parent;
+    const colorMap = new Map<string, { color: string; opacity: number }>();
+    for (const group of colorGroups) {
+      if (!group.visible) continue;
+      const opacity = group.opacity ?? 1;
+      for (const { modelId, expressId } of group.entries) {
+        colorMap.set(`${modelId}:${expressId}`, { color: group.color, opacity });
       }
-      if (!modelId) return;
+    }
+    if (colorMap.size === 0) { needsRenderRef.current = true; return; }
 
-      const entry = colorMap.get(`${modelId}:${obj.userData.expressId}`);
-      if (!entry) return;
+    const newMats: THREE.Material[] = [];
+    const overridden: THREE.Mesh[] = [];
 
-      const newMat = new THREE.MeshLambertMaterial({
+    colorMap.forEach((entry, key) => {
+      const meshes = meshIndexRef.current.get(key);
+      if (!meshes) return;
+      const mat = new THREE.MeshLambertMaterial({
         color: new THREE.Color(entry.color),
         transparent: entry.opacity < 1,
         opacity: entry.opacity,
       });
-      obj.userData.originalMaterial = obj.material;
-      obj.material = newMat;
-      newMats.push(newMat);
+      newMats.push(mat);
+      for (const obj of meshes) {
+        obj.userData.originalMaterial = obj.material;
+        obj.material = mat;
+        overridden.push(obj);
+      }
     });
 
-    colorMaterialsRef.current.forEach((m) => m.dispose());
     colorMaterialsRef.current = newMats;
+    colorOverrideMeshesRef.current = overridden;
     needsRenderRef.current = true;
   }, [colorGroups]);
 
   // ── Basket visuals: outlines + material override (highlight / ghost) ────────
-  // Single traversal handles both to avoid two O(n) scene walks per basket change.
+  // highlight mode: O(basket_size) via meshIndexRef lookups.
+  // ghost mode: O(index_size) — inherently needs all meshes.
   useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-
-    // Cleanup
+    // Cleanup previous state
     basketOutlinesRef.current.forEach((line) => {
       line.parent?.remove(line);
       (line.material as THREE.Material).dispose();
@@ -844,45 +833,30 @@ export function ViewportContainer({ onElementClick }: Props) {
     basketMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
     basketMatsRef.current.clear();
 
+    needsRenderRef.current = true;
+
     if (selectionBasket.size === 0) return;
 
-    const doMaterials = basketMode && basketMode !== "isolate";
     const createdMats: THREE.Material[] = [];
 
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh)) return;
-      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBasketOutline) return;
-      if (obj.userData.expressId == null) return;
+    if (basketMode === "highlight") {
+      // Only process basket members — O(basket_size)
+      selectionBasket.forEach((key) => {
+        const meshes = meshIndexRef.current.get(key);
+        if (!meshes) return;
+        for (const obj of meshes) {
+          if (!obj.userData._basketEdgesGeo) {
+            obj.userData._basketEdgesGeo = new THREE.EdgesGeometry(obj.geometry, 15);
+          }
+          const edgesGeo = obj.userData._basketEdgesGeo as THREE.EdgesGeometry;
+          const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthTest: false });
+          const lines = new THREE.LineSegments(edgesGeo, lineMat);
+          lines.userData.isBasketOutline = true;
+          lines.renderOrder = 998;
+          obj.add(lines);
+          basketOutlinesRef.current.push(lines);
 
-      let modelId = "";
-      let node: THREE.Object3D | null = obj;
-      while (node) {
-        if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
-        node = node.parent;
-      }
-      if (!modelId) return;
-
-      const key = `${modelId}:${obj.userData.expressId}`;
-      const inBasket = selectionBasket.has(key);
-
-      // Yellow outline only when highlight mode is active
-      if (inBasket && basketMode === "highlight") {
-        if (!obj.userData._basketEdgesGeo) {
-          obj.userData._basketEdgesGeo = new THREE.EdgesGeometry(obj.geometry, 15);
-        }
-        const edgesGeo = obj.userData._basketEdgesGeo as THREE.EdgesGeometry;
-        const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthTest: false });
-        const lines = new THREE.LineSegments(edgesGeo, lineMat);
-        lines.userData.isBasketOutline = true;
-        lines.renderOrder = 998;
-        obj.add(lines);
-        basketOutlinesRef.current.push(lines);
-      }
-
-      // Material override (highlight / ghost modes only)
-      if (doMaterials) {
-        const orig = obj.material as THREE.Material;
-        if (basketMode === "highlight" && inBasket) {
+          const orig = obj.material as THREE.Material;
           const hlMat = new THREE.MeshStandardMaterial({
             color: 0xf59e0b, emissive: new THREE.Color(0xf59e0b),
             emissiveIntensity: 0.5, roughness: 0.35, metalness: 0.1,
@@ -890,7 +864,14 @@ export function ViewportContainer({ onElementClick }: Props) {
           basketMatsRef.current.set(obj, orig);
           obj.material = hlMat;
           createdMats.push(hlMat);
-        } else if (basketMode === "ghost" && !inBasket) {
+        }
+      });
+    } else if (basketMode === "ghost") {
+      // Ghost all non-basket meshes — must visit full index
+      meshIndexRef.current.forEach((meshes, key) => {
+        if (selectionBasket.has(key)) return;
+        for (const obj of meshes) {
+          const orig = obj.material as THREE.Material;
           const ghost = orig.clone() as THREE.MeshLambertMaterial;
           ghost.transparent = true;
           ghost.opacity = 0.10;
@@ -899,8 +880,8 @@ export function ViewportContainer({ onElementClick }: Props) {
           obj.material = ghost;
           createdMats.push(ghost);
         }
-      }
-    });
+      });
+    }
 
     return () => {
       basketOutlinesRef.current.forEach((line) => {
@@ -911,16 +892,16 @@ export function ViewportContainer({ onElementClick }: Props) {
       basketMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
       basketMatsRef.current.clear();
       createdMats.forEach((m) => m.dispose());
+      needsRenderRef.current = true;
     };
-    needsRenderRef.current = true;
   }, [selectionBasket, basketMode, models]);
 
   // ── Highlight selected element ────────────────────────────────────────────
+  // O(1) lookup via meshIndexRef — no scene traversal.
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // Remove previous highlight meshes
     for (const h of highlightRef.current) {
       scene.remove(h);
       if (Array.isArray(h.material)) h.material.forEach((m) => m.dispose());
@@ -932,9 +913,8 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (!selectedElement) return;
 
     const key = `${selectedElement.modelId}:${selectedElement.expressId}`;
-    const isHidden = hiddenElements.has(key);
-    const isExcludedByIsolation = isolatedElements !== null && !isolatedElements.has(key);
-    if (isHidden || isExcludedByIsolation) return;
+    if (hiddenElements.has(key)) return;
+    if (isolatedElements !== null && !isolatedElements.has(key)) return;
 
     const hlMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(0xf59e0b),
@@ -946,20 +926,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       side: THREE.DoubleSide,
     });
 
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh) || obj.userData.isHighlight) return;
-      if (obj.userData.expressId !== selectedElement.expressId) return;
-
-      // Verify it belongs to the correct model
-      let node: THREE.Object3D | null = obj;
-      let belongs = false;
-      while (node) {
-        if (node.userData.modelId === selectedElement.modelId) { belongs = true; break; }
-        node = node.parent;
-      }
-      if (!belongs) return;
-
-      // Build highlight mesh with correct world-space transform
+    const targetMeshes = meshIndexRef.current.get(key) ?? [];
+    for (const obj of targetMeshes) {
       const hl = new THREE.Mesh(obj.geometry, hlMat);
       obj.updateWorldMatrix(true, false);
       hl.matrixAutoUpdate = false;
@@ -968,7 +936,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       hl.userData = { isHighlight: true };
       scene.add(hl);
       highlightRef.current.push(hl);
-    });
+    }
     needsRenderRef.current = true;
   }, [selectedElement, hiddenElements, isolatedElements]);
 
@@ -1171,19 +1139,8 @@ export function ViewportContainer({ onElementClick }: Props) {
         : camera;
       raycaster.setFromCamera(mouse, activeCamera);
 
-      const meshes: THREE.Mesh[] = [];
-      scene.traverse((obj) => {
-        if (
-          obj instanceof THREE.Mesh &&
-          obj.userData.expressId != null &&
-          !obj.userData.isHighlight &&
-          !obj.userData.isSectionVisual &&
-          !obj.userData.isSectionCap &&
-          isWorldVisible(obj)
-        ) {
-          meshes.push(obj);
-        }
-      });
+      // Use pre-built pickable list — avoids O(scene) traversal on every click.
+      const meshes = pickableMeshesRef.current.filter(isWorldVisible);
 
       const hits = raycaster.intersectObjects(meshes, false);
       if (!hits.length) return null;
@@ -1359,14 +1316,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     const controls = controlsRef.current;
     if (!scene || !camera || !controls) return;
 
-    const idSet = new Set(expressIds);
     const box = new THREE.Box3();
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh) || !idSet.has(obj.userData.expressId)) return;
-      if (obj.userData.isHighlight || obj.userData.isEdge) return;
-      let node: THREE.Object3D | null = obj;
-      while (node) { if (node.userData.modelId === modelId) { box.expandByObject(obj); break; } node = node.parent; }
-    });
+    for (const expressId of expressIds) {
+      const meshes = meshIndexRef.current.get(`${modelId}:${expressId}`);
+      if (meshes) for (const obj of meshes) box.expandByObject(obj);
+    }
     if (box.isEmpty()) return;
 
     const center = box.getCenter(new THREE.Vector3());
@@ -1503,12 +1457,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     const scene = sceneRef.current;
     if (!scene) return;
     const exporter = new GLTFExporter();
-    const meshes: THREE.Object3D[] = [];
-    scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh && obj.userData.expressId != null && !obj.userData.isHighlight) {
-        meshes.push(obj);
-      }
-    });
+    const meshes: THREE.Object3D[] = pickableMeshesRef.current.slice();
     if (meshes.length === 0) return;
 
     const group = new THREE.Group();
