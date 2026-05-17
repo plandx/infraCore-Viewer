@@ -117,7 +117,8 @@ export function ViewportContainer({ onElementClick }: Props) {
   const [inspSelFaces,      setInspSelFaces]      = useState<Set<number>>(new Set());
   const [inspSelBoundaries, setInspSelBoundaries] = useState<Set<number>>(new Set());
   const [inspSelEdges,      setInspSelEdges]      = useState<Set<number>>(new Set());
-  const [inspShowMesh,   setInspShowMesh]   = useState(false); // IFC mesh hidden by default in inspector
+  const [inspShowMesh,   setInspShowMesh]   = useState(false);
+  const [inspShowLabels, setInspShowLabels] = useState(false);
   const inspMeshesRef = useRef<THREE.Mesh[]>([]); // IFC meshes of the inspected element
   const [inspLabels,   setInspLabels]   = useState<Array<{
     id: number; text: string; x: number; y: number;
@@ -1540,7 +1541,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       ))}
 
       {/* Inspector labels — face (F1…) and edge (K1…) labels in 3D viewport */}
-      {inspSession && inspLabels.map((lbl) => (
+      {inspSession && inspShowLabels && inspLabels.map((lbl) => (
         <div
           key={`${lbl.type}-${lbl.id}`}
           className={cn(
@@ -1580,6 +1581,8 @@ export function ViewportContainer({ onElementClick }: Props) {
           onPickModeChange={handlePickModeChange}
           showMesh={inspShowMesh}
           onToggleShowMesh={() => setInspShowMesh(v => !v)}
+          showLabels={inspShowLabels}
+          onToggleShowLabels={() => setInspShowLabels(v => !v)}
           onClose={() => {
             pickerRef.current?.dispose();
             pickerRef.current = null;
@@ -1588,6 +1591,7 @@ export function ViewportContainer({ onElementClick }: Props) {
             inspMeshesRef.current = [];
             setInspSession(null);
             setInspLabels([]);
+            setInspShowLabels(false);
             useModelStore.getState().showAll();
             needsRenderRef.current = true;
           }}

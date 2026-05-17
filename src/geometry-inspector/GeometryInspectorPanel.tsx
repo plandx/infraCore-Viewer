@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye, Trash2, ExternalLink } from "lucide-react";
+import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye, Trash2, ExternalLink, Tag, TagOff } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore } from "../billing/billingStore";
 import { qid, QUANTITY_META, fmtQty } from "../billing/quantityTypes";
@@ -22,6 +22,8 @@ interface Props {
   onPickModeChange:    (m: PickMode) => void;
   showMesh:            boolean;
   onToggleShowMesh:    () => void;
+  showLabels:          boolean;
+  onToggleShowLabels:  () => void;
   onClose:             () => void;
   onClearSelection:    () => void;
   onOpen5D?:           () => void;
@@ -185,7 +187,9 @@ export function GeometryInspectorPanel({
   faces, boundaries, edges,
   selectedFaceIds, selectedBoundaryIds, selectedEdgeIds,
   pickMode, onPickModeChange,
-  showMesh, onToggleShowMesh, onClose, onClearSelection, onOpen5D,
+  showMesh, onToggleShowMesh,
+  showLabels, onToggleShowLabels,
+  onClose, onClearSelection, onOpen5D,
 }: Props) {
   const [saved, setSaved] = useState(false);
 
@@ -297,22 +301,37 @@ export function GeometryInspectorPanel({
         </button>
       </div>
 
-      {/* Mesh visibility toggle */}
-      <button
-        onClick={onToggleShowMesh}
-        className={cn(
-          "w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors border-b border-border shrink-0",
-          showMesh
-            ? "bg-primary/10 text-primary hover:bg-primary/20"
-            : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-        )}
-      >
-        {showMesh ? <Eye size={12} /> : <EyeOff size={12} />}
-        <span className="flex-1 text-left">
-          {showMesh ? "Objekt eingeblendet" : "Objekt ausgeblendet"}
-        </span>
-        <ScanEye size={11} className="opacity-50" />
-      </button>
+      {/* Mesh visibility + label toggle row */}
+      <div className="flex shrink-0 border-b border-border">
+        <button
+          onClick={onToggleShowMesh}
+          className={cn(
+            "flex-1 flex items-center gap-2 px-3 py-1.5 text-xs transition-colors border-r border-border",
+            showMesh
+              ? "bg-primary/10 text-primary hover:bg-primary/20"
+              : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          )}
+        >
+          {showMesh ? <Eye size={12} /> : <EyeOff size={12} />}
+          <span className="flex-1 text-left text-[10px]">
+            {showMesh ? "Objekt ein" : "Objekt aus"}
+          </span>
+          <ScanEye size={11} className="opacity-50" />
+        </button>
+        <button
+          onClick={onToggleShowLabels}
+          title={showLabels ? "Beschriftungen ausblenden" : "Beschriftungen einblenden"}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors",
+            showLabels
+              ? "bg-primary/10 text-primary hover:bg-primary/20"
+              : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          )}
+        >
+          {showLabels ? <Tag size={12} /> : <TagOff size={12} />}
+          <span className="text-[10px]">Labels</span>
+        </button>
+      </div>
 
       {/* Mode tabs */}
       <div className="flex shrink-0 border-b border-border">
