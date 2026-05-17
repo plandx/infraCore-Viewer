@@ -716,6 +716,16 @@ export function ViewportContainer({ onElementClick }: Props) {
     pickableMeshesRef.current = newPickable;
     billingMeshMapRef.current = newBillingMap;
 
+    // If 5D module is active, re-run viz with the freshly built mesh map.
+    // The billing store subscription only fires on billing changes, not model changes —
+    // so without this call, enabling 5D before/during model load would never show overlays.
+    const { entries, moduleActive } = useBillingStore.getState();
+    const viz = billingVizRef.current;
+    if (viz) {
+      if (moduleActive) viz.update(entries, newBillingMap);
+      else viz.clear();
+    }
+
     needsRenderRef.current = true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models]);
