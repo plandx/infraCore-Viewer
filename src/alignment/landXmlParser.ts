@@ -54,22 +54,34 @@ function attrStr(el: Element | null | undefined, name: string): string {
 type AngularUnit = "deg" | "gon" | "rad";
 
 function detectAngularUnit(root: Element): AngularUnit {
-  // Try <Units> at document level or inside root
   const unitsEl = firstTag(root, "Units") ??
     firstTag(firstTag(root, "Alignments"), "Units") ??
     firstTag(firstTag(root, "Project"), "Units");
 
   if (unitsEl) {
-    const angleEl = firstTag(unitsEl, "Angle");
-    const raw = angleEl?.getAttribute("unit") ??
-      unitsEl.getAttribute("angularUnit") ?? "";
-    const u = raw.toLowerCase().trim();
-    if (u.includes("grad") || u === "gon" || u === "g") return "gon";
-    if (u.includes("rad") && !u.includes("grad")) return "rad";
+    // <Angle unit="..."> child of <Units>
+    const angleUnit = firstTag(unitsEl, "Angle")?.getAttribute("unit");
+    if (angleUnit) {
+      const u = angleUnit.toLowerCase().trim();
+      if (u.includes("grad") || u === "gon" || u === "g") return "gon";
+      if (u.includes("rad") && !u.includes("grad")) return "rad";
+    }
+
+    // angularUnit attribute on <Metric> or <Imperial> (most common in German files)
+    // e.g. <Metric angularUnit="grad" .../>
+    const metricOrImperial =
+      firstTag(unitsEl, "Metric") ??
+      firstTag(unitsEl, "Imperial") ??
+      unitsEl; // fallback: attribute directly on <Units>
+    const au = (metricOrImperial.getAttribute("angularUnit") ?? "").toLowerCase().trim();
+    if (au) {
+      if (au === "grad" || au === "gon" || au === "gradians" || au === "g") return "gon";
+      if (au === "radians" || au === "radian" || au === "rad") return "rad";
+      if (au === "decimal" || au === "degrees" || au === "degree" || au === "deg") return "deg";
+    }
   }
 
-  // Heuristic fallback: if any dir attribute looks like a gon value
-  // (dir > 360 is impossible in degrees but possible in gon), assume gon.
+  // Heuristic: dir > 360 is impossible in degrees (full circle) but valid in gon (0–400).
   const sample = root.querySelector?.("[dir]");
   if (sample) {
     const v = Number(sample.getAttribute("dir"));
@@ -325,6 +337,16 @@ function parseCurve(
   };
 }
 
+// Infer spiral rotation from geometry: is the end point to the left or right of
+// the entry tangent direction at start? Returns "ccw" if left, "cw" if right.
+function inferSpiralRot(start: AlignCoord, end: AlignCoord, tanRad: number): "cw" | "ccw" {
+  const tx = Math.cos(tanRad), ty = Math.sin(tanRad);
+  const ex = end.x - start.x, ey = end.y - start.y;
+  // cross = tangent × (start→end): positive → end is LEFT = CCW
+  const cross = tx * ey - ty * ex;
+  return cross >= 0 ? "ccw" : "cw";
+}
+
 function parseSpiral(
   el: Element, staStart: number,
   prevEnd: AlignCoord | null, prevTan: number,
@@ -336,7 +358,14 @@ function parseSpiral(
   if (!start || !end || !length || length < EPS) return null;
 
   const spiralType = el.getAttribute("spiralType") ?? "clothoid";
-  const rot: "cw" | "ccw" = attrStr(el, "rot") === "cw" ? "cw" : "ccw";
+
+  // Prefer explicit rot attribute; fall back to geometric inference.
+  const rotAttrStr = attrStr(el, "rot");
+  const dirStartRaw = attrNum(el, "dirStart") ?? attrNum(el, "dir");
+  const entryTan = dirStartRaw !== null ? azmToRad(dirStartRaw, unit) : prevTan;
+  const rot: "cw" | "ccw" = rotAttrStr === "cw" || rotAttrStr === "ccw"
+    ? (rotAttrStr as "cw" | "ccw")
+    : inferSpiralRot(start, end, entryTan);
   const sign = rot === "cw" ? -1 : 1;
 
   const isInfR = (r: number | null) => r === null || r < EPS || r > 1e8;
@@ -346,9 +375,8 @@ function parseSpiral(
   const k0 = isInfR(rSRaw) ? 0 : sign / rSRaw!;
   const k1 = isInfR(rERaw) ? 0 : sign / rERaw!;
 
-  // Entry tangent: from explicit attribute, else from previous segment
-  const dirStartRaw = attrNum(el, "dirStart") ?? attrNum(el, "dir");
-  const tangentStartRad = dirStartRaw !== null ? azmToRad(dirStartRaw, unit) : prevTan;
+  // Entry tangent already computed above (entryTan) for use in rot inference
+  const tangentStartRad = entryTan;
 
   // Exit tangent: from explicit attribute, else computed from ∫κ ds
   const dirEndRaw = attrNum(el, "dirEnd");
