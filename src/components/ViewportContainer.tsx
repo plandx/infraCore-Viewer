@@ -459,7 +459,6 @@ export function ViewportContainer({ onElementClick }: Props) {
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    scene.updateMatrixWorld(true);
     const meshMap = new Map<string, THREE.Mesh[]>();
     const sessionModels = useModelStore.getState().models;
     scene.traverse((obj) => {
@@ -475,9 +474,9 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!modelId) return;
       const filename = sessionModels.get(modelId)?.name ?? modelId;
       const key = `${filename}:${obj.userData.expressId}`;
-      const list = billingMeshMapRef.current.get(key) ?? [];
+      const list = meshMap.get(key) ?? [];
       list.push(obj);
-      billingMeshMapRef.current.set(key, list);
+      meshMap.set(key, list);
     });
     billingMeshMapRef.current = meshMap;
   }, [models]);

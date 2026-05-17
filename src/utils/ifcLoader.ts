@@ -120,6 +120,7 @@ export async function loadIFCFile(
   onProgress({ phase: "Geometrie aufbauen", progress: 35 });
 
   let meshCount = 0;
+  const matCache = new Map<string, THREE.MeshLambertMaterial>();
   api.StreamAllMeshes(modelId, (flatMesh) => {
     const placedGeometries = flatMesh.geometries;
     for (let i = 0; i < placedGeometries.size(); i++) {
@@ -164,12 +165,17 @@ export async function loadIFCFile(
 
       const matrix = new THREE.Matrix4().fromArray(placed.flatTransformation);
       const { x: r, y: g, z: b, w: a } = placed.color;
-      const material = new THREE.MeshLambertMaterial({
-        color: new THREE.Color(r, g, b),
-        opacity: a,
-        transparent: a < 0.99,
-        side: THREE.DoubleSide,
-      });
+      const matKey = `${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${a < 0.99 ? Math.round(a * 255) : 255}`;
+      let material = matCache.get(matKey);
+      if (!material) {
+        material = new THREE.MeshLambertMaterial({
+          color: new THREE.Color(r, g, b),
+          opacity: a,
+          transparent: a < 0.99,
+          side: THREE.DoubleSide,
+        });
+        matCache.set(matKey, material);
+      }
 
       const mesh = new THREE.Mesh(geometry, material);
       mesh.applyMatrix4(matrix);
