@@ -844,6 +844,10 @@ function IdTab({
               <table className="w-full text-[11px]">
                 <tbody>
                   <tr className="border-b border-border/40">
+                    <td className="px-3 py-1.5 text-muted-foreground w-28">IFC Global ID</td>
+                    <td className="px-3 py-1.5 font-mono break-all text-[10px]">{identity.guid}</td>
+                  </tr>
+                  <tr className="border-b border-border/40">
                     <td className="px-3 py-1.5 text-muted-foreground w-28">Zentrum X/Y/Z</td>
                     <td className="px-3 py-1.5 font-mono tabular-nums">
                       {f(identity.bboxCenterX)} / {f(identity.bboxCenterY)} / {f(identity.bboxCenterZ)} m
