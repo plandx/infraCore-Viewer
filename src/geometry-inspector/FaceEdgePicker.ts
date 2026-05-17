@@ -247,30 +247,73 @@ export class FaceEdgePicker {
     return true;
   }
 
+  // Max bend angle (degrees) for connected-edge double-click flood-fill.
+  // The flood stops when consecutive edges deviate more than this from straight.
+  connectedEdgeMaxBend = 35;
+
   private selectConnectedEdges(seedId: number): void {
+    const MAX_RAD = this.connectedEdgeMaxBend * (Math.PI / 180);
+
     const PREC = 4000;
-    const qv = (pt: [number,number,number]) =>
-      `${Math.round(pt[0] * PREC)},${Math.round(pt[1] * PREC)},${Math.round(pt[2] * PREC)}`;
+    const qv = (x: number, y: number, z: number) =>
+      `${Math.round(x * PREC)},${Math.round(y * PREC)},${Math.round(z * PREC)}`;
+
+    // Unit vector from point a to point b
+    const norm = (
+      ax: number, ay: number, az: number,
+      bx: number, by: number, bz: number,
+    ): [number, number, number] => {
+      const dx = bx - ax, dy = by - ay, dz = bz - az;
+      const l  = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      return l > 1e-9 ? [dx / l, dy / l, dz / l] : [1, 0, 0];
+    };
 
     const edgeById = new Map(this.edges.map(e => [e.id, e]));
-    const visited = new Set<number>();
-    const stack = [seedId];
+    const visited  = new Set<number>();
+    visited.add(seedId);
 
-    while (stack.length > 0) {
-      const id = stack.pop()!;
-      if (visited.has(id)) continue;
-      visited.add(id);
-      const edge = edgeById.get(id);
-      if (!edge) continue;
-      for (const pt of [edge.start, edge.end]) {
-        const neighbors = this.vertexToEdges.get(qv(pt)) ?? [];
-        for (const nid of neighbors) {
-          if (!visited.has(nid)) stack.push(nid);
-        }
+    const seedEdge = edgeById.get(seedId);
+    if (!seedEdge) return;
+
+    // BFS: each entry = vertex we expand from + travel direction we arrived with.
+    type Frame = { vKey: string; dir: [number, number, number] };
+    const queue: Frame[] = [
+      {
+        vKey: qv(...seedEdge.end),
+        dir:  norm(...seedEdge.start, ...seedEdge.end),
+      },
+      {
+        vKey: qv(...seedEdge.start),
+        dir:  norm(...seedEdge.end, ...seedEdge.start),
+      },
+    ];
+
+    while (queue.length > 0) {
+      const { vKey, dir } = queue.shift()!;
+      const neighbors = this.vertexToEdges.get(vKey) ?? [];
+
+      for (const nid of neighbors) {
+        if (visited.has(nid)) continue;
+        const nb = edgeById.get(nid);
+        if (!nb) continue;
+
+        // Outgoing direction through this neighbor, leaving from vKey
+        const atStart  = qv(...nb.start) === vKey;
+        const [fx, fy, fz] = atStart ? nb.start : nb.end;
+        const [tx, ty, tz] = atStart ? nb.end   : nb.start;
+        const nbDir = norm(fx, fy, fz, tx, ty, tz);
+
+        // Bend = angle between incoming travel direction and outgoing edge direction
+        const cos  = dir[0] * nbDir[0] + dir[1] * nbDir[1] + dir[2] * nbDir[2];
+        const bend = Math.acos(Math.max(-1, Math.min(1, cos)));
+        if (bend > MAX_RAD) continue;
+
+        visited.add(nid);
+        queue.push({ vKey: qv(tx, ty, tz), dir: nbDir });
       }
     }
 
-    // Add all connected edges to current selection (union, not replace)
+    // Union with current selection
     for (const id of visited) this.selectedEdgeIds.add(id);
     this.updateColors();
     this.onChange(new Set(this.selectedFaceIds), new Set(this.selectedBoundaryIds), new Set(this.selectedEdgeIds));
