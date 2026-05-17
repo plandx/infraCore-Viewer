@@ -381,56 +381,49 @@ export async function loadAllElementProperties(
   expressIds: number[],
   onProgress?: (done: number, total: number) => void
 ): Promise<Map<number, FlatElementProps>> {
-  const buffer = await file.arrayBuffer();
-  const data = new Uint8Array(buffer);
-  const api = await getIfcApi();
-  const modelId = api.OpenModel(data, { COORDINATE_TO_ORIGIN: false });
+  const { api, modelId } = await getOrOpenPropModel(file);
 
   const result = new Map<number, FlatElementProps>();
 
-  try {
-    for (let i = 0; i < expressIds.length; i++) {
-      const eid = expressIds[i];
-      const flat: FlatElementProps = {};
+  for (let i = 0; i < expressIds.length; i++) {
+    const eid = expressIds[i];
+    const flat: FlatElementProps = {};
 
-      try {
-        const raw = await api.properties.getItemProperties(modelId, eid, false);
-        if (raw) {
-          for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-            if (k !== "expressID" && k !== "type") flat[k] = extractScalar(v);
-          }
+    try {
+      const raw = await api.properties.getItemProperties(modelId, eid, false);
+      if (raw) {
+        for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+          if (k !== "expressID" && k !== "type") flat[k] = extractScalar(v);
         }
-      } catch { /* element may have no direct props */ }
+      }
+    } catch { /* element may have no direct props */ }
 
-      try {
-        const _iPsets = await api.properties.getPropertySets(modelId, eid, true, false);
-        const _tPsets = await api.properties.getPropertySets(modelId, eid, true, true).catch(() => []);
-        const rawPsets = [..._iPsets, ..._tPsets];
-        for (const pset of rawPsets) {
-          if (!pset) continue;
-          const psetName = String(pset?.Name?.value ?? "PropertySet");
-          const hasProp = pset?.HasProperties;
-          if (!Array.isArray(hasProp)) continue;
-          for (const prop of hasProp) {
-            if (!prop) continue;
-            const name = String(prop?.Name?.value ?? "");
-            const value = extractScalar(
-              prop?.NominalValue?.value !== undefined ? prop.NominalValue
-                : prop?.Value?.value !== undefined ? prop.Value
-                : prop?.NominalValue ?? prop?.Value ?? null
-            );
-            if (!name) continue;
-            flat[`${psetName}.${name}`] = value;
-            if (!(name in flat)) flat[name] = value;
-          }
+    try {
+      const _iPsets = await api.properties.getPropertySets(modelId, eid, true, false);
+      const _tPsets = await api.properties.getPropertySets(modelId, eid, true, true).catch(() => []);
+      const rawPsets = [..._iPsets, ..._tPsets];
+      for (const pset of rawPsets) {
+        if (!pset) continue;
+        const psetName = String(pset?.Name?.value ?? "PropertySet");
+        const hasProp = pset?.HasProperties;
+        if (!Array.isArray(hasProp)) continue;
+        for (const prop of hasProp) {
+          if (!prop) continue;
+          const name = String(prop?.Name?.value ?? "");
+          const value = extractScalar(
+            prop?.NominalValue?.value !== undefined ? prop.NominalValue
+              : prop?.Value?.value !== undefined ? prop.Value
+              : prop?.NominalValue ?? prop?.Value ?? null
+          );
+          if (!name) continue;
+          flat[`${psetName}.${name}`] = value;
+          if (!(name in flat)) flat[name] = value;
         }
-      } catch { /* psets optional */ }
+      }
+    } catch { /* psets optional */ }
 
-      result.set(eid, flat);
-      onProgress?.(i + 1, expressIds.length);
-    }
-  } finally {
-    api.CloseModel(modelId);
+    result.set(eid, flat);
+    onProgress?.(i + 1, expressIds.length);
   }
 
   return result;

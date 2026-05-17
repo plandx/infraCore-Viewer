@@ -51,17 +51,25 @@ export function PropertiesPanel() {
   const hideElements        = useModelStore((s) => s.hideElements);
   const [isolatingKey, setIsolatingKey] = useState<string | null>(null);
   const [hidingKey, setHidingKey]       = useState<string | null>(null);
+  const [loadProgress, setLoadProgress] = useState<number | null>(null);
 
   const resolveProps = useCallback(async (): Promise<Map<string, Map<number, FlatElementProps>>> => {
     if (loadedProperties) return loadedProperties;
     const result = new Map<string, Map<number, FlatElementProps>>();
     const keySet = new Set<string>();
+    let total = 0;
+    models.forEach((m) => { for (const els of Object.values(m.elementsByType)) total += els.length; });
+    let base = 0;
+    setLoadProgress(0);
     for (const [modelId, m] of models.entries()) {
       if (!m.file) continue;
       const ids: number[] = [];
       for (const els of Object.values(m.elementsByType))
         for (const el of els) ids.push(el.expressId);
-      const map = await loadAllElementProperties(m.file, ids);
+      const map = await loadAllElementProperties(m.file, ids, (done) =>
+        setLoadProgress(Math.round(((base + done) / total) * 100))
+      );
+      base += ids.length;
       map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
       result.set(modelId, map);
     }
@@ -71,6 +79,7 @@ export function PropertiesPanel() {
       return a.localeCompare(b);
     });
     setLoadedProperties(result, sorted);
+    setLoadProgress(null);
     return result;
   }, [loadedProperties, setLoadedProperties, models]);
 
@@ -249,6 +258,19 @@ export function PropertiesPanel() {
           </button>
         ))}
       </div>
+
+      {/* Property load progress bar */}
+      {loadProgress !== null && (
+        <div className="px-3 py-1.5 border-b border-border/50 bg-muted/20 shrink-0">
+          <div className="flex items-center gap-2">
+            <Loader2 size={10} className="animate-spin text-primary shrink-0" />
+            <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+              <div className="h-full bg-primary rounded-full transition-all duration-100" style={{ width: `${loadProgress}%` }} />
+            </div>
+            <span className="text-[9px] font-mono tabular-nums text-muted-foreground w-7 text-right shrink-0">{loadProgress}%</span>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
