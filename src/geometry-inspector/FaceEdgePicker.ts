@@ -145,6 +145,18 @@ export class FaceEdgePicker {
     this.hoveredBoundaryId = -1;
     this.hoveredEdgeId = -1;
 
+    // Clear selections of inactive modes so they don't carry over to the next save
+    if (mode === "face") {
+      this.selectedBoundaryIds.clear();
+      this.selectedEdgeIds.clear();
+    } else if (mode === "boundary") {
+      this.selectedFaceIds.clear();
+      this.selectedEdgeIds.clear();
+    } else {
+      this.selectedFaceIds.clear();
+      this.selectedBoundaryIds.clear();
+    }
+
     if (mode === "face") {
       for (const m of this.faceMeshes) {
         m.visible = true;
@@ -154,7 +166,6 @@ export class FaceEdgePicker {
       for (const m of this.boundaryMeshes) m.visible = false;
       for (const m of this.edgeMeshes)     m.visible = false;
     } else if (mode === "boundary") {
-      // Face overlays: neutral click-targets; boundary cylinders: red
       for (const m of this.faceMeshes) {
         m.visible = true;
         (m.material as THREE.MeshBasicMaterial).color.setHex(C_FACE_EDGE_MODE);
@@ -163,12 +174,12 @@ export class FaceEdgePicker {
       for (const m of this.boundaryMeshes) m.visible = true;
       for (const m of this.edgeMeshes)     m.visible = false;
     } else {
-      // Edge mode: only individual edge cylinders
       for (const m of this.faceMeshes)     m.visible = false;
       for (const m of this.boundaryMeshes) m.visible = false;
       for (const m of this.edgeMeshes)     m.visible = true;
     }
     this.updateColors();
+    this.onChange(new Set(this.selectedFaceIds), new Set(this.selectedBoundaryIds), new Set(this.selectedEdgeIds));
   }
 
   onMouseMove(ndc: THREE.Vector2, camera: THREE.Camera): boolean {
