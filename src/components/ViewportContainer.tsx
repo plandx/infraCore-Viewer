@@ -103,9 +103,8 @@ export function ViewportContainer({ onElementClick }: Props) {
     setBasket: s.setBasket,
   })));
 
-  const billingEntries = useBillingStore((s) => s.entries);
-  const billingModuleActive = useBillingStore((s) => s.moduleActive);
-  const billingVizRef  = useRef<BillingVisualizer | null>(null);
+  const billingVizRef    = useRef<BillingVisualizer | null>(null);
+  const billingMeshMapRef = useRef<Map<string, THREE.Mesh[]>>(new Map());
   const alignGroupRef  = useRef<THREE.Group | null>(null);
   const pickerRef      = useRef<FaceEdgePicker | null>(null);
   const pendingSelectKeyRef = useRef<string | null>(null);
@@ -286,6 +285,10 @@ export function ViewportContainer({ onElementClick }: Props) {
       MIDDLE: THREE.MOUSE.PAN,
       RIGHT: THREE.MOUSE.ROTATE,
     };
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
     controlsRef.current = controls;
 
     // Lighting
@@ -450,19 +453,19 @@ export function ViewportContainer({ onElementClick }: Props) {
     sectionModuleRef.current?.syncPlanes(sectionPlanes);
   }, [sectionPlanes]);
 
-  // ── Billing visualizer ────────────────────────────────────────────────────
+  // ── Billing: rebuild meshMap only when loaded models change ──────────────
+  // Separating this from the viz-update avoids O(scene) traversal on every
+  // billing store mutation (adding entries, stages, quantity items, …).
   useEffect(() => {
-    const viz = billingVizRef.current;
     const scene = sceneRef.current;
-    if (!viz || !scene) return;
-    if (!billingModuleActive) { viz.clear(); needsRenderRef.current = true; return; }
-
+    if (!scene) return;
     scene.updateMatrixWorld(true);
     const meshMap = new Map<string, THREE.Mesh[]>();
     const sessionModels = useModelStore.getState().models;
     scene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh) || obj.userData.expressId == null) return;
-      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap || obj.userData.isEdge || obj.userData.isBillingOverlay) return;
+      if (obj.userData.isHighlight || obj.userData.isSectionVisual || obj.userData.isSectionCap ||
+          obj.userData.isEdge || obj.userData.isBillingOverlay) return;
       let modelId = "";
       let node: THREE.Object3D | null = obj;
       while (node) {
@@ -470,17 +473,28 @@ export function ViewportContainer({ onElementClick }: Props) {
         node = node.parent;
       }
       if (!modelId) return;
-      // Use stable filename:expressId key to match persisted billing entries
       const filename = sessionModels.get(modelId)?.name ?? modelId;
       const key = `${filename}:${obj.userData.expressId}`;
-      const list = meshMap.get(key) ?? [];
+      const list = billingMeshMapRef.current.get(key) ?? [];
       list.push(obj);
-      meshMap.set(key, list);
+      billingMeshMapRef.current.set(key, list);
     });
+    billingMeshMapRef.current = meshMap;
+  }, [models]);
 
-    viz.update(billingEntries, meshMap);
-    needsRenderRef.current = true;
-  }, [billingEntries, billingModuleActive]);
+  // ── Billing visualizer: subscribe to store, update viz without scene traversal
+  useEffect(() => {
+    function runViz() {
+      const { entries, moduleActive } = useBillingStore.getState();
+      const viz = billingVizRef.current;
+      if (!viz) return;
+      if (!moduleActive) { viz.clear(); needsRenderRef.current = true; return; }
+      viz.update(entries, billingMeshMapRef.current);
+      needsRenderRef.current = true;
+    }
+    runViz();
+    return useBillingStore.subscribe(runViz);
+  }, []);
 
   // Reusable inspection starter — called from both BroadcastChannel and context menu
   const startInspectionForElement = useCallback((
@@ -1673,7 +1687,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           inBilling={!!useBillingStore.getState().entries[`${useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId}:${contextMenu.expressId}`]}
           currentDegree={(() => {
             const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
-            const entry = billingEntries[`${filename}:${contextMenu.expressId}`];
+            const entry = useBillingStore.getState().entries[`${filename}:${contextMenu.expressId}`];
             return entry?.stages.length ? entry.stages[entry.stages.length - 1].degree : null;
           })()}
           menuX={contextMenu.x}
