@@ -1663,10 +1663,13 @@ export function ViewportContainer({ onElementClick }: Props) {
           })()}
           menuX={contextMenu.x}
           onAdd5D={() => {
-            const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
+            const model = useModelStore.getState().models.get(contextMenu.modelId);
+            const filename = model?.name ?? contextMenu.modelId;
             const key = `${filename}:${contextMenu.expressId}`;
+            const guid = Object.values(model?.elementsByType ?? {}).flat()
+              .find(e => e.expressId === contextMenu.expressId)?.guid ?? "";
             useBillingStore.getState().addEntry({
-              key, guid: "", expressId: contextMenu.expressId, modelId: contextMenu.modelId,
+              key, guid, expressId: contextMenu.expressId, modelId: contextMenu.modelId,
               elementName: contextMenu.elementName, ifcType: contextMenu.ifcType,
             });
             pendingSelectKeyRef.current = key;
@@ -1693,12 +1696,15 @@ export function ViewportContainer({ onElementClick }: Props) {
             setContextMenu(null);
           }}
           onSet5DDegree={(degree) => {
-            const filename = useModelStore.getState().models.get(contextMenu.modelId)?.name ?? contextMenu.modelId;
+            const model = useModelStore.getState().models.get(contextMenu.modelId);
+            const filename = model?.name ?? contextMenu.modelId;
             const key = `${filename}:${contextMenu.expressId}`;
             const store = useBillingStore.getState();
             if (!store.entries[key]) {
+              const guid = Object.values(model?.elementsByType ?? {}).flat()
+                .find(e => e.expressId === contextMenu.expressId)?.guid ?? "";
               store.addEntry({
-                key, guid: "", expressId: contextMenu.expressId, modelId: contextMenu.modelId,
+                key, guid, expressId: contextMenu.expressId, modelId: contextMenu.modelId,
                 elementName: contextMenu.elementName, ifcType: contextMenu.ifcType,
               });
             }

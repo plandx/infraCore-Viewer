@@ -316,11 +316,11 @@ function MainApp() {
       store.models.forEach((m, modelId) => {
         if (m.status !== "loaded") return;
         for (const [ifcType, elements] of Object.entries(m.elementsByType)) {
-          for (const el of elements as Array<{ expressId: number; name: string }>) {
+          for (const el of elements as Array<{ expressId: number; name: string; guid?: string }>) {
             list.push({
               // Stable key: filename:expressId — survives across sessions
               key: `${m.name}:${el.expressId}`,
-              guid: "",
+              guid: el.guid ?? "",
               expressId: el.expressId,
               modelId,
               name: el.name || `${ifcType} #${el.expressId}`,

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X, Calculator, Save, Square, Minus, Eye, EyeOff, ScanEye, Trash2, ExternalLink, Tag } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore } from "../billing/billingStore";
+import { useModelStore } from "../store/modelStore";
 import { qid, QUANTITY_META, fmtQty } from "../billing/quantityTypes";
 import type { QuantityItem, QuantityType, QuantitySource } from "../billing/quantityTypes";
 import type { InspFace, InspFaceBoundary, InspEdge, PickMode } from "./types";
@@ -221,7 +222,9 @@ export function GeometryInspectorPanel({
 
   const handleSave = () => {
     if (!billingKey) return;
-    useBillingStore.getState().addEntry({ key: billingKey, guid: billingKey, expressId, modelId, elementName, ifcType });
+    const guid = Object.values(useModelStore.getState().models.get(modelId)?.elementsByType ?? {}).flat()
+      .find(e => e.expressId === expressId)?.guid ?? "";
+    useBillingStore.getState().addEntry({ key: billingKey, guid, expressId, modelId, elementName, ifcType });
 
     if (selFaces.length > 0) {
       const type = faceType;

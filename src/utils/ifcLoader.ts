@@ -660,10 +660,12 @@ async function extractStructure(
       for (let i = 0; i < ids.size(); i++) {
         const eid = ids.get(i);
         const line = api.GetLine(modelId, eid) as Record<string, unknown> | null;
+        const guid = (line?.GlobalId as { value?: string } | undefined)?.value ?? undefined;
         nodes.push({
           expressId: eid,
           type: label,
           name: getLabel(line) || `${label} #${eid}`,
+          guid,
         });
       }
       if (nodes.length > 0) {

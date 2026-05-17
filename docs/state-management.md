@@ -366,6 +366,24 @@ interface QuantitySet {
 - `netArea` = Σ area − Σ openingArea
 - `netVolume` = Σ volume − Σ area·thickness (wenn vorhanden)
 
+### ElementIdentity (Fingerabdruck)
+
+```typescript
+interface ElementIdentity {
+  guid:         string;   // IFC GlobalId
+  bboxCenterX:  number;   // Weltkoordinaten Mittelpunkt m
+  bboxCenterY:  number;
+  bboxCenterZ:  number;
+  bboxSizeX:    number;   // BBox-Abmessungen m
+  bboxSizeY:    number;
+  bboxSizeZ:    number;
+  volume:       number;   // m³
+  capturedAt:   string;   // ISO 8601
+}
+```
+
+Toleranzen bei `runIdentityCheck`: GUID exakt, Volumen ±1%, Lage ±5cm, Abmessungen ±1cm je Achse.
+
 ### ElementQuantities (legacy)
 
 ```typescript
@@ -385,6 +403,8 @@ Wird weiterhin von `requestQuantities`/`quantities` BC-Flow genutzt und beim Geo
 
 | Aktion | Signatur | Beschreibung |
 |---|---|---|
+| `setIdentity` | `(key, identity: ElementIdentity) => void` | Fingerabdruck persistieren |
+| `clearAll` | `() => void` | Alle Einträge löschen (auch localStorage + Broadcast) |
 | `addEntry` | `(info) => void` | Erstellt neuen Eintrag (kein Duplikat, idempotent) |
 | `removeEntry` | `(key) => void` | Entfernt Eintrag inkl. Phasen/Dokumente |
 | `addStage` | `(key, stage) => void` | Fügt Abrechnungsstand hinzu |

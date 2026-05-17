@@ -3,6 +3,7 @@ import {
   Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink,
   ScanEye, Calculator, Ruler, Cpu, Hash, ChevronRight,
   Fingerprint, ShieldCheck, ShieldAlert, ShieldOff, RefreshCw,
+  ListFilter, ArrowDownUp,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useBillingStore, BILLING_CHANNEL } from "./billingStore";
@@ -61,6 +62,8 @@ const fmt = (n: number, d = 3) => n.toFixed(d).replace(".", ",");
 
 // ── Left sidebar: element list ────────────────────────────────────────────────
 
+type SortMode = "model" | "date-asc" | "date-desc";
+
 function ElementList({ elements, entries, selectedKey, onSelect }: {
   elements: ElementInfo[];
   entries: ReturnType<typeof useBillingStore.getState>["entries"];
@@ -69,16 +72,40 @@ function ElementList({ elements, entries, selectedKey, onSelect }: {
 }) {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("");
+  const [onlyTracked, setOnlyTracked] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>("model");
 
   const types = [...new Set(elements.map(e => e.ifcType))].sort();
+
   const filtered = elements.filter(el => {
     const s = search.toLowerCase();
     const matchSearch = !s || el.name.toLowerCase().includes(s) || el.ifcType.toLowerCase().includes(s);
     const matchType = !filterType || el.ifcType === filterType;
-    return matchSearch && matchType;
+    const matchTracked = !onlyTracked || !!entries[el.key];
+    return matchSearch && matchType && matchTracked;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortMode === "model") return 0;
+    const dateA = entries[a.key]?.createdAt ?? "";
+    const dateB = entries[b.key]?.createdAt ?? "";
+    if (!dateA && !dateB) return 0;
+    if (!dateA) return 1;
+    if (!dateB) return -1;
+    return sortMode === "date-asc"
+      ? dateA.localeCompare(dateB)
+      : dateB.localeCompare(dateA);
   });
 
   const trackedCount = elements.filter(el => !!entries[el.key]).length;
+
+  const nextSortMode = (): SortMode => {
+    if (sortMode === "model") return "date-desc";
+    if (sortMode === "date-desc") return "date-asc";
+    return "model";
+  };
+
+  const sortLabel = sortMode === "model" ? "Modellreihenfolge" : sortMode === "date-desc" ? "Datum ↓ (neueste)" : "Datum ↑ (älteste)";
 
   return (
     <div className="w-64 shrink-0 flex flex-col border-r border-border bg-card/30">
@@ -101,22 +128,51 @@ function ElementList({ elements, entries, selectedKey, onSelect }: {
             {types.map(t => <option key={t} value={t}>{t.replace(/^Ifc/, "")} ({elements.filter(e => e.ifcType === t).length})</option>)}
           </select>
         )}
+        {/* Tracked filter + sort */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setOnlyTracked(v => !v)}
+            title={onlyTracked ? "Alle anzeigen" : "Nur erfasste anzeigen"}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-[10px] flex-1 transition-colors border",
+              onlyTracked
+                ? "bg-primary/15 text-primary border-primary/30"
+                : "bg-muted text-muted-foreground border-border hover:bg-muted/70"
+            )}
+          >
+            <ListFilter size={10} />
+            {onlyTracked ? `Erfasste (${trackedCount})` : "Alle anzeigen"}
+          </button>
+          <button
+            onClick={() => setSortMode(nextSortMode())}
+            title={`Sortierung: ${sortLabel}`}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-colors border shrink-0",
+              sortMode !== "model"
+                ? "bg-primary/15 text-primary border-primary/30"
+                : "bg-muted text-muted-foreground border-border hover:bg-muted/70"
+            )}
+          >
+            <ArrowDownUp size={10} />
+            {sortMode === "date-desc" ? "↓" : sortMode === "date-asc" ? "↑" : ""}
+          </button>
+        </div>
       </div>
 
       {/* Stats bar */}
       <div className="px-3 py-1.5 border-b border-border/50 shrink-0 flex items-center gap-3 text-[10px] text-muted-foreground">
-        <span>{filtered.length} Elemente</span>
+        <span>{sorted.length} Elemente</span>
         {trackedCount > 0 && <span className="text-primary">{trackedCount} erfasst</span>}
       </div>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {filtered.length === 0 ? (
+        {sorted.length === 0 ? (
           <div className="p-4 text-center text-xs text-muted-foreground">
             {elements.length === 0 ? "Kein Modell geladen." : "Keine Treffer."}
           </div>
         ) : (
-          filtered.map(el => {
+          sorted.map(el => {
             const tracked = !!entries[el.key];
             const entry = entries[el.key];
             const lastDegree = entry?.stages.length ? entry.stages[entry.stages.length - 1].degree : null;
@@ -162,6 +218,11 @@ function ElementList({ elements, entries, selectedKey, onSelect }: {
                     </div>
                   )}
                 </div>
+                {sortMode !== "model" && entry?.createdAt && (
+                  <p className="pl-4 text-[9px] text-muted-foreground/60 font-mono">
+                    {new Date(entry.createdAt).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "2-digit" })}
+                  </p>
+                )}
               </button>
             );
           })

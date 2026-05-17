@@ -124,6 +124,7 @@ export interface ElementNode {
   expressId: number;
   type: string;
   name: string;
+  guid?: string;
 }
 
 export interface IFCHeader {
