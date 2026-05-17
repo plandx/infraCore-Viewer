@@ -595,6 +595,12 @@ export function ViewportContainer({ onElementClick }: Props) {
         if (!modelId) return;
         startInspectionForElement(modelId, expressId, msg.elementName, msg.key);
       }
+
+      if (msg.t === "focusElement") {
+        window.dispatchEvent(new CustomEvent("viewer:zoomToElement", {
+          detail: { modelId: msg.modelId, expressIds: [msg.expressId] },
+        }));
+      }
     });
 
     return () => bc?.close();

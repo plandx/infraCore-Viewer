@@ -3,8 +3,9 @@ import {
   Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink,
   ScanEye, Calculator, Ruler, Cpu, Hash, ChevronRight,
   Fingerprint, ShieldCheck, ShieldAlert, ShieldOff, RefreshCw,
-  ListFilter, ArrowDownUp,
+  ListFilter, ArrowDownUp, ClipboardCheck,
 } from "lucide-react";
+import type { BillingEntry } from "./types";
 import { cn } from "../lib/utils";
 import { useBillingStore, BILLING_CHANNEL } from "./billingStore";
 import type { ElementIdentity, ElementInfo, BillingExport, BillingMsg, ElementQuantities } from "./types";
@@ -268,6 +269,8 @@ export function BillingPanel({ elements }: Props) {
   // Identity / tamper-detection state
   const [checkResults, setCheckResults] = useState<Record<string, IdentityCheckResult>>({});
   const [postImportIdentityCount, setPostImportIdentityCount] = useState(0);
+  const [pendingChecksState, setPendingChecksState] = useState<Set<string>>(new Set());
+  const [showCheckPanel, setShowCheckPanel] = useState(false);
   const pendingSnapshotRef = useRef<string | null>(null);
   const pendingChecksRef   = useRef<Set<string>>(new Set());
 
@@ -291,6 +294,17 @@ export function BillingPanel({ elements }: Props) {
       if (msg.t === "quantities") {
         setPendingGeo(prev => prev === msg.key ? null : prev);
         setLiveQuantities(msg.data);
+        if (msg.key && !msg.data && pendingChecksRef.current.has(msg.key)) {
+          pendingChecksRef.current.delete(msg.key);
+          setPendingChecksState(prev => { const s = new Set(prev); s.delete(msg.key); return s; });
+          const entry = useBillingStore.getState().entries[msg.key];
+          if (entry?.identity) {
+            setCheckResults(prev => ({
+              ...prev,
+              [msg.key]: { checkedAt: new Date().toISOString(), guidOk: null, volumeOk: false, positionOk: false, sizeOk: false, posDelta: 0 },
+            }));
+          }
+        }
         if (msg.key && msg.data) {
           const q = msg.data;
           const dims = [q.bboxX, q.bboxY, q.bboxZ].sort((a, b) => a - b);
@@ -326,6 +340,7 @@ export function BillingPanel({ elements }: Props) {
           // Identity check
           if (pendingChecksRef.current.has(msg.key)) {
             pendingChecksRef.current.delete(msg.key);
+            setPendingChecksState(prev => { const s = new Set(prev); s.delete(msg.key); return s; });
             const entry = useBillingStore.getState().entries[msg.key];
             if (entry?.identity) {
               const currentGuid = elementsRef.current.find(e => e.key === msg.key)?.guid;
@@ -374,9 +389,23 @@ export function BillingPanel({ elements }: Props) {
       try {
         const data = JSON.parse(ev.target?.result as string) as BillingExport;
         if (data.version === 1 && Array.isArray(data.entries)) {
-          importData(data);
-          const withIdentity = data.entries.filter(e => e.identity).length;
-          if (withIdentity > 0) setPostImportIdentityCount(withIdentity);
+          // GUID-based key remapping: match imported entries to current model by GUID
+          const guidToCurrentKey = new Map<string, string>();
+          for (const el of elementsRef.current) {
+            if (el.guid) guidToCurrentKey.set(el.guid, el.key);
+          }
+          const remapped: BillingEntry[] = data.entries.map(entry => {
+            if (!entry.guid) return entry;
+            const currentKey = guidToCurrentKey.get(entry.guid);
+            if (currentKey && currentKey !== entry.key) return { ...entry, key: currentKey };
+            return entry;
+          });
+          importData({ ...data, entries: remapped });
+          const withIdentity = remapped.filter(e => e.identity).length;
+          if (withIdentity > 0) {
+            setPostImportIdentityCount(withIdentity);
+            setShowCheckPanel(true);
+          }
           setImportError("");
         } else {
           setImportError("Ungültiges Format – keine gültige 5D-Export-Datei.");
@@ -398,6 +427,9 @@ export function BillingPanel({ elements }: Props) {
     addEntry({ key: el.key, guid: el.guid, expressId: el.expressId, modelId: el.modelId, elementName: el.name, ifcType: el.ifcType });
     handleSelectKey(el.key);
     setTab("mengen");
+    // Auto-snapshot: capture geometry fingerprint immediately
+    pendingSnapshotRef.current = el.key;
+    bcRef.current?.postMessage({ t: "requestQuantities", key: el.key } satisfies BillingMsg);
   };
 
   const handleAddStage = () => {
@@ -426,17 +458,28 @@ export function BillingPanel({ elements }: Props) {
 
   const handleCheck = (key: string) => {
     pendingChecksRef.current.add(key);
+    setPendingChecksState(prev => new Set(prev).add(key));
     bcRef.current?.postMessage({ t: "requestQuantities", key } satisfies BillingMsg);
   };
 
   const handleCheckAll = () => {
+    const keys: string[] = [];
     for (const entry of Object.values(entries)) {
       if (entry.identity) {
+        keys.push(entry.key);
         pendingChecksRef.current.add(entry.key);
         bcRef.current?.postMessage({ t: "requestQuantities", key: entry.key } satisfies BillingMsg);
       }
     }
+    if (keys.length > 0) setPendingChecksState(prev => { const s = new Set(prev); keys.forEach(k => s.add(k)); return s; });
     setPostImportIdentityCount(0);
+    setShowCheckPanel(true);
+  };
+
+  const handleFocusElement = (key: string) => {
+    const el = elementsRef.current.find(e => e.key === key);
+    if (!el) return;
+    bcRef.current?.postMessage({ t: "focusElement", modelId: el.modelId, expressId: el.expressId } satisfies BillingMsg);
   };
 
   const handleRequestIfc = (key: string) => {
@@ -481,6 +524,22 @@ export function BillingPanel({ elements }: Props) {
             <ScanEye size={12} />
           </button>
         )}
+        {Object.values(entries).some(e => e.identity) && (
+          <button
+            onClick={() => setShowCheckPanel(v => !v)}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
+              showCheckPanel
+                ? "bg-primary text-primary-foreground"
+                : Object.keys(checkResults).some(k => { const r = checkResults[k]; return r && !(r.guidOk !== false && r.volumeOk && r.positionOk && r.sizeOk); })
+                  ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                  : "bg-muted text-muted-foreground hover:bg-primary/20 hover:text-primary"
+            )}
+            title="Prüffenster öffnen"
+          >
+            <ClipboardCheck size={12} />
+          </button>
+        )}
         <button
           onClick={handleToggleViz}
           className={cn(
@@ -523,7 +582,21 @@ export function BillingPanel({ elements }: Props) {
       )}
 
       {/* Body */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
+
+        {/* Check panel overlay */}
+        {showCheckPanel && (
+          <CheckPanel
+            entries={entries}
+            checkResults={checkResults}
+            elements={elements}
+            pendingKeys={pendingChecksState}
+            onClose={() => setShowCheckPanel(false)}
+            onFocus={handleFocusElement}
+            onCheck={handleCheck}
+            onCheckAll={handleCheckAll}
+          />
+        )}
 
         {/* Left: element list */}
         <ElementList
@@ -666,8 +739,8 @@ function TrackedDetailView(props: DetailProps) {
   const hasIdentity = !!entry.identity;
 
   const tabs: { id: DetailTab; label: string; badge?: number; warn?: boolean }[] = [
-    { id: "mengen",     label: "Mengen",     badge: qCount || undefined },
-    { id: "abschnitte", label: "Abschnitte", badge: entry.stages.length || undefined },
+    { id: "mengen",     label: "Mengen",          badge: qCount || undefined },
+    { id: "abschnitte", label: "Fertigstellungsgrad", badge: entry.stages.length || undefined },
     { id: "dokumente",  label: "Dokumente",  badge: entry.documents.length || undefined },
     { id: "id",         label: "ID",         warn: hasIdentity && checkResult !== null && !(checkResult.guidOk !== false && checkResult.volumeOk && checkResult.positionOk && checkResult.sizeOk) },
   ];
@@ -1089,6 +1162,152 @@ function DocsTab({ entry, onAddDoc, onRemoveDoc, docDocId, setDocDocId, docTitle
           className="self-end flex items-center gap-1 px-3 py-1.5 rounded text-xs bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity">
           <Plus size={12} />Hinzufügen
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Check panel overlay ────────────────────────────────────────────────────────
+
+function CheckPanel({
+  entries, checkResults, elements, pendingKeys,
+  onClose, onFocus, onCheck, onCheckAll,
+}: {
+  entries: Record<string, BillingEntry>;
+  checkResults: Record<string, IdentityCheckResult>;
+  elements: ElementInfo[];
+  pendingKeys: Set<string>;
+  onClose(): void;
+  onFocus(key: string): void;
+  onCheck(key: string): void;
+  onCheckAll(): void;
+}) {
+  const withIdentity = Object.values(entries).filter(e => e.identity);
+  const checkedCount = withIdentity.filter(e => checkResults[e.key]).length;
+  const issueCount   = withIdentity.filter(e => {
+    const r = checkResults[e.key];
+    return r && !(r.guidOk !== false && r.volumeOk && r.positionOk && r.sizeOk);
+  }).length;
+  const f = (n: number) => n.toFixed(3).replace(".", ",");
+
+  return (
+    <div className="absolute inset-0 z-10 bg-background/97 backdrop-blur flex flex-col">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card shrink-0">
+        <ClipboardCheck size={14} className="text-primary shrink-0" />
+        <span className="font-semibold text-sm">Prüffenster</span>
+        <span className="text-[10px] text-muted-foreground">
+          {checkedCount}/{withIdentity.length} geprüft
+        </span>
+        {issueCount > 0 && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">
+            {issueCount} Abweichung{issueCount > 1 ? "en" : ""}
+          </span>
+        )}
+        {checkedCount === withIdentity.length && withIdentity.length > 0 && issueCount === 0 && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">
+            ✓ Alle OK
+          </span>
+        )}
+        <div className="flex-1" />
+        <button
+          onClick={onCheckAll}
+          disabled={pendingKeys.size > 0}
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors disabled:opacity-40"
+        >
+          {pendingKeys.size > 0
+            ? <RefreshCw size={10} className="animate-spin" />
+            : <RefreshCw size={10} />}
+          Alle prüfen
+        </button>
+        <button onClick={onClose} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors ml-1">
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {withIdentity.length === 0 ? (
+          <div className="p-8 text-center text-xs text-muted-foreground">
+            Keine Einträge mit Fingerabdruck.
+          </div>
+        ) : (
+          withIdentity.map(entry => {
+            const result = checkResults[entry.key];
+            const isPending = pendingKeys.has(entry.key);
+            const allOk = result
+              ? (result.guidOk !== false && result.volumeOk && result.positionOk && result.sizeOk)
+              : null;
+            const notFound = result?.guidOk === null;
+            const canFocus = !!elements.find(e => e.key === entry.key);
+
+            return (
+              <div key={entry.key} className={cn(
+                "flex items-start gap-2 px-3 py-2.5 border-b border-border/40 transition-colors hover:bg-muted/20",
+                !result && !isPending ? "" :
+                notFound ? "border-l-2 border-l-amber-500/50" :
+                allOk ? "border-l-2 border-l-green-500/50" : "border-l-2 border-l-red-500/50"
+              )}>
+                <div className={cn(
+                  "w-2 h-2 rounded-full shrink-0 mt-1",
+                  isPending ? "bg-amber-400 animate-pulse" :
+                  allOk === null ? "bg-border" :
+                  notFound ? "bg-amber-500" :
+                  allOk ? "bg-green-500" : "bg-red-500"
+                )} />
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{entry.elementName}</p>
+                  <p className="text-[10px] text-muted-foreground/70 font-mono truncate">{entry.guid || "–"}</p>
+
+                  {isPending && (
+                    <p className="text-[10px] text-amber-400 mt-0.5">Prüfe…</p>
+                  )}
+                  {result && !isPending && (
+                    <div className="mt-1 space-y-0.5">
+                      {notFound ? (
+                        <p className="text-[10px] text-amber-400">⚠ Element nicht im aktuellen Modell gefunden</p>
+                      ) : allOk ? (
+                        <p className="text-[10px] text-green-400">✓ Alle Parameter übereinstimmend</p>
+                      ) : (
+                        <>
+                          {result.guidOk === false && <p className="text-[10px] text-red-400">⚠ GUID geändert</p>}
+                          {!result.volumeOk && <p className="text-[10px] text-red-400">⚠ Volumen: {result.currentVolume !== undefined ? f(result.currentVolume) : "?"} m³ (erwartet {f(entry.identity!.volume)} m³)</p>}
+                          {!result.positionOk && <p className="text-[10px] text-red-400">⚠ Position verschoben (Δ {f(result.posDelta)} m)</p>}
+                          {!result.sizeOk && <p className="text-[10px] text-red-400">⚠ Abmessungen geändert</p>}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0 mt-0.5">
+                  {canFocus && (
+                    <button
+                      onClick={() => onFocus(entry.key)}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-muted hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors border border-border"
+                      title="Im Viewer anzeigen"
+                    >
+                      <ChevronRight size={10} />
+                      Anzeigen
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onCheck(entry.key)}
+                    disabled={isPending}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-muted hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors border border-border disabled:opacity-40"
+                    title="Prüfen"
+                  >
+                    {isPending
+                      ? <RefreshCw size={10} className="animate-spin" />
+                      : <ShieldCheck size={10} />}
+                    Prüfen
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
