@@ -561,14 +561,21 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
 
       if (msg.t === "requestQuantities") {
-        const [filename] = msg.key.split(":");
         const meshes = collectMeshesForKey(msg.key);
         const data = meshes.length > 0 ? computeQuantities(meshes) : null;
         if (data) {
-          // Translate Three.js world-space center back to raw IFC coordinates so the
-          // fingerprint position is stable regardless of scene composition / load order.
+          // key is IFC GlobalId — reverse-lookup to find the model's originOffset so
+          // bboxCenter is stored as raw IFC coordinates (scene-order-independent).
           let offset: THREE.Vector3 | undefined;
-          useModelStore.getState().models.forEach((m) => { if (m.name === filename) offset = m.originOffset; });
+          useModelStore.getState().models.forEach((m) => {
+            if (offset) return;
+            for (const els of Object.values(m.elementsByType)) {
+              if ((els as { guid?: string }[]).some(e => e.guid === msg.key)) {
+                offset = m.originOffset;
+                break;
+              }
+            }
+          });
           if (offset) {
             data.bboxCenterX = (data.bboxCenterX ?? 0) + offset.x;
             data.bboxCenterY = (data.bboxCenterY ?? 0) + offset.y;
