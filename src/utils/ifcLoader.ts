@@ -522,7 +522,6 @@ const ELEMENT_LABELS: Partial<Record<number, string>> = {
   [WebIFC.IFCAIRTERMINALBOX]:          "Luftdosierbox",
   [WebIFC.IFCLAMP]:                    "Klemme",
   [WebIFC.IFCLIGHTFIXTURE]:            "Leuchte",
-  [WebIFC.IFCLAMP]:                    "Lampe",
   [WebIFC.IFCOUTLET]:                  "Steckdose",
   [WebIFC.IFCSANITARYTERMINAL]:        "Sanitärobjekt",
   [WebIFC.IFCSTACKTERMINAL]:           "Lüftungsdachaufsatz",
@@ -597,25 +596,32 @@ const ELEMENT_LABELS: Partial<Record<number, string>> = {
 };
 
 /**
- * All WebIFC type codes that could represent physical/spatial elements.
- * Generated at module load from WebIFC exports, excluding obvious non-element categories.
- * This ensures no IFC class is silently dropped — unknown types use their class name as label.
+ * Whitelist of IFC type codes to show in the project browser and 5D module.
+ * Exactly the union of:
+ *   – all physical element types from ELEMENT_LABELS
+ *   – the four spatial structure types (Site, Building, Storey, Space)
+ * Nothing else passes through — this prevents abstract/metadata entities from
+ * appearing in element lists.
  */
 const CANDIDATE_TYPE_CODES: Map<number, string> = (() => {
-  const skip = /TYPE$|MEASURE$|ENUM$|VALUE$|SELECT$|PROPERT|QUANT|RELAT|OWNER|UNIT$|UNITS$|RESOURCE|CONSTRAINT|APPROVAL|CLASSIF|DOCUMENT|LIBRARY|MATERIAL|PROFILE|STYLE|REPRESENT|GEOMETRY|CURVE|SURFACE|SOLID|LOOP|SHELL|FACE|EDGE|VERTEX|POINT|VECTOR|DIRECTION|PLACEMENT|AXIS|TRANSFORM|CONVERSION|REFERENCE|PRESEN|CONNEC|COORDIN|OCCUPANT|PERSON|ORGAN|POSTAL|TELECOM|ADDRESS|ROLE|ACTOR|TASK|WORK|SCHEDULE|SEQUENCE|CALENDAR|COST|BUDGET|PERMIT|PROC|CONTROL|PERFORM|RISK|ACTION|REQUEST|ORDER|IFCSITE$|IFCBUILDING$|IFCBUILDINGSTOREY$|IFCBUILDINGROOM$|IFCSPACE$|IFCZONE$|IFCGRID$|IFCANNOTATION$|IFCVIRTUALELEMENT$|IFCSPATIAL|STRUCTURALMEMBER$|STRUCTURALSURFACE$|STRUCTURALCURVE$|STRUCTURALPOINT$|STRUCTURALCONNECT/;
   const result = new Map<number, string>();
-  for (const [name, code] of Object.entries(WebIFC) as [string, unknown][]) {
-    if (typeof code !== "number") continue;
-    if (!name.startsWith("IFC")) continue;
-    if (skip.test(name)) continue;
-    // Convert IFCTENDONANCHOR → IfcTendonAnchor for display
-    const className = name.charAt(0) + name.slice(1).toLowerCase().replace(/_/g, "").replace(
-      /([a-z])([A-Z])/g, "$1$2"
-    );
-    // Use title-case IFC name: IFCTENDONANCHOR → Ifc + Tendon + Anchor
-    const display = "Ifc" + name.slice(3).charAt(0) + name.slice(4).toLowerCase();
-    result.set(code, display);
+
+  // All explicitly labelled physical elements
+  for (const [k, v] of Object.entries(ELEMENT_LABELS)) {
+    result.set(Number(k), v as string);
   }
+
+  // Spatial structure elements requested by the user
+  const spatial: Array<[number | undefined, string]> = [
+    [WebIFC.IFCSITE,            "Standort"],
+    [WebIFC.IFCBUILDING,        "Gebäude"],
+    [WebIFC.IFCBUILDINGSTOREY,  "Geschoss"],
+    [WebIFC.IFCSPACE,           "Raum"],
+  ];
+  for (const [code, label] of spatial) {
+    if (code !== undefined && !result.has(code)) result.set(code, label);
+  }
+
   return result;
 })();
 
@@ -657,14 +663,10 @@ async function extractStructure(
   }
 
   // ── 2. Elements by type ──────────────────────────────────────────────────
-  // Iterate ALL candidate IFC type codes (not a fixed hand-curated subset).
-  // German labels are used where known; otherwise the IFC class name is the group key.
-  for (const [typeCode, fallbackName] of CANDIDATE_TYPE_CODES) {
+  for (const [typeCode, label] of CANDIDATE_TYPE_CODES) {
     try {
       const ids = api.GetLineIDsWithType(modelId, typeCode);
       if (ids.size() === 0) continue;
-
-      const label = (ELEMENT_LABELS as Record<number, string | undefined>)[typeCode] ?? fallbackName;
       const nodes: ElementNode[] = [];
       for (let i = 0; i < ids.size(); i++) {
         const eid = ids.get(i);
