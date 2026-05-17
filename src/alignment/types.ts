@@ -31,6 +31,9 @@ export interface CurveSegment extends BaseSegment {
 export interface TransitionSegment extends BaseSegment {
   type: "Transition";
   spiralType: string;
+  rot?: "cw" | "ccw";
+  radiusStart?: number;
+  radiusEnd?: number;
 }
 
 export type AlignmentSegment = LineSegment | CurveSegment | TransitionSegment;

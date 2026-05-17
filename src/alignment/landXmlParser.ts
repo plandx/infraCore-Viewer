@@ -272,6 +272,10 @@ function parseTransitionSegment(
     dirEndRaw !== null
       ? xmlDirectionToMathRad(dirEndRaw) ?? tangentStartRad
       : tangentStartRad;
+  const rot: "cw" | "ccw" =
+    (el.getAttribute("rot") || "").toLowerCase() === "cw" ? "cw" : "ccw";
+  const radiusStartRaw = getAttrNum(el, "radiusStart") ?? getAttrNum(el, "radiusIn");
+  const radiusEndRaw   = getAttrNum(el, "radiusEnd")   ?? getAttrNum(el, "radiusOut");
   return {
     type: "Transition",
     staStart,
@@ -282,6 +286,9 @@ function parseTransitionSegment(
     spiralType,
     tangentStartRad,
     tangentEndRad,
+    rot,
+    radiusStart: radiusStartRaw !== null && radiusStartRaw > EPS ? radiusStartRaw : undefined,
+    radiusEnd:   radiusEndRaw   !== null && radiusEndRaw   > EPS ? radiusEndRaw   : undefined,
     typeLabel: "Spirale",
   };
 }
@@ -505,28 +512,50 @@ function sampleSegment(seg: AlignmentSegment, t: number): SampledPoint {
     return { x, y, z, tangentRad };
   }
   if (seg.type === "Transition") {
-    const p0x = seg.start.x;
-    const p0y = seg.start.y;
-    const p1x = seg.end.x;
-    const p1y = seg.end.y;
-    const t0x = Math.cos(seg.tangentStartRad) * seg.length;
-    const t0y = Math.sin(seg.tangentStartRad) * seg.length;
-    const t1x = Math.cos(seg.tangentEndRad) * seg.length;
-    const t1y = Math.sin(seg.tangentEndRad) * seg.length;
-    const t2 = t * t;
-    const t3 = t2 * t;
-    const h00 = 2 * t3 - 3 * t2 + 1;
-    const h10 = t3 - 2 * t2 + t;
-    const h01 = -2 * t3 + 3 * t2;
-    const h11 = t3 - t2;
-    const x = h00 * p0x + h10 * t0x + h01 * p1x + h11 * t1x;
-    const y = h00 * p0y + h10 * t0y + h01 * p1y + h11 * t1y;
-    const tangentRad = normalizeAngleRad(lerp(seg.tangentStartRad, seg.tangentEndRad, t));
+    const L = seg.length;
+    const dTheta = normalizeAngleRad(seg.tangentEndRad - seg.tangentStartRad);
+
+    // Signed curvature convention: positive = CCW (left turn), negative = CW (right turn).
+    // κ(s) varies linearly from k0 to k1 over arc length L.
+    // θ(s) = θ₀ + k0·s + (k1−k0)/(2L)·s²
+    // Constraint: θ(L) − θ₀ = (k0+k1)/2·L = dTheta
+    const rotSign = seg.rot === "cw" ? -1 : (dTheta < 0 ? -1 : 1);
+    let k0: number, k1: number;
+    const r0 = seg.radiusStart;
+    const r1 = seg.radiusEnd;
+    if (r0 !== undefined && r1 !== undefined) {
+      k0 = rotSign / r0;
+      k1 = rotSign / r1;
+    } else if (r0 !== undefined) {
+      k0 = rotSign / r0;
+      k1 = 2 * dTheta / L - k0;
+    } else if (r1 !== undefined) {
+      k1 = rotSign / r1;
+      k0 = 2 * dTheta / L - k1;
+    } else {
+      // Standard Euler spiral (line → curve): κ₀=0, κ₁=2Δθ/L
+      k0 = 0;
+      k1 = 2 * dTheta / L;
+    }
+
+    // Numerical integration using midpoint rule
+    const targetS = t * L;
+    const N = targetS > EPS ? Math.max(8, Math.ceil(Math.abs(targetS))) : 0;
+    const ds = N > 0 ? targetS / N : 0;
+    let x = seg.start.x;
+    let y = seg.start.y;
+    for (let i = 0; i < N; i++) {
+      const s = (i + 0.5) * ds;
+      const theta = seg.tangentStartRad + k0 * s + (k1 - k0) / (2 * L) * s * s;
+      x += Math.cos(theta) * ds;
+      y += Math.sin(theta) * ds;
+    }
+    const endTheta = seg.tangentStartRad + k0 * targetS + (k1 - k0) / (2 * L) * targetS * targetS;
     const z =
       seg.start.z !== null && seg.end.z !== null
         ? lerp(seg.start.z, seg.end.z, t)
         : null;
-    return { x, y, z, tangentRad };
+    return { x, y, z, tangentRad: normalizeAngleRad(endTheta) };
   }
   const _: never = seg;
   void _;
