@@ -310,6 +310,8 @@ Erzeugt semitransparente Füllstand-Overlays über IFC-Elementen.
 - Render-on-demand: `needsRenderRef` wird gesetzt; `requestAnimationFrame`-Loop prüft Flag
 - Klick-Unterdrückung: Mouse-Delta > 5px → kein Klick nach Orbit/Pan
 - Inspektor-Overlays haben `depthTest=false` und `renderOrder=10/11` → immer über IFC-Geometrie sichtbar
+- **three-mesh-bvh**: `acceleratedRaycast` auf `THREE.Mesh.prototype` gepatcht; `computeBoundsTree()` je Geometrie beim Mesh-Index-Rebuild → O(log T) statt O(N·T) pro Klick/Hover. BVH wird bei Modell-Entfernung mit `disposeBoundsTree()` freigegeben.
+- **Frustum Culling** im Raycast: `_frustum/_projMat/_bSphere` pre-alloziert; `raycastPoint()` filtert `pickableMeshesRef` per Frustum-Sphere-Test vor `intersectObjects()` → Meshes außerhalb des Sichtfelds werden übersprungen.
 
 ### Hotpath-Optimierungen (>20 % Throughput-Gewinn)
 

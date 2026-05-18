@@ -183,6 +183,8 @@ Interne Features:
 - **Aktionsleiste** (erscheint bei ≥2 Auswahl): Alle ausblenden / Alle isolieren / **+Korb** / **=Korb** / Auswahl aufheben
 - **Elternelement-Klick**: wählt alle enthaltenen Blatt-Elemente rekursiv
 - **Doppelklick-Zoom**: Kamera zoomt auf Element via `viewer:zoomToElement`
+- **VisibleView virtualisiert** (`@tanstack/react-virtual`): rendert nur die im Scroll-Viewport sichtbaren Zeilen — bleibt auch bei 10k+ Elementen flüssig
+- **TypeGroup-Cap**: Typ-Gruppen zeigen initial max. 150 Elemente; „+ N weitere anzeigen"-Button lädt den Rest — verhindert DOM-Explosion bei großen Gruppen (z.B. 2000× IFCBEAM)
 - **Externe Selektion** wird automatisch hervorgehoben und gescrollt (60ms Verzögerung)
 - Namensänderungen durch Batch-Regeln (`key === "Name"`) werden sofort sichtbar — `applyPropertyEdits` patcht `elementsByType` + `spatialTree` im Store
 
