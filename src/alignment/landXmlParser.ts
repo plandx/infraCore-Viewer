@@ -357,7 +357,7 @@ function parseSpiral(
   const length = attrNum(el, "length");
   if (!start || !end || !length || length < EPS) return null;
 
-  const spiralType = el.getAttribute("spiralType") ?? "clothoid";
+  const spiralType = el.getAttribute("spiralType") ?? el.getAttribute("spiType") ?? "clothoid";
 
   // Prefer explicit rot attribute; fall back to geometric inference.
   const rotAttrStr = attrStr(el, "rot");
@@ -460,6 +460,25 @@ function clothoidOffset(th0: number, k0: number, k1: number, L: number, s: numbe
   return [x1-x0, y1-y0];
 }
 
+// Bloss spiral: k(s) = k0 + (k1-k0)*(3u²-2u³) where u=s/L
+// θ(s) = θ0 + k0*s + (k1-k0)*( s³/L² - s⁴/(2L³) )
+// Position is computed via midpoint numerical integration.
+function blossOffset(th0: number, k0: number, k1: number, L: number, s: number): [number, number] {
+  if (Math.abs(s) < EPS) return [0, 0];
+  const dk = k1 - k0;
+  const N = Math.max(32, Math.ceil(Math.abs(s)));
+  const h = s / N;
+  let x = 0, y = 0;
+  for (let i = 0; i < N; i++) {
+    const sm = (i + 0.5) * h;
+    const u = sm / L;
+    const theta = th0 + k0 * sm + dk * (sm * sm * sm / (L * L) - sm * sm * sm * sm / (2 * L * L * L));
+    x += Math.cos(theta) * h;
+    y += Math.sin(theta) * h;
+  }
+  return [x, y];
+}
+
 // ── Segment sampling ──────────────────────────────────────────────────────────
 function sampleSeg(seg: AlignmentSegment, t: number): SampledPoint {
   t = clamp(t, 0, 1);
@@ -486,7 +505,9 @@ function sampleSeg(seg: AlignmentSegment, t: number): SampledPoint {
 
   if (seg.type === "Transition") {
     const s = t * seg.length;
-    const [dx, dy] = clothoidOffset(seg.tangentStartRad, seg.k0, seg.k1, seg.length, s);
+    const [dx, dy] = seg.spiralType === "bloss"
+      ? blossOffset(seg.tangentStartRad, seg.k0, seg.k1, seg.length, s)
+      : clothoidOffset(seg.tangentStartRad, seg.k0, seg.k1, seg.length, s);
     const L = seg.length, theta = wrapAngle(
       seg.tangentStartRad + seg.k0*s + (seg.k1-seg.k0)/(2*L)*s*s
     );
@@ -518,8 +539,16 @@ function parseProfile(alignEl: Element): ProfileGeometry {
             curveLength: Number.isFinite(parts[2]) ? parts[2] : 0 });
         }
       } else if (tag === "ParaCurve" || tag === "CircCurve") {
-        const sta = attrNum(child, "sta"), elev = attrNum(child, "elev");
+        let sta = attrNum(child, "sta"), elev = attrNum(child, "elev");
         const len = attrNum(child, "length") ?? attrNum(child, "len");
+        // Fallback: ProVI-style inline text "station elev" (no sta/elev attributes)
+        if ((sta === null || elev === null) && child.textContent) {
+          const parts = child.textContent.trim().split(/\s+/).map(Number);
+          if (parts.length >= 2) {
+            if (sta === null && Number.isFinite(parts[0])) sta = parts[0];
+            if (elev === null && Number.isFinite(parts[1])) elev = parts[1];
+          }
+        }
         if (sta !== null && elev !== null && len !== null) {
           vertices.push({ type: tag as "ParaCurve" | "CircCurve", sta, elev, curveLength: len,
             radius: attrNum(child, "radius") ?? undefined });
@@ -806,13 +835,13 @@ export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): 
       }
 
     } else {
-      const n = Math.max(2, Math.ceil(seg.length / Math.max(1, arcSpacingM)));
+      // Transition: sample actual spiral geometry instead of chord interpolation
+      const n = Math.max(4, Math.ceil(seg.length / Math.max(1, arcSpacingM)));
       for (let i = 0; i <= n; i++) {
         const t   = i / n;
-        const x   = lerp(seg.start.x, seg.end.x, t);
-        const y   = lerp(seg.start.y, seg.end.y, t);
+        const pt  = sampleSeg(seg, t);
         const sta = lerp(dispStart, dispEnd, t);
-        pushPt(x, y, getElev(lerp(seg.start.z ?? 0, seg.end.z ?? 0, t), sta), sta);
+        pushPt(pt.x, pt.y, getElev(pt.z, sta), sta);
       }
     }
   }
