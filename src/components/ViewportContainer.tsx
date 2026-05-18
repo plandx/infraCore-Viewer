@@ -22,6 +22,13 @@ import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession 
 import { useAlignmentStore } from "../alignment/alignmentStore";
 import type { PlacedLabel, OffsetMeasurement } from "../alignment/alignmentStore";
 import { buildRobustPolyline } from "../alignment/landXmlParser";
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
+
+// Patch Three.js prototypes once at module load — enables O(log N) BVH raycasting
+// and adds computeBoundsTree / disposeBoundsTree helpers to BufferGeometry.
+(THREE.BufferGeometry.prototype as any).computeBoundsTree = computeBoundsTree;
+(THREE.BufferGeometry.prototype as any).disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 interface Props {
   onElementClick: (modelId: string, expressId: number) => void;
@@ -40,6 +47,10 @@ const _v3  = new THREE.Vector3();
 const _v3b = new THREE.Vector3();
 const _ray = new THREE.Raycaster();
 const _ndc = new THREE.Vector2();
+// Frustum culling pre-allocations
+const _frustum  = new THREE.Frustum();
+const _projMat  = new THREE.Matrix4();
+const _bSphere  = new THREE.Sphere();
 
 export function ViewportContainer({ onElementClick }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -833,7 +844,15 @@ export function ViewportContainer({ onElementClick }: Props) {
     for (const id of Array.from(sceneModelIds.current)) {
       if (!storeIds.has(id)) {
         const obj = scene.getObjectByName(`model:${id}`);
-        if (obj) scene.remove(obj);
+        if (obj) {
+          // Free BVH memory before removing from scene
+          obj.traverse((child) => {
+            if (child instanceof THREE.Mesh && (child.geometry as any).boundsTree) {
+              (child.geometry as any).disposeBoundsTree();
+            }
+          });
+          scene.remove(obj);
+        }
         sceneModelIds.current.delete(id);
       }
     }
@@ -909,6 +928,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!list) { list = []; newIndex.set(key, list); }
       list.push(obj);
       newPickable.push(obj);
+      // Build BVH once per geometry — accelerates raycasting from O(N) to O(log N)
+      if (!(obj.geometry as any).boundsTree) (obj.geometry as any).computeBoundsTree();
 
       // Billing mesh map keyed by IFC GlobalId for cross-file identity checks
       const modelEntry = sessionModels.get(modelId);
@@ -1614,8 +1635,16 @@ export function ViewportContainer({ onElementClick }: Props) {
         : camera;
       _ray.setFromCamera(_ndc, activeCamera);
 
-      // Use pre-built pickable list — avoids O(scene) traversal on every click.
-      const meshes = pickableMeshesRef.current.filter(isWorldVisible);
+      // Frustum culling: discard meshes outside the view before raycasting.
+      _projMat.multiplyMatrices(activeCamera.projectionMatrix, activeCamera.matrixWorldInverse);
+      _frustum.setFromProjectionMatrix(_projMat);
+      const meshes = pickableMeshesRef.current.filter(mesh => {
+        if (!isWorldVisible(mesh)) return false;
+        const bs = mesh.geometry.boundingSphere;
+        if (!bs) return true;
+        _bSphere.copy(bs).applyMatrix4(mesh.matrixWorld);
+        return _frustum.intersectsSphere(_bSphere);
+      });
 
       const hits = _ray.intersectObjects(meshes, false);
       if (!hits.length) return null;

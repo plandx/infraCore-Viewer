@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronRight, ChevronDown, Eye, EyeOff,
   Trash2, Focus, Layers, LayoutList, Search, X,
@@ -328,6 +329,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
         {view === "visible" && (
           <VisibleView
             snapshot={visibleSnapshot}
+            scrollContainerRef={scrollContainerRef}
             onRefresh={captureVisibleSnapshot}
             activeKey={activeKey}
             multiSelected={multiSelected}
@@ -395,10 +397,13 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   );
 }
 
-// ── Visible Elements View ─────────────────────────────────────────────────────
+// ── Visible Elements View (virtualized) ──────────────────────────────────────
 
-function VisibleView({ snapshot, onRefresh, activeKey, multiSelected, onItemClick }: {
+const VISIBLE_ROW_HEIGHT = 26;
+
+function VisibleView({ snapshot, scrollContainerRef, onRefresh, activeKey, multiSelected, onItemClick }: {
   snapshot: VisibleEntry[] | null;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   onRefresh: () => void;
   activeKey: string | null;
   multiSelected: Set<string>;
@@ -406,11 +411,20 @@ function VisibleView({ snapshot, onRefresh, activeKey, multiSelected, onItemClic
 }) {
   useEffect(() => { onRefresh(); }, []);
 
+  const virtualizer = useVirtualizer({
+    count: snapshot?.length ?? 0,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => VISIBLE_ROW_HEIGHT,
+    overscan: 15,
+  });
+
   if (!snapshot) return (
     <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-[11px] gap-2">
       <p>Wird geladen…</p>
     </div>
   );
+
+  const items = virtualizer.getVirtualItems();
 
   return (
     <div>
@@ -429,30 +443,36 @@ function VisibleView({ snapshot, onRefresh, activeKey, multiSelected, onItemClic
           Keine sichtbaren Elemente
         </div>
       )}
-      {snapshot.map((entry) => {
-        const key = `${entry.modelId}:${entry.expressId}`;
-        const isActive = activeKey === key || multiSelected.has(key);
-        return (
-          <div
-            key={key}
-            data-mid={entry.modelId}
-            data-eid={entry.expressId}
-            onClick={(e) => onItemClick(entry.modelId, entry.expressId, e)}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              window.dispatchEvent(new CustomEvent("viewer:zoomToElement", { detail: { modelId: entry.modelId, expressIds: [entry.expressId] } }));
-            }}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1 cursor-pointer border-b border-border/30 hover:bg-muted/40 select-none",
-              isActive && "bg-primary/10 text-primary"
-            )}
-          >
-            <span className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/20" style={{ backgroundColor: entry.modelColor }} />
-            <span className="flex-1 truncate text-[11px]">{entry.name || entry.typeName}</span>
-            <span className="text-[10px] text-muted-foreground/60 shrink-0 truncate max-w-[80px]">{entry.typeName}</span>
-          </div>
-        );
-      })}
+      {snapshot.length > 0 && (
+        <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
+          {items.map((vItem) => {
+            const entry = snapshot[vItem.index];
+            const key = `${entry.modelId}:${entry.expressId}`;
+            const isActive = activeKey === key || multiSelected.has(key);
+            return (
+              <div
+                key={key}
+                data-mid={entry.modelId}
+                data-eid={entry.expressId}
+                onClick={(e) => onItemClick(entry.modelId, entry.expressId, e)}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  window.dispatchEvent(new CustomEvent("viewer:zoomToElement", { detail: { modelId: entry.modelId, expressIds: [entry.expressId] } }));
+                }}
+                className={cn(
+                  "absolute w-full flex items-center gap-1.5 px-3 cursor-pointer border-b border-border/30 hover:bg-muted/40 select-none",
+                  isActive && "bg-primary/10 text-primary"
+                )}
+                style={{ top: vItem.start, height: vItem.size }}
+              >
+                <span className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/20" style={{ backgroundColor: entry.modelColor }} />
+                <span className="flex-1 truncate text-[11px]">{entry.name || entry.typeName}</span>
+                <span className="text-[10px] text-muted-foreground/60 shrink-0 truncate max-w-[80px]">{entry.typeName}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -699,9 +719,15 @@ function typeGroupAreEqual(prev: TypeGroupProps, next: TypeGroupProps): boolean 
   return true;
 }
 
+const TYPE_GROUP_CAP = 150;
+
 const TypeGroup = memo(function TypeGroup({ typeName, elements, modelId, multiSelected, activeKey, expandedTypeGroups, onToggleTypeGroup, onItemClick, forceOpen, hiddenElements, isolatedElements, onHide, onShow, onIsolate, onShowAll }: TypeGroupProps) {
   const groupKey = `${modelId}:${typeName}`;
   const isOpen = forceOpen || expandedTypeGroups.has(groupKey);
+  const [showAll, setShowAll] = useState(false);
+  const displayed = isOpen && !showAll && elements.length > TYPE_GROUP_CAP
+    ? elements.slice(0, TYPE_GROUP_CAP)
+    : elements;
 
   return (
     <div>
@@ -722,7 +748,7 @@ const TypeGroup = memo(function TypeGroup({ typeName, elements, modelId, multiSe
 
       {isOpen && (
         <div>
-          {elements.map((el) => {
+          {displayed.map((el) => {
             const key = `${modelId}:${el.expressId}`;
             const isSelected = multiSelected.has(key) || key === activeKey;
             const isHidden = hiddenElements.has(key);
@@ -759,6 +785,14 @@ const TypeGroup = memo(function TypeGroup({ typeName, elements, modelId, multiSe
               </div>
             );
           })}
+          {!showAll && elements.length > TYPE_GROUP_CAP && (
+            <button
+              className="w-full py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/40 text-center transition-colors"
+              onClick={(e) => { e.stopPropagation(); setShowAll(true); }}
+            >
+              + {elements.length - TYPE_GROUP_CAP} weitere anzeigen
+            </button>
+          )}
         </div>
       )}
     </div>
