@@ -166,9 +166,14 @@ export function AlignmentAnnotations() {
                   <div className="text-muted-foreground text-[9px] truncate mb-0.5">
                     {m.alignmentName}
                   </div>
-                  <div className="font-mono text-[9px]">
+                  <div className="font-mono text-[9px] leading-snug">
                     <span className={m.offset >= 0 ? "text-blue-400" : "text-orange-400"}>
                       {m.offset >= 0 ? "R" : "L"}&nbsp;{Math.abs(m.offset).toFixed(3)} m
+                    </span><br />
+                    <span className="text-muted-foreground">H </span>{Math.abs(m.offset).toFixed(3)} m<br />
+                    <span className="text-muted-foreground">V </span>
+                    <span className={(m.clickWorldY - m.footWorldY) >= 0 ? "text-sky-400" : "text-amber-400"}>
+                      {(m.clickWorldY - m.footWorldY) >= 0 ? "+" : ""}{(m.clickWorldY - m.footWorldY).toFixed(3)} m
                     </span>
                   </div>
                 </div>

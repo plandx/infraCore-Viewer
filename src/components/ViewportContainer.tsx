@@ -1485,13 +1485,20 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!foot.ok && !click.ok) continue;
       const color = store.colors[m.alignmentId] ?? "#ff7043";
       const side  = m.offset >= 0 ? "R" : "L";
+      const dH    = Math.abs(m.offset);
+      const dV    = m.clickWorldY - m.footWorldY;
       out.push({
         id: `offset-${m.id}`,
         storeId: m.id,
         x: (foot.x + click.x) / 2,
         y: (foot.y + click.y) / 2,
         type: "offset",
-        lines: [fmtSta(m.station), `${side} ${Math.abs(m.offset).toFixed(3)} m`],
+        lines: [
+          fmtSta(m.station),
+          `${side} ${Math.abs(m.offset).toFixed(3)} m`,
+          `H ${dH.toFixed(3)} m`,
+          `V ${dV >= 0 ? "+" : ""}${dV.toFixed(3)} m`,
+        ],
         color,
         footX: foot.x, footY: foot.y,
         clickSX: click.x, clickSY: click.y,
@@ -2270,7 +2277,7 @@ export function ViewportContainer({ onElementClick }: Props) {
                 }}
               >
                 <div className="font-semibold" style={{ color: lbl.color }}>{lbl.lines[0]}</div>
-                <div>{lbl.lines[1]}</div>
+                {lbl.lines.slice(1).map((l, i) => <div key={i}>{l}</div>)}
                 {/* Delete button — counter-rotated so it stays upright */}
                 <button
                   className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold leading-none hover:opacity-100 opacity-70 transition-opacity"
