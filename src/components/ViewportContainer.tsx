@@ -34,6 +34,13 @@ interface MeasureLabel {
 }
 
 
+// Pre-allocated objects reused across hot paths — avoids GC pressure at 60fps.
+// Safe as module-level singletons because ViewportContainer mounts only once.
+const _v3  = new THREE.Vector3();
+const _v3b = new THREE.Vector3();
+const _ray = new THREE.Raycaster();
+const _ndc = new THREE.Vector2();
+
 export function ViewportContainer({ onElementClick }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -120,6 +127,10 @@ export function ViewportContainer({ onElementClick }: Props) {
   const alignGroupRef  = useRef<THREE.Group | null>(null);
   const annotGroupRef  = useRef<THREE.Group | null>(null);
   const alignPolylineRef = useRef<Map<number, { pts: Array<{ x: number; y: number; z: number | null; sta: number; ox: number; oy: number; oz: number }>; name: string }>>(new Map());
+  // Cached 3D world positions for station tick labels — rebuilt only on alignment change
+  interface StationTickWorld { wx: number; wy: number; wz: number; color: string; sta: number; alignId: number; }
+  const stationTicksWorldRef = useRef<StationTickWorld[]>([]);
+  const annotRafRef = useRef(0);
   const pickerRef      = useRef<FaceEdgePicker | null>(null);
   const pendingSelectKeyRef = useRef<string | null>(null);
   const [inspSession,  setInspSession]  = useState<InspectionSession | null>(null);
@@ -156,42 +167,41 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     if (mode === "face") {
       for (const face of picker.faces) {
-        const v = new THREE.Vector3(...face.center).project(camera);
-        if (v.z >= 1) continue;
+        _v3.set(...face.center).project(camera);
+        if (_v3.z >= 1) continue;
         out.push({
           id: face.id, type: "face",
           text: `F${face.id + 1} · ${fmt(face.area)} m²`,
-          x: (v.x + 1) / 2 * rect.width,
-          y: (-v.y + 1) / 2 * rect.height,
+          x: (_v3.x + 1) / 2 * rect.width,
+          y: (-_v3.y + 1) / 2 * rect.height,
           selected: picker.selectedFaceIds.has(face.id),
         });
       }
     } else if (mode === "boundary") {
       for (const boundary of picker.faceBoundaries) {
-        const v = new THREE.Vector3(...boundary.center).project(camera);
-        if (v.z >= 1) continue;
+        _v3.set(...boundary.center).project(camera);
+        if (_v3.z >= 1) continue;
         out.push({
           id: boundary.id, type: "edge",
           text: `U${boundary.id + 1} · ${fmt(boundary.totalLength)} m`,
-          x: (v.x + 1) / 2 * rect.width,
-          y: (-v.y + 1) / 2 * rect.height,
+          x: (_v3.x + 1) / 2 * rect.width,
+          y: (-_v3.y + 1) / 2 * rect.height,
           selected: picker.selectedBoundaryIds.has(boundary.id),
         });
       }
     } else {
       for (const edge of picker.edges) {
-        const mid = new THREE.Vector3(
+        _v3.set(
           (edge.start[0] + edge.end[0]) / 2,
           (edge.start[1] + edge.end[1]) / 2,
           (edge.start[2] + edge.end[2]) / 2,
-        );
-        const v = mid.project(camera);
-        if (v.z >= 1) continue;
+        ).project(camera);
+        if (_v3.z >= 1) continue;
         out.push({
           id: edge.id, type: "edge",
           text: `K${edge.id + 1} · ${fmt(edge.length)} m`,
-          x: (v.x + 1) / 2 * rect.width,
-          y: (-v.y + 1) / 2 * rect.height,
+          x: (_v3.x + 1) / 2 * rect.width,
+          y: (-_v3.y + 1) / 2 * rect.height,
           selected: picker.selectedEdgeIds.has(edge.id),
         });
       }
@@ -235,6 +245,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // Render-on-demand: only draw when something changed
   const needsRenderRef = useRef(true);
+  const domRectRef = useRef<DOMRect | null>(null);
 
   // ── Init scene ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -253,6 +264,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     renderer.localClippingEnabled = true;
     mount.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+    domRectRef.current = renderer.domElement.getBoundingClientRect();
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#1a1b26");
@@ -402,6 +414,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     const ro = new ResizeObserver(() => {
       if (!mount) return;
       const w = mount.clientWidth, h = mount.clientHeight;
+      domRectRef.current = renderer.domElement.getBoundingClientRect();
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
@@ -501,11 +514,19 @@ export function ViewportContainer({ onElementClick }: Props) {
     }
 
     rebuild();
-    let prevModelCount = useModelStore.getState().models.length;
-    const unsubAlign = useAlignmentStore.subscribe(rebuild);
-    const unsubModel = useModelStore.subscribe((state) => {
-      if (state.models.length !== prevModelCount) {
-        prevModelCount = state.models.length;
+    let prevModelCount = useModelStore.getState().models.size;
+    const unsubAlign = useAlignmentStore.subscribe((state, prev) => {
+      if (state.files !== prev.files ||
+          state.visibleIds !== prev.visibleIds ||
+          state.colors !== prev.colors ||
+          state.sampleInterval !== prev.sampleInterval ||
+          state.geoOrigin !== prev.geoOrigin) {
+        rebuild();
+      }
+    });
+    const unsubModel = useModelStore.subscribe((state, prev) => {
+      if (state.models.size !== prev.models.size) {
+        prevModelCount = state.models.size;
         rebuild();
       }
     });
@@ -534,7 +555,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       const camera = cameraRef.current;
       if (!camera) return;
 
-      const rect = canvas.getBoundingClientRect();
+      const rect = domRectRef.current ?? canvas.getBoundingClientRect();
       ndcVec.set(
         ((e.clientX - rect.left) / rect.width)  * 2 - 1,
        -((e.clientY - rect.top)  / rect.height) * 2 + 1,
@@ -1279,12 +1300,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     const renderer = rendererRef.current;
     if (!camera || !renderer || measureMidpointsRef.current.length === 0) return;
 
-    const rect = renderer.domElement.getBoundingClientRect();
+    const rect = domRectRef.current ?? renderer.domElement.getBoundingClientRect();
     const labels: MeasureLabel[] = measureMidpointsRef.current.map(({ a, b }) => {
-      const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
-      const proj = mid.clone().project(camera);
-      const x = ((proj.x + 1) / 2) * rect.width;
-      const y = (-(proj.y - 1) / 2) * rect.height;
+      _v3.addVectors(a, b).multiplyScalar(0.5).project(camera);
+      const x = ((_v3.x + 1) / 2) * rect.width;
+      const y = (-(_v3.y - 1) / 2) * rect.height;
       const dist = a.distanceTo(b);
       const text = dist >= 1 ? `${dist.toFixed(3)} m` : `${(dist * 100).toFixed(1)} cm`;
       return { x, y, text };
@@ -1300,6 +1320,39 @@ export function ViewportContainer({ onElementClick }: Props) {
   }, [updateMeasureLabels]);
 
   // ── Annotation label screen-position computation ───────────────────────────
+  const rebuildStationTicksWorld = useCallback(() => {
+    const store = useAlignmentStore.getState();
+    if (!store.stationLabelVisible) { stationTicksWorldRef.current = []; return; }
+    const interval = store.stationLabelInterval;
+    const ticks: StationTickWorld[] = [];
+    for (const [alignId, cache] of alignPolylineRef.current.entries()) {
+      if (!store.visibleIds.has(alignId)) continue;
+      const { pts } = cache;
+      if (pts.length < 2) continue;
+      const color = store.colors[alignId] ?? "#ff7043";
+      const staStart = pts[0].sta;
+      const staEnd   = pts[pts.length - 1].sta;
+      const firstTick = Math.ceil(staStart / interval) * interval;
+      for (let sta = firstTick; sta <= staEnd + 1e-6; sta += interval) {
+        for (let i = 0; i < pts.length - 1; i++) {
+          const A = pts[i], B = pts[i + 1];
+          if (sta < A.sta - 1e-6 || sta > B.sta + 1e-6) continue;
+          const t = Math.min(1, Math.max(0, (sta - A.sta) / Math.max(1e-9, B.sta - A.sta)));
+          const { ox, oy, oz } = A;
+          const az = A.z ?? oz, bz = B.z ?? oz;
+          ticks.push({
+            wx: A.x + t * (B.x - A.x) - ox,
+            wy: az + t * (bz - az) - oz,
+            wz: -((A.y + t * (B.y - A.y)) - oy),
+            color, sta, alignId,
+          });
+          break;
+        }
+      }
+    }
+    stationTicksWorldRef.current = ticks;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const fmtSta = (sta: number) => {
     const km = Math.floor(sta / 1000);
     return `${km}+${(sta - km * 1000).toFixed(0).padStart(3, "0")}`;
@@ -1310,47 +1363,26 @@ export function ViewportContainer({ onElementClick }: Props) {
     const renderer = rendererRef.current;
     if (!camera || !renderer) return;
 
-    const rect = renderer.domElement.getBoundingClientRect();
+    const rect = domRectRef.current ?? renderer.domElement.getBoundingClientRect();
     const store = useAlignmentStore.getState();
     const out: typeof annotLabels = [];
 
     const project = (wx: number, wy: number, wz: number) => {
-      const v = new THREE.Vector3(wx, wy, wz).project(camera);
+      _v3.set(wx, wy, wz).project(camera);
       return {
-        x: ((v.x + 1) / 2) * rect.width,
-        y: (-(v.y - 1) / 2) * rect.height,
-        ok: v.z < 1,
+        x: (_v3.x + 1) / 2 * rect.width,
+        y: (-_v3.y + 1) / 2 * rect.height,
+        ok: _v3.z < 1,
       };
     };
 
-    // Station tick labels
+    // Station tick labels — from pre-computed world positions cache
     if (store.stationLabelVisible) {
-      const interval = store.stationLabelInterval;
-      for (const [alignId, cache] of alignPolylineRef.current.entries()) {
-        if (!store.visibleIds.has(alignId)) continue;
-        const { pts } = cache;
-        if (pts.length < 2) continue;
-        const color = store.colors[alignId] ?? "#ff7043";
-        const staStart = pts[0].sta;
-        const staEnd   = pts[pts.length - 1].sta;
-        const firstTick = Math.ceil(staStart / interval) * interval;
-
-        for (let sta = firstTick; sta <= staEnd + 1e-6; sta += interval) {
-          for (let i = 0; i < pts.length - 1; i++) {
-            const A = pts[i], B = pts[i + 1];
-            if (sta < A.sta - 1e-6 || sta > B.sta + 1e-6) continue;
-            const t = Math.min(1, Math.max(0, (sta - A.sta) / Math.max(1e-9, B.sta - A.sta)));
-            const { ox, oy, oz } = A;
-            const az = A.z ?? oz, bz = B.z ?? oz;
-            const wx = (A.x + t * (B.x - A.x)) - ox;
-            const wy = (az + t * (bz - az)) - oz;
-            const wz = -((A.y + t * (B.y - A.y)) - oy);
-            const s = project(wx, wy, wz);
-            if (s.ok) {
-              out.push({ id: `tick-${alignId}-${sta}`, x: s.x, y: s.y, type: "station", lines: [fmtSta(sta)], color });
-            }
-            break;
-          }
+      for (const tick of stationTicksWorldRef.current) {
+        if (!store.visibleIds.has(tick.alignId)) continue;
+        const s = project(tick.wx, tick.wy, tick.wz);
+        if (s.ok) {
+          out.push({ id: `tick-${tick.alignId}-${tick.sta}`, x: s.x, y: s.y, type: "station", lines: [fmtSta(tick.sta)], color: tick.color });
         }
       }
     }
@@ -1369,7 +1401,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       out.push({ id: `placed-${lbl.id}`, x: s.x, y: s.y, type: "placed", lines, color });
     }
 
-    // Offset labels (rendered at midpoint of click↔foot line)
+    // Offset labels
     for (const m of store.offsetMeasurements) {
       const foot  = project(m.footWorldX,  m.footWorldY,  m.footWorldZ);
       const click = project(m.clickWorldX, m.clickWorldY, m.clickWorldZ);
@@ -1391,45 +1423,73 @@ export function ViewportContainer({ onElementClick }: Props) {
     setAnnotLabels(out);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Rebuild 3D offset lines + recompute screen labels on any annotation store change
-  useEffect(() => {
-    function rebuild() {
-      const group = annotGroupRef.current;
-      if (group) {
-        while (group.children.length > 0) {
-          const child = group.children[0] as THREE.Line;
-          child.geometry?.dispose();
-          (child.material as THREE.Material)?.dispose();
-          group.remove(child);
-        }
-        const { offsetMeasurements, colors } = useAlignmentStore.getState();
-        for (const m of offsetMeasurements) {
-          const A = new THREE.Vector3(m.footWorldX,  m.footWorldY,  m.footWorldZ);
-          const B = new THREE.Vector3(m.clickWorldX, m.clickWorldY, m.clickWorldZ);
-          const geo = new THREE.BufferGeometry().setFromPoints([A, B]);
-          const col = new THREE.Color(colors[m.alignmentId] ?? "#4caf50");
-          const mat = new THREE.LineDashedMaterial({ color: col, dashSize: 0.3, gapSize: 0.15 });
-          const line = new THREE.Line(geo, mat);
-          line.computeLineDistances();
-          line.renderOrder = 997;
-          group.add(line);
-        }
-        needsRenderRef.current = true;
-      }
+  const scheduleAnnotLabels = useCallback(() => {
+    if (annotRafRef.current) return;
+    annotRafRef.current = requestAnimationFrame(() => {
+      annotRafRef.current = 0;
       updateAnnotLabels();
-    }
-    rebuild();
-    const unsub = useAlignmentStore.subscribe(rebuild);
-    return () => unsub();
+    });
   }, [updateAnnotLabels]);
 
-  // Also re-project annotation labels on camera pan/zoom
+  // Rebuild 3D offset lines when offsetMeasurements changes; reproject labels on annotation data change
+  useEffect(() => {
+    function rebuildAnnotLines() {
+      const group = annotGroupRef.current;
+      if (!group) return;
+      while (group.children.length > 0) {
+        const child = group.children[0] as THREE.Line;
+        child.geometry?.dispose();
+        (child.material as THREE.Material)?.dispose();
+        group.remove(child);
+      }
+      const { offsetMeasurements, colors } = useAlignmentStore.getState();
+      for (const m of offsetMeasurements) {
+        const A = new THREE.Vector3(m.footWorldX,  m.footWorldY,  m.footWorldZ);
+        const B = new THREE.Vector3(m.clickWorldX, m.clickWorldY, m.clickWorldZ);
+        const geo = new THREE.BufferGeometry().setFromPoints([A, B]);
+        const col = new THREE.Color(colors[m.alignmentId] ?? "#4caf50");
+        const mat = new THREE.LineDashedMaterial({ color: col, dashSize: 0.3, gapSize: 0.15 });
+        const line = new THREE.Line(geo, mat);
+        line.computeLineDistances();
+        line.renderOrder = 997;
+        group.add(line);
+      }
+      needsRenderRef.current = true;
+    }
+
+    rebuildAnnotLines();
+    rebuildStationTicksWorld();
+    updateAnnotLabels();
+
+    const unsub = useAlignmentStore.subscribe((state, prev) => {
+      if (state.offsetMeasurements !== prev.offsetMeasurements) rebuildAnnotLines();
+      if (state.stationLabelVisible !== prev.stationLabelVisible ||
+          state.stationLabelInterval !== prev.stationLabelInterval ||
+          state.files !== prev.files ||
+          state.visibleIds !== prev.visibleIds ||
+          state.colors !== prev.colors) {
+        rebuildStationTicksWorld();
+      }
+      if (state.stationLabelVisible !== prev.stationLabelVisible ||
+          state.stationLabelInterval !== prev.stationLabelInterval ||
+          state.placedLabels !== prev.placedLabels ||
+          state.offsetMeasurements !== prev.offsetMeasurements ||
+          state.visibleIds !== prev.visibleIds ||
+          state.files !== prev.files ||
+          state.colors !== prev.colors) {
+        scheduleAnnotLabels();
+      }
+    });
+    return () => unsub();
+  }, [rebuildStationTicksWorld, updateAnnotLabels, scheduleAnnotLabels]);
+
+  // Re-project annotation labels on camera pan/zoom (RAF-throttled)
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
-    controls.addEventListener("change", updateAnnotLabels);
-    return () => controls.removeEventListener("change", updateAnnotLabels);
-  }, [updateAnnotLabels]);
+    controls.addEventListener("change", scheduleAnnotLabels);
+    return () => controls.removeEventListener("change", scheduleAnnotLabels);
+  }, [scheduleAnnotLabels]);
 
   // ── Alignment click helpers ────────────────────────────────────────────────
   // Returns the closest point on visible alignment polylines to the mouse ray.
@@ -1534,22 +1594,21 @@ export function ViewportContainer({ onElementClick }: Props) {
       const scene = sceneRef.current;
       if (!renderer || !camera || !scene) return null;
 
-      const rect = renderer.domElement.getBoundingClientRect();
-      const mouse = new THREE.Vector2(
+      const rect = domRectRef.current ?? renderer.domElement.getBoundingClientRect();
+      _ndc.set(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
         -((e.clientY - rect.top) / rect.height) * 2 + 1,
       );
 
-      const raycaster = new THREE.Raycaster();
       const activeCamera = useModelStore.getState().settings.orthographic
         ? orthoCameraRef.current ?? camera
         : camera;
-      raycaster.setFromCamera(mouse, activeCamera);
+      _ray.setFromCamera(_ndc, activeCamera);
 
       // Use pre-built pickable list — avoids O(scene) traversal on every click.
       const meshes = pickableMeshesRef.current.filter(isWorldVisible);
 
-      const hits = raycaster.intersectObjects(meshes, false);
+      const hits = _ray.intersectObjects(meshes, false);
       if (!hits.length) return null;
 
       // Reject hits whose point is on the clipped side of any active section plane
@@ -1588,12 +1647,12 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     // Inspection mode: route clicks to picker (check ref only — inspSession is React state and would be stale in this closure)
     if (pickerRef.current && rendererRef.current && cameraRef.current) {
-      const rect = rendererRef.current.domElement.getBoundingClientRect();
-      const ndc = new THREE.Vector2(
+      const rect = domRectRef.current ?? rendererRef.current.domElement.getBoundingClientRect();
+      _ndc.set(
         ((e.clientX - rect.left) / rect.width)  * 2 - 1,
         -((e.clientY - rect.top)  / rect.height) * 2 + 1,
       );
-      pickerRef.current.onClick(ndc, cameraRef.current, e.ctrlKey, inspPickModeRef.current);
+      pickerRef.current.onClick(_ndc, cameraRef.current, e.ctrlKey, inspPickModeRef.current);
       needsRenderRef.current = true;
       return;
     }
@@ -1787,12 +1846,12 @@ export function ViewportContainer({ onElementClick }: Props) {
     }
     // Inspection hover
     if (pickerRef.current && cameraRef.current && rendererRef.current) {
-      const rect = rendererRef.current.domElement.getBoundingClientRect();
-      const ndc = new THREE.Vector2(
+      const rect = domRectRef.current ?? rendererRef.current.domElement.getBoundingClientRect();
+      _ndc.set(
         ((e.clientX - rect.left) / rect.width)  * 2 - 1,
         -((e.clientY - rect.top)  / rect.height) * 2 + 1,
       );
-      if (pickerRef.current.onMouseMove(ndc, cameraRef.current)) needsRenderRef.current = true;
+      if (pickerRef.current.onMouseMove(_ndc, cameraRef.current)) needsRenderRef.current = true;
     }
   }, []);
 
@@ -1852,12 +1911,12 @@ export function ViewportContainer({ onElementClick }: Props) {
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // In edge-pick mode: flood-select all connected edges from the clicked one
     if (pickerRef.current && inspPickModeRef.current === "edge" && rendererRef.current && cameraRef.current) {
-      const rect = rendererRef.current.domElement.getBoundingClientRect();
-      const ndc = new THREE.Vector2(
+      const rect = domRectRef.current ?? rendererRef.current.domElement.getBoundingClientRect();
+      _ndc.set(
         ((e.clientX - rect.left) / rect.width)  * 2 - 1,
         -((e.clientY - rect.top)  / rect.height) * 2 + 1,
       );
-      if (pickerRef.current.onDblClick(ndc, cameraRef.current)) {
+      if (pickerRef.current.onDblClick(_ndc, cameraRef.current)) {
         needsRenderRef.current = true;
         return;
       }
