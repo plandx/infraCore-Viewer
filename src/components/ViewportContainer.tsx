@@ -928,8 +928,6 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!list) { list = []; newIndex.set(key, list); }
       list.push(obj);
       newPickable.push(obj);
-      // Build BVH once per geometry — accelerates raycasting from O(N) to O(log N)
-      if (!(obj.geometry as any).boundsTree) (obj.geometry as any).computeBoundsTree();
 
       // Billing mesh map keyed by IFC GlobalId for cross-file identity checks
       const modelEntry = sessionModels.get(modelId);
@@ -951,6 +949,27 @@ export function ViewportContainer({ onElementClick }: Props) {
     edgeLinesRef.current = newEdges;
     pickableMeshesRef.current = newPickable;
     billingMeshMapRef.current = newBillingMap;
+
+    // Build BVHs in idle-time batches — never blocks the main thread.
+    const bvhQueue = newPickable
+      .map(m => m.geometry)
+      .filter((g, i, arr) => arr.indexOf(g) === i && !(g as any).boundsTree);
+    if (bvhQueue.length > 0) {
+      const processBatch = () => {
+        const batch = bvhQueue.splice(0, 20);
+        for (const geo of batch) {
+          if (!(geo as any).boundsTree) (geo as any).computeBoundsTree();
+        }
+        if (bvhQueue.length > 0) {
+          ("requestIdleCallback" in window)
+            ? requestIdleCallback(processBatch, { timeout: 500 })
+            : setTimeout(processBatch, 0);
+        }
+      };
+      ("requestIdleCallback" in window)
+        ? requestIdleCallback(processBatch, { timeout: 500 })
+        : setTimeout(processBatch, 0);
+    }
 
     // If 5D module is active, re-run viz with the freshly built mesh map.
     // The billing store subscription only fires on billing changes, not model changes —

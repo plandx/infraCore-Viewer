@@ -4,25 +4,41 @@ function useSimpleVirtualizer(
   count: number,
   itemHeight: number,
   scrollRef: React.RefObject<HTMLDivElement | null>,
-  overscan = 15,
+  overscan = 12,
 ) {
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewHeight, setViewHeight] = useState(600);
+  const [range, setRange] = useState({ start: 0, end: 30 });
+  const viewHeightRef = useRef(600);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    setViewHeight(el.clientHeight);
-    setScrollTop(el.scrollTop);
-    const onScroll = () => setScrollTop(el.scrollTop);
-    const ro = new ResizeObserver(() => setViewHeight(el.clientHeight));
+    viewHeightRef.current = el.clientHeight;
+
+    const calc = (scrollTop: number) => ({
+      start: Math.max(0, Math.floor(scrollTop / itemHeight) - overscan),
+      end:   Math.min(count - 1, Math.ceil((scrollTop + viewHeightRef.current) / itemHeight) + overscan),
+    });
+
+    // Only call setState when the rendered slice actually changes — avoids
+    // a re-render on every scroll pixel (items are 26px, so re-render every ~26px instead).
+    const onScroll = () => {
+      const next = calc(el.scrollTop);
+      setRange(prev => prev.start === next.start && prev.end === next.end ? prev : next);
+    };
+    const ro = new ResizeObserver(() => {
+      viewHeightRef.current = el.clientHeight;
+      onScroll();
+    });
+
+    setRange(calc(el.scrollTop));
     el.addEventListener("scroll", onScroll, { passive: true });
     ro.observe(el);
     return () => { el.removeEventListener("scroll", onScroll); ro.disconnect(); };
-  }, [scrollRef]);
-  const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
-  const end   = Math.min(count - 1, Math.ceil((scrollTop + viewHeight) / itemHeight) + overscan);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollRef, count, itemHeight]);
+
   const items = [];
-  for (let i = start; i <= end; i++) items.push({ index: i, start: i * itemHeight, size: itemHeight });
+  for (let i = range.start; i <= range.end; i++) items.push({ index: i, start: i * itemHeight, size: itemHeight });
   return { items, totalSize: count * itemHeight };
 }
 import {
