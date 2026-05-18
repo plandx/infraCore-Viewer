@@ -494,7 +494,9 @@ function clothoidOffset(th0: number, k0: number, k1: number, L: number, s: numbe
 function blossOffset(th0: number, k0: number, k1: number, L: number, s: number): [number, number] {
   if (Math.abs(s) < EPS) return [0, 0];
   const dk = k1 - k0;
-  const N = Math.max(32, Math.ceil(Math.abs(s)));
+  // Midpoint-rule accuracy is O(h²). For typical railway spirals (dk ≈ 1/R,
+  // s ≤ L ≤ 500m) one step per 10 m gives sub-millimetre lateral error.
+  const N = Math.max(4, Math.ceil(Math.abs(s) / 10));
   const h = s / N;
   let x = 0, y = 0;
   for (let i = 0; i < N; i++) {

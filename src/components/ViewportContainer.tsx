@@ -499,6 +499,16 @@ export function ViewportContainer({ onElementClick }: Props) {
     const canvas = rendererRef.current?.domElement;
     if (!canvas) return;
 
+    // Reusable objects — allocated once, reused on every mousemove.
+    const raycaster = new THREE.Raycaster();
+    const ndcVec    = new THREE.Vector2();
+    const p0        = new THREE.Vector3();
+    const p1        = new THREE.Vector3();
+    const seg3      = new THREE.Vector3();
+    const w3        = new THREE.Vector3();
+    const closest3  = new THREE.Vector3();
+    const rayPt3    = new THREE.Vector3();
+
     const onMouseMove = (e: MouseEvent) => {
       const { stationToolActive, setHoveredStation, files, visibleIds } = useAlignmentStore.getState();
       if (!stationToolActive) return;
@@ -507,11 +517,11 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!camera) return;
 
       const rect = canvas.getBoundingClientRect();
-      const ndcX =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
-      const ndcY = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
-
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+      ndcVec.set(
+        ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+       -((e.clientY - rect.top)  / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(ndcVec, camera);
       const rayOrigin = raycaster.ray.origin;
       const rayDir    = raycaster.ray.direction;
 
@@ -522,6 +532,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       let bestInfo: { alignmentId: number; station: number; name: string } | null = null;
 
       const allIds = new Set(files.flatMap(f => f.alignments.map(a => a.id)));
+      const c = rayDir.dot(rayDir);
 
       for (const [alignId, cache] of alignPolylineRef.current.entries()) {
         if (!visibleIds.has(alignId) || !allIds.has(alignId)) continue;
@@ -529,24 +540,23 @@ export function ViewportContainer({ onElementClick }: Props) {
         for (let i = 0; i < pts.length - 1; i++) {
           const A = pts[i], B = pts[i + 1];
           const { ox, oy, oz } = A;
-          const p0 = new THREE.Vector3(A.x - ox, A.z - oz, -(A.y - oy));
-          const p1 = new THREE.Vector3(B.x - ox, B.z - oz, -(B.y - oy));
+          p0.set(A.x - ox, A.z - oz, -(A.y - oy));
+          p1.set(B.x - ox, B.z - oz, -(B.y - oy));
 
-          const seg = p1.clone().sub(p0);
-          const w   = p0.clone().sub(rayOrigin);
-          const a   = seg.dot(seg);
-          const b   = seg.dot(rayDir);
-          const c   = rayDir.dot(rayDir);
-          const d   = seg.dot(w);
-          const ev  = rayDir.dot(w);
+          seg3.subVectors(p1, p0);
+          w3.subVectors(p0, rayOrigin);
+          const a   = seg3.dot(seg3);
+          const b   = seg3.dot(rayDir);
+          const d   = seg3.dot(w3);
+          const ev  = rayDir.dot(w3);
           const denom = a * c - b * b;
           let sc = denom > 1e-10 ? clampVal((b * ev - c * d) / denom, 0, 1) : 0;
           const tc = (b * sc + ev) / c;
           if (tc < 0) sc = clampVal(-d / a, 0, 1);
 
-          const closest = p0.clone().addScaledVector(seg, sc);
-          const rayPt   = rayOrigin.clone().addScaledVector(rayDir, Math.max(0, (b * sc + ev) / c));
-          const dist    = closest.distanceTo(rayPt);
+          closest3.copy(p0).addScaledVector(seg3, sc);
+          rayPt3.copy(rayOrigin).addScaledVector(rayDir, Math.max(0, (b * sc + ev) / c));
+          const dist = closest3.distanceTo(rayPt3);
 
           if (dist < bestDist) {
             bestDist = dist;
@@ -973,16 +983,24 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     const newMats: THREE.Material[] = [];
     const overridden: THREE.Mesh[] = [];
+    // One material per unique (color, opacity) — avoids N duplicate materials
+    // when many elements share the same visual style.
+    const matCache = new Map<string, THREE.MeshLambertMaterial>();
 
     colorMap.forEach((entry, key) => {
       const meshes = meshIndexRef.current.get(key);
       if (!meshes) return;
-      const mat = new THREE.MeshLambertMaterial({
-        color: new THREE.Color(entry.color),
-        transparent: entry.opacity < 1,
-        opacity: entry.opacity,
-      });
-      newMats.push(mat);
+      const matKey = `${entry.color}:${entry.opacity}`;
+      let mat = matCache.get(matKey);
+      if (!mat) {
+        mat = new THREE.MeshLambertMaterial({
+          color: new THREE.Color(entry.color),
+          transparent: entry.opacity < 1,
+          opacity: entry.opacity,
+        });
+        matCache.set(matKey, mat);
+        newMats.push(mat);
+      }
       for (const obj of meshes) {
         obj.userData.originalMaterial = obj.material;
         obj.material = mat;
