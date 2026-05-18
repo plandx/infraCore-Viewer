@@ -71,6 +71,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   // Annotation label overlay (station ticks, placed labels, offset measurements)
   interface AnnotLabel {
     id: string;
+    storeId?: string;             // original store ID for delete actions
     x: number; y: number;
     type: "station" | "placed" | "offset";
     lines: string[];
@@ -1376,10 +1377,13 @@ export function ViewportContainer({ onElementClick }: Props) {
       };
     };
 
-    // Station tick labels — from pre-computed world positions cache
+    // Station tick labels — from pre-computed world positions cache (culled to 2500 m radius)
     if (store.stationLabelVisible) {
+      const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
       for (const tick of stationTicksWorldRef.current) {
         if (!store.visibleIds.has(tick.alignId)) continue;
+        const dx = tick.wx - cx, dy = tick.wy - cy, dz = tick.wz - cz;
+        if (dx*dx + dy*dy + dz*dz > 2500*2500) continue;
         const s = project(tick.wx, tick.wy, tick.wz);
         if (s.ok) {
           out.push({ id: `tick-${tick.alignId}-${tick.sta}`, x: s.x, y: s.y, type: "station", lines: [fmtSta(tick.sta)], color: tick.color });
@@ -1398,7 +1402,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         `Y ${lbl.northing.toFixed(3)}`,
         ...(lbl.elevation !== null ? [`Z ${lbl.elevation.toFixed(3)}`] : []),
       ];
-      out.push({ id: `placed-${lbl.id}`, x: s.x, y: s.y, type: "placed", lines, color });
+      out.push({ id: `placed-${lbl.id}`, storeId: lbl.id, x: s.x, y: s.y, type: "placed", lines, color });
     }
 
     // Offset labels
@@ -1410,6 +1414,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       const side  = m.offset >= 0 ? "R" : "L";
       out.push({
         id: `offset-${m.id}`,
+        storeId: m.id,
         x: (foot.x + click.x) / 2,
         y: (foot.y + click.y) / 2,
         type: "offset",
@@ -1665,33 +1670,32 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     // ── Alignment annotation tools ───────────────────────────────────────────
     const annotStore = useAlignmentStore.getState();
-    if (annotStore.labelToolActive || annotStore.offsetToolActive) {
+
+    if (annotStore.labelToolActive) {
+      // Label tool: snap to closest point on alignment (ray-to-polyline)
       const closest = findClosestAlignPoint(e);
       if (!closest) return;
       const { alignId, station, foot, landXML } = closest;
       const alignName = alignPolylineRef.current.get(alignId)?.name ?? "";
+      const lbl: PlacedLabel = {
+        id: crypto.randomUUID(),
+        alignmentId: alignId,
+        alignmentName: alignName,
+        station,
+        easting:   landXML.x,
+        northing:  landXML.y,
+        elevation: landXML.z,
+        worldX: foot.x,
+        worldY: foot.y,
+        worldZ: foot.z,
+      };
+      useAlignmentStore.getState().addPlacedLabel(lbl);
+      needsRenderRef.current = true;
+      return;
+    }
 
-      if (annotStore.labelToolActive) {
-        const lbl: PlacedLabel = {
-          id: crypto.randomUUID(),
-          alignmentId: alignId,
-          alignmentName: alignName,
-          station,
-          easting:   landXML.x,
-          northing:  landXML.y,
-          elevation: landXML.z,
-          worldX: foot.x,
-          worldY: foot.y,
-          worldZ: foot.z,
-        };
-        useAlignmentStore.getState().addPlacedLabel(lbl);
-        needsRenderRef.current = true;
-        return;
-      }
-
-      if (annotStore.offsetToolActive) {
-        // Get actual 3D click point from IFC geometry, falling back to the
-        // horizontal plane at the alignment foot elevation.
+    if (annotStore.offsetToolActive) {
+      // Get 3D click point from IFC geometry; fall back to Y=0 horizontal plane.
         let clickPt: THREE.Vector3;
         if (hit) {
           clickPt = hit.point;
@@ -1699,54 +1703,74 @@ export function ViewportContainer({ onElementClick }: Props) {
           const camera   = cameraRef.current;
           const renderer = rendererRef.current;
           if (!camera || !renderer) return;
-          const rect = renderer.domElement.getBoundingClientRect();
-          const mouse = new THREE.Vector2(
+          const rect = domRectRef.current ?? renderer.domElement.getBoundingClientRect();
+          _ndc.set(
             ((e.clientX - rect.left) / rect.width)  * 2 - 1,
             -((e.clientY - rect.top) / rect.height) * 2 + 1,
           );
-          const rc = new THREE.Raycaster();
-          rc.setFromCamera(mouse, camera);
-          const plane  = new THREE.Plane(new THREE.Vector3(0, 1, 0), -foot.y);
+          _ray.setFromCamera(_ndc, camera);
           const target = new THREE.Vector3();
-          if (!rc.ray.intersectPlane(plane, target)) return;
+          if (!_ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), target)) return;
           clickPt = target;
         }
 
-        // Alignment tangent at foot (from surrounding polyline segments)
-        let tx = 0, tz = 0;
-        const cache = alignPolylineRef.current.get(alignId);
-        if (cache) {
-          for (let i = 0; i < cache.pts.length - 1; i++) {
-            const A = cache.pts[i], B = cache.pts[i + 1];
-            if (station >= A.sta - 1e-6 && station <= B.sta + 1e-6) {
-              const { ox, oy } = A;
-              tx = (B.x - A.x); tz = -(B.y - A.y - (oy - oy)); // XZ
-              tx = (B.x - ox) - (A.x - ox); tz = -(B.y - A.y);
-              const len = Math.hypot(tx, tz);
-              if (len > 1e-9) { tx /= len; tz /= len; }
-              break;
-            }
+        // Find the perpendicular foot on the nearest visible alignment by projecting
+        // clickPt horizontally (XZ) onto each polyline segment.
+        const { visibleIds } = useAlignmentStore.getState();
+        let bestDist2 = Infinity, bestAlignId2 = -1, bestT2 = 0, bestSegIdx = 0;
+        let bestCacheRef: { pts: Array<{ x: number; y: number; z: number | null; sta: number; ox: number; oy: number; oz: number }>; name: string } | null = null;
+
+        for (const [aId, aCache] of alignPolylineRef.current.entries()) {
+          if (!visibleIds.has(aId)) continue;
+          const { pts } = aCache;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const A = pts[i], B = pts[i + 1];
+            const { ox, oy } = A;
+            const ax = A.x - ox, az = -(A.y - oy);
+            const bx = B.x - ox, bz = -(B.y - oy);
+            const dx = bx - ax, dz = bz - az;
+            const len2 = dx*dx + dz*dz;
+            if (len2 < 1e-12) continue;
+            const t = Math.max(0, Math.min(1, ((clickPt.x - ax)*dx + (clickPt.z - az)*dz) / len2));
+            const ex = ax + t*dx - clickPt.x, ez = az + t*dz - clickPt.z;
+            const d2 = ex*ex + ez*ez;
+            if (d2 < bestDist2) { bestDist2 = d2; bestAlignId2 = aId; bestT2 = t; bestSegIdx = i; bestCacheRef = aCache; }
           }
         }
-        // Right-hand perpendicular in XZ: T × UP = (-tz, 0, tx)
-        const right = new THREE.Vector3(-tz, 0, tx);
-        const diff  = new THREE.Vector3().subVectors(clickPt, foot);
-        const signedOffset = diff.dot(right);
-        const horzOffset   = Math.sign(signedOffset) * Math.hypot(diff.x, diff.z);
+
+        if (bestAlignId2 < 0 || !bestCacheRef) return;
+
+        const SA = bestCacheRef.pts[bestSegIdx], SB = bestCacheRef.pts[bestSegIdx + 1];
+        const { ox, oy, oz } = SA;
+        const foot = new THREE.Vector3(
+          SA.x + bestT2 * (SB.x - SA.x) - ox,
+          (SA.z ?? oz) + bestT2 * ((SB.z ?? oz) - (SA.z ?? oz)) - oz,
+          -((SA.y + bestT2 * (SB.y - SA.y)) - oy),
+        );
+        const perpStation = SA.sta + bestT2 * (SB.sta - SA.sta);
+
+        // Tangent at foot (scene XZ), then right-hand normal
+        let ttx = SB.x - SA.x, ttz = -(SB.y - SA.y);
+        const tlen = Math.hypot(ttx, ttz);
+        if (tlen > 1e-9) { ttx /= tlen; ttz /= tlen; }
+        const right = new THREE.Vector3(-ttz, 0, ttx);
+
+        // True perpendicular (normal-to-tangent) distance: project diff onto right normal
+        const diff = new THREE.Vector3().subVectors(clickPt, foot);
+        const offset = diff.dot(right);  // signed: + = right of axis, - = left
 
         const m: OffsetMeasurement = {
           id: crypto.randomUUID(),
-          alignmentId: alignId,
-          alignmentName: alignName,
-          station,
-          offset: horzOffset,
+          alignmentId: bestAlignId2,
+          alignmentName: bestCacheRef.name,
+          station: perpStation,
+          offset,
           clickWorldX: clickPt.x, clickWorldY: clickPt.y, clickWorldZ: clickPt.z,
           footWorldX:  foot.x,    footWorldY:  foot.y,    footWorldZ:  foot.z,
         };
-        useAlignmentStore.getState().addOffsetMeasurement(m);
-        needsRenderRef.current = true;
-        return;
-      }
+      useAlignmentStore.getState().addOffsetMeasurement(m);
+      needsRenderRef.current = true;
+      return;
     }
 
     if (activeTool === "measure") {
@@ -2113,18 +2137,24 @@ export function ViewportContainer({ onElementClick }: Props) {
           return (
             <div
               key={lbl.id}
-              className="absolute pointer-events-none select-none"
-              style={{ left: lbl.x, top: lbl.y, transform: "translate(6px, -50%)" }}
+              className="absolute select-none"
+              style={{ left: lbl.x, top: lbl.y, transform: "translate(6px, -50%)", pointerEvents: "none" }}
             >
               {/* Pin dot */}
               <div className="absolute -left-5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2"
                 style={{ backgroundColor: lbl.color, borderColor: lbl.color, boxShadow: `0 0 4px ${lbl.color}` }} />
               <div
-                className="text-[9px] font-mono px-1.5 py-1 rounded whitespace-nowrap shadow-lg leading-snug"
+                className="relative text-[9px] font-mono px-1.5 py-1 rounded whitespace-nowrap shadow-lg leading-snug"
                 style={{ backgroundColor: "rgba(0,0,0,0.75)", border: `1px solid ${lbl.color}66`, color: "#e4e4e7" }}
               >
                 <div className="font-semibold mb-0.5" style={{ color: lbl.color }}>{lbl.lines[0]}</div>
                 {lbl.lines.slice(1).map((l, i) => <div key={i}>{l}</div>)}
+                {/* Delete button */}
+                <button
+                  className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold leading-none hover:opacity-100 opacity-70 transition-opacity"
+                  style={{ backgroundColor: "rgba(0,0,0,0.8)", border: `1px solid ${lbl.color}88`, color: lbl.color, pointerEvents: "auto" }}
+                  onClick={() => lbl.storeId && useAlignmentStore.getState().removePlacedLabel(lbl.storeId)}
+                >×</button>
               </div>
             </div>
           );
@@ -2137,7 +2167,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           const len = Math.hypot(dx, dy);
           const angle = Math.atan2(dy, dx) * 180 / Math.PI;
           return (
-            <div key={lbl.id} className="absolute pointer-events-none select-none" style={{ left: 0, top: 0 }}>
+            <div key={lbl.id} className="absolute select-none" style={{ left: 0, top: 0, pointerEvents: "none" }}>
               {/* Offset line SVG */}
               {len > 2 && (
                 <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none">
@@ -2160,6 +2190,18 @@ export function ViewportContainer({ onElementClick }: Props) {
               >
                 <div className="font-semibold" style={{ color: lbl.color }}>{lbl.lines[0]}</div>
                 <div>{lbl.lines[1]}</div>
+                {/* Delete button — counter-rotated so it stays upright */}
+                <button
+                  className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold leading-none hover:opacity-100 opacity-70 transition-opacity"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.8)",
+                    border: `1px solid ${lbl.color}88`,
+                    color: lbl.color,
+                    pointerEvents: "auto",
+                    transform: `rotate(${-(angle > 90 || angle < -90 ? angle + 180 : angle)}deg)`,
+                  }}
+                  onClick={() => lbl.storeId && useAlignmentStore.getState().removeOffsetMeasurement(lbl.storeId)}
+                >×</button>
               </div>
             </div>
           );
