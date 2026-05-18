@@ -1485,7 +1485,6 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!foot.ok && !click.ok) continue;
       const color = store.colors[m.alignmentId] ?? "#ff7043";
       const side  = m.offset >= 0 ? "R" : "L";
-      const dH    = Math.abs(m.offset);
       const dV    = m.clickWorldY - m.footWorldY;
       out.push({
         id: `offset-${m.id}`,
@@ -1496,7 +1495,6 @@ export function ViewportContainer({ onElementClick }: Props) {
         lines: [
           fmtSta(m.station),
           `${side} ${Math.abs(m.offset).toFixed(3)} m`,
-          `H ${dH.toFixed(3)} m`,
           `V ${dV >= 0 ? "+" : ""}${dV.toFixed(3)} m`,
         ],
         color,
