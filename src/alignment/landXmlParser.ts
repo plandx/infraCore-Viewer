@@ -88,6 +88,34 @@ function detectAngularUnit(root: Element): AngularUnit {
     if (Number.isFinite(v) && v > 360) return "gon";
   }
 
+  // Spiral-theta verification: for a clothoid θ = (k₀+k₁)/2·L (radians).
+  // Compare the file's theta attribute against the geometrically expected value
+  // in each candidate unit to determine which unit was actually used.
+  // This reliably handles files that omit the angularUnit attribute but use
+  // radians (common in ProVI and other German civil-engineering tools).
+  try {
+    const spirals = (root.getElementsByTagNameNS?.("*", "Spiral")
+      ?? root.querySelectorAll?.("Spiral")
+      ?? []) as HTMLCollectionOf<Element> | Element[];
+    for (let si = 0; si < Math.min((spirals as { length: number }).length, 6); si++) {
+      const sp = (spirals as ArrayLike<Element>)[si];
+      const theta  = Number(sp.getAttribute("theta")  ?? "");
+      const length = Number(sp.getAttribute("length") ?? "");
+      const rSRaw  = sp.getAttribute("radiusStart") ?? "";
+      const rERaw  = sp.getAttribute("radiusEnd")   ?? "";
+      if (!Number.isFinite(theta) || theta <= 0 || !Number.isFinite(length) || length < 0.1) continue;
+      const isInf = (s: string) => s === "" || s.toUpperCase() === "INF" || Number(s) > 1e8;
+      const k0 = isInf(rSRaw) ? 0 : 1 / Number(rSRaw);
+      const k1 = isInf(rERaw) ? 0 : 1 / Number(rERaw);
+      if (Math.abs(k0) + Math.abs(k1) < 1e-10) continue;
+      const expRad = Math.abs(k0 + k1) / 2 * length;
+      if (expRad < 1e-6) continue;
+      if (Math.abs(theta               / expRad - 1) < 0.05) return "rad";
+      if (Math.abs(theta * Math.PI/200 / expRad - 1) < 0.05) return "gon";
+      if (Math.abs(theta * Math.PI/180 / expRad - 1) < 0.05) return "deg";
+    }
+  } catch { /* ignore DOM API differences */ }
+
   return "deg";
 }
 
@@ -835,13 +863,20 @@ export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): 
       }
 
     } else {
-      // Transition: sample actual spiral geometry instead of chord interpolation
+      // Transition: sample actual spiral geometry instead of chord interpolation.
+      // Always snap start/end to XML coordinates to prevent inter-segment gaps.
       const n = Math.max(4, Math.ceil(seg.length / Math.max(1, arcSpacingM)));
       for (let i = 0; i <= n; i++) {
         const t   = i / n;
-        const pt  = sampleSeg(seg, t);
         const sta = lerp(dispStart, dispEnd, t);
-        pushPt(pt.x, pt.y, getElev(pt.z, sta), sta);
+        if (i === 0) {
+          pushPt(seg.start.x, seg.start.y, getElev(seg.start.z, sta), sta);
+        } else if (i === n) {
+          pushPt(seg.end.x, seg.end.y, getElev(seg.end.z, sta), sta);
+        } else {
+          const pt = sampleSeg(seg, t);
+          pushPt(pt.x, pt.y, getElev(pt.z, sta), sta);
+        }
       }
     }
   }
