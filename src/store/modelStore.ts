@@ -63,6 +63,8 @@ interface ModelStore {
   setSmartViewsPanelOpen: (open: boolean) => void;
   qtoPanelOpen: boolean;
   setQTOPanelOpen: (open: boolean) => void;
+  profilePanelOpen: boolean;
+  setProfilePanelOpen: (open: boolean) => void;
   qtoLists: QTOList[];
   addQTOList: (list: QTOList) => void;
   updateQTOList: (id: string, patch: Partial<QTOList>) => void;
@@ -120,6 +122,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   listPanelOpen: false,
   smartViewsPanelOpen: false,
   qtoPanelOpen: false,
+  profilePanelOpen: false,
   qtoLists: (() => {
     try {
       const raw = localStorage.getItem("infracore-qto-lists");
@@ -242,6 +245,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   setSmartViewsPanelOpen: (open) => set({ smartViewsPanelOpen: open }),
 
   setQTOPanelOpen: (open) => set({ qtoPanelOpen: open }),
+  setProfilePanelOpen: (open) => set({ profilePanelOpen: open }),
 
   addQTOList: (list) =>
     set((state) => {

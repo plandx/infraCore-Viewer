@@ -5,7 +5,7 @@ import {
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
-  Target, Layers, RotateCcw, Navigation2,
+  Target, Layers, RotateCcw, Navigation2, TrendingUp,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -37,8 +37,10 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
   const activeTool        = useModelStore((s) => s.activeTool);
   const updateSettings    = useModelStore((s) => s.updateSettings);
   const setActiveTool     = useModelStore((s) => s.setActiveTool);
-  const setSqlPanelOpen   = useModelStore((s) => s.setSqlPanelOpen);
-  const sqlPanelOpen      = useModelStore((s) => s.sqlPanelOpen);
+  const setSqlPanelOpen      = useModelStore((s) => s.setSqlPanelOpen);
+  const sqlPanelOpen         = useModelStore((s) => s.sqlPanelOpen);
+  const setProfilePanelOpen  = useModelStore((s) => s.setProfilePanelOpen);
+  const profilePanelOpen     = useModelStore((s) => s.profilePanelOpen);
   const setListPanelOpen  = useModelStore((s) => s.setListPanelOpen);
   const listPanelOpen     = useModelStore((s) => s.listPanelOpen);
   const setSmartViewsPanelOpen = useModelStore((s) => s.setSmartViewsPanelOpen);
@@ -420,6 +422,15 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
             title={allAlignmentsVisible ? "Achsen ausblenden" : "Achsen einblenden"}
           >
             {allAlignmentsVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+          </button>
+        )}
+        {alignmentFileCount > 0 && (
+          <button
+            onClick={() => setProfilePanelOpen(!profilePanelOpen)}
+            className={cn("toolbar-button p-1", profilePanelOpen && "active text-primary")}
+            title="Längenschnitt (P)"
+          >
+            <TrendingUp size={14} />
           </button>
         )}
 

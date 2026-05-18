@@ -21,7 +21,7 @@ import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorP
 import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
 import { useAlignmentStore } from "../alignment/alignmentStore";
 import type { PlacedLabel, OffsetMeasurement } from "../alignment/alignmentStore";
-import { buildRobustPolyline } from "../alignment/landXmlParser";
+import { buildRobustPolyline, sampleAtDisplayStation } from "../alignment/landXmlParser";
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
 
 // Build EdgesGeometry + LineSegments in idle-time batches of 30 meshes.
@@ -288,6 +288,9 @@ export function ViewportContainer({ onElementClick }: Props) {
   // Shared edge material — one instance for the entire scene, never cloned
   const edgeMatRef       = useRef<THREE.LineBasicMaterial | null>(null);
 
+  // Profile hover marker sphere
+  const profileSphereRef = useRef<THREE.Mesh | null>(null);
+
   // Render-on-demand: only draw when something changed
   const needsRenderRef = useRef(true);
   const domRectRef = useRef<DOMRect | null>(null);
@@ -394,6 +397,16 @@ export function ViewportContainer({ onElementClick }: Props) {
     const axes = new THREE.AxesHelper(500);
     axes.name = "__axes";
     scene.add(axes);
+
+    // Profile hover sphere (always-on-top marker)
+    const sphereGeo = new THREE.SphereGeometry(0.8, 8, 6);
+    const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false });
+    const profileSphere = new THREE.Mesh(sphereGeo, sphereMat);
+    profileSphere.renderOrder = 999;
+    profileSphere.visible = false;
+    profileSphere.name = "__profileSphere";
+    scene.add(profileSphere);
+    profileSphereRef.current = profileSphere;
 
     // Trigger a render whenever the camera moves; throttle inspector label updates via RAF
     controls.addEventListener("change", () => {
@@ -1573,6 +1586,44 @@ export function ViewportContainer({ onElementClick }: Props) {
     controls.addEventListener("change", scheduleAnnotLabels);
     return () => controls.removeEventListener("change", scheduleAnnotLabels);
   }, [scheduleAnnotLabels]);
+
+  // Profile hover → 3D marker sphere
+  useEffect(() => {
+    const updateSphere = () => {
+      const sphere = profileSphereRef.current;
+      if (!sphere) return;
+      const { profileHoverStation, profileHoverAlignmentId, files, geoOrigin, visibleIds } = useAlignmentStore.getState();
+      if (profileHoverStation === null || !geoOrigin) {
+        sphere.visible = false;
+        needsRenderRef.current = true;
+        return;
+      }
+      const allAligns = files.flatMap(f => f.alignments);
+      const alignment = profileHoverAlignmentId !== null
+        ? allAligns.find(a => a.id === profileHoverAlignmentId)
+        : allAligns.find(a => visibleIds.has(a.id));
+      if (!alignment) { sphere.visible = false; needsRenderRef.current = true; return; }
+
+      const pt = sampleAtDisplayStation(alignment, profileHoverStation);
+      if (!pt) { sphere.visible = false; needsRenderRef.current = true; return; }
+
+      sphere.position.set(
+        pt.x - geoOrigin.x,
+        (pt.z ?? geoOrigin.z) - geoOrigin.z,
+        -(pt.y - geoOrigin.y)
+      );
+      sphere.visible = true;
+      needsRenderRef.current = true;
+    };
+
+    const unsub = useAlignmentStore.subscribe((state, prev) => {
+      if (state.profileHoverStation !== prev.profileHoverStation ||
+          state.profileHoverAlignmentId !== prev.profileHoverAlignmentId) {
+        updateSphere();
+      }
+    });
+    return () => unsub();
+  }, []);
 
   // ── Alignment click helpers ────────────────────────────────────────────────
   // Returns the closest point on visible alignment polylines to the mouse ray.

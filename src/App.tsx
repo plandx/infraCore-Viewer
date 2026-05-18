@@ -21,6 +21,7 @@ import { useBillingStore } from "./billing/billingStore";
 import { BatchPanel } from "./batch/BatchPanel";
 
 import { AlignmentPanel } from "./alignment/AlignmentPanel";
+import { ProfileViewer } from "./alignment/ProfileViewer";
 import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
@@ -117,6 +118,7 @@ function MainApp() {
     listPanelOpen, setListPanelOpen,
     smartViewsPanelOpen, setSmartViewsPanelOpen,
     qtoPanelOpen, setQTOPanelOpen,
+    profilePanelOpen, setProfilePanelOpen,
   } = useModelStore();
 
   const alignmentPanelOpen = useAlignmentStore(s => s.panelOpen);
@@ -191,6 +193,9 @@ function MainApp() {
         case "t":
           setQTOPanelOpen(!qtoPanelOpen);
           break;
+        case "p":
+          setProfilePanelOpen(!profilePanelOpen);
+          break;
         case "delete":
         case "backspace":
           if (selectedElement) {
@@ -239,8 +244,8 @@ function MainApp() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [activeTool, selectedElement, sqlPanelOpen, listPanelOpen, smartViewsPanelOpen, qtoPanelOpen,
-      setActiveTool, setSelected, clearMeasurements, setSqlPanelOpen, setListPanelOpen,
-      setSmartViewsPanelOpen, setQTOPanelOpen, hideElement, showAll]);
+      profilePanelOpen, setActiveTool, setSelected, clearMeasurements, setSqlPanelOpen, setListPanelOpen,
+      setSmartViewsPanelOpen, setQTOPanelOpen, setProfilePanelOpen, hideElement, showAll]);
 
   // ── File loading ──────────────────────────────────────────────────────────
   const handleFiles = useCallback(async (files: File[]) => {
@@ -489,6 +494,13 @@ function MainApp() {
                   </div>
                 )}
               </div>
+
+              {/* Längenschnitt-Viewer (bottom of viewport column) */}
+              {profilePanelOpen && (
+                <div className="h-56 shrink-0 border-t border-border">
+                  <ProfileViewer />
+                </div>
+              )}
 
               {/* SQL Panel (bottom of viewport column) */}
               {sqlPanelOpen && (

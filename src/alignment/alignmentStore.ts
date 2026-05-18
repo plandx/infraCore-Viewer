@@ -60,6 +60,9 @@ interface AlignmentStore {
   stationToolActive: boolean;
   hoveredStation: { alignmentId: number; station: number; name: string } | null;
 
+  profileHoverStation: number | null;
+  profileHoverAlignmentId: number | null;
+
   // Annotation state
   stationLabelVisible: boolean;
   stationLabelInterval: number;
@@ -76,6 +79,7 @@ interface AlignmentStore {
   setSampleInterval(n: number): void;
   toggleStationTool(): void;
   setHoveredStation(info: { alignmentId: number; station: number; name: string } | null): void;
+  setProfileHover(alignmentId: number | null, station: number | null): void;
 
   // Annotation actions
   toggleStationLabels(): void;
@@ -99,6 +103,8 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   sampleInterval: 5,
   stationToolActive: false,
   hoveredStation: null,
+  profileHoverStation: null,
+  profileHoverAlignmentId: null,
 
   stationLabelVisible: false,
   stationLabelInterval: 100,
@@ -194,6 +200,7 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   setSampleInterval: (n) => set({ sampleInterval: n }),
   toggleStationTool: () => set(state => ({ stationToolActive: !state.stationToolActive })),
   setHoveredStation: (info) => set({ hoveredStation: info }),
+  setProfileHover: (alignmentId, station) => set({ profileHoverAlignmentId: alignmentId, profileHoverStation: station }),
 
   toggleStationLabels: () => set(state => ({ stationLabelVisible: !state.stationLabelVisible })),
   setStationLabelInterval: (n) => set({ stationLabelInterval: n }),
