@@ -146,7 +146,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     background: "#1a1b26",
     grid: true,
     axes: true,
-    edges: true,
+    edges: false,
     shadows: false,
     fog: false,
     logDepthBuffer: true,

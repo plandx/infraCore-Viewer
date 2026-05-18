@@ -55,9 +55,23 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
   const billing5DCount      = useBillingStore((s) => Object.keys(s.entries).length);
 
   // Alignment state
-  const alignmentPanelOpen  = useAlignmentStore((s) => s.panelOpen);
-  const alignmentFileCount  = useAlignmentStore((s) => s.files.length);
+  const alignmentPanelOpen   = useAlignmentStore((s) => s.panelOpen);
+  const alignmentFileCount   = useAlignmentStore((s) => s.files.length);
+  const alignmentVisibleIds  = useAlignmentStore((s) => s.visibleIds);
   const toggleAlignmentPanel = useAlignmentStore((s) => s.togglePanel);
+  const alignmentFiles       = useAlignmentStore((s) => s.files);
+  const toggleVisible        = useAlignmentStore((s) => s.toggleVisible);
+  // All alignments visible when every loaded alignment is in visibleIds
+  const allAlignmentsVisible = alignmentFiles.length > 0 &&
+    alignmentFiles.every(f => f.alignments.every(a => alignmentVisibleIds.has(a.id)));
+  const toggleAllAlignments  = () => {
+    const allIds = alignmentFiles.flatMap(f => f.alignments.map(a => a.id));
+    if (allAlignmentsVisible) {
+      allIds.forEach(id => { if (alignmentVisibleIds.has(id)) toggleVisible(id); });
+    } else {
+      allIds.forEach(id => { if (!alignmentVisibleIds.has(id)) toggleVisible(id); });
+    }
+  };
 
   const [exportOpen, setExportOpen] = useState(false);
   const [ifcExporting, setIfcExporting] = useState(false);
@@ -399,6 +413,15 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
             <span className="bg-muted text-muted-foreground text-[8px] px-1 rounded-full">{alignmentFileCount}</span>
           )}
         </button>
+        {alignmentFileCount > 0 && (
+          <button
+            onClick={toggleAllAlignments}
+            className={cn("toolbar-button p-1", !allAlignmentsVisible && "opacity-40")}
+            title={allAlignmentsVisible ? "Achsen ausblenden" : "Achsen einblenden"}
+          >
+            {allAlignmentsVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+          </button>
+        )}
 
         <div className="w-px h-5 bg-border mx-1" />
 
