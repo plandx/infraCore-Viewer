@@ -821,14 +821,19 @@ export interface ApproxPoint {
   sta: number;
 }
 
-// Builds a polyline for display that avoids clothoid integration:
+// Builds a polyline for display:
 // - Lines: exact (2 pts)
 // - Curves: exact circular arc at arcSpacingM intervals
-// - Transitions: linear chord approximation at arcSpacingM intervals
-// Endpoints of every segment are always exact XML coordinates → no V-kinks.
+// - Transitions: polygonalised spiral using geometry-derived entry tangent
+//
+// Entry tangents for spirals are derived from adjacent non-spiral segments
+// (whose tangentEndRad comes from pure coordinate geometry) to avoid any
+// dependency on the file's angular unit — dirStart/dirEnd attributes are
+// not used here at all.
 export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): ApproxPoint[] {
   const eqs = alignment.stationEquations;
   const hasProfile = alignment.profileGeom.vertices.length >= 2;
+  const segs = alignment.segments;
 
   const getElev = (coordZ: number | null, sta: number): number => {
     if (hasProfile) return evaluateProfile(alignment.profileGeom, sta) ?? coordZ ?? 0;
@@ -843,7 +848,8 @@ export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): 
     pts.push({ x, y, z, sta });
   };
 
-  for (const seg of alignment.segments) {
+  for (let si = 0; si < segs.length; si++) {
+    const seg = segs[si];
     const dispStart = stationToDisplay(eqs, seg.staStart);
     const dispEnd   = stationToDisplay(eqs, seg.staEnd);
 
@@ -852,10 +858,11 @@ export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): 
       pushPt(seg.end.x,   seg.end.y,   getElev(seg.end.z,   dispEnd),   dispEnd);
 
     } else if (seg.type === "Curve") {
+      const sign = seg.rot === "cw" ? -1 : 1;
       const n = Math.max(4, Math.ceil(seg.length / Math.max(1, arcSpacingM)));
       for (let i = 0; i <= n; i++) {
         const t     = i / n;
-        const angle = seg.a0 + (seg.rot === "cw" ? -1 : 1) * t * seg.geomDelta;
+        const angle = seg.a0 + sign * t * seg.geomDelta;
         const x     = seg.center.x + seg.radius * Math.cos(angle);
         const y     = seg.center.y + seg.radius * Math.sin(angle);
         const sta   = lerp(dispStart, dispEnd, t);
@@ -863,8 +870,17 @@ export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): 
       }
 
     } else {
-      // Transition: sample actual spiral geometry instead of chord interpolation.
-      // Always snap start/end to XML coordinates to prevent inter-segment gaps.
+      // Transition (clothoid or Bloss): polygonalise using the entry tangent
+      // derived from the nearest preceding non-Transition segment.
+      // That segment's tangentEndRad is computed from coordinate geometry
+      // (arc center/radius or line bearing) — never from angular attributes —
+      // so it is correct regardless of the file's angular unit.
+      // Fallback: chord bearing when the alignment starts with a spiral.
+      let entryTan = Math.atan2(seg.end.y - seg.start.y, seg.end.x - seg.start.x);
+      for (let k = si - 1; k >= 0; k--) {
+        if (segs[k].type !== "Transition") { entryTan = segs[k].tangentEndRad; break; }
+      }
+
       const n = Math.max(4, Math.ceil(seg.length / Math.max(1, arcSpacingM)));
       for (let i = 0; i <= n; i++) {
         const t   = i / n;
@@ -872,10 +888,15 @@ export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): 
         if (i === 0) {
           pushPt(seg.start.x, seg.start.y, getElev(seg.start.z, sta), sta);
         } else if (i === n) {
+          // Always snap to XML endpoint — prevents any integration drift from
+          // creating a gap to the next segment.
           pushPt(seg.end.x, seg.end.y, getElev(seg.end.z, sta), sta);
         } else {
-          const pt = sampleSeg(seg, t);
-          pushPt(pt.x, pt.y, getElev(pt.z, sta), sta);
+          const s = t * seg.length;
+          const [dx, dy] = seg.spiralType === "bloss"
+            ? blossOffset(entryTan, seg.k0, seg.k1, seg.length, s)
+            : clothoidOffset(entryTan, seg.k0, seg.k1, seg.length, s);
+          pushPt(seg.start.x + dx, seg.start.y + dy, getElev(null, sta), sta);
         }
       }
     }
