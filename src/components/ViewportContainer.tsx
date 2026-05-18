@@ -1983,12 +1983,11 @@ export function ViewportContainer({ onElementClick }: Props) {
   }, []);
 
   // Cursor style per tool
-  const { labelToolActive: _lta, offsetToolActive: _ota } = useAlignmentStore(s => ({
-    labelToolActive: s.labelToolActive, offsetToolActive: s.offsetToolActive,
-  }));
+  const labelToolActive  = useAlignmentStore(s => s.labelToolActive);
+  const offsetToolActive = useAlignmentStore(s => s.offsetToolActive);
   const cursor = activeTool === "measure" ? "crosshair"
                : activeTool === "section" ? "crosshair"
-               : _lta || _ota         ? "crosshair"
+               : labelToolActive || offsetToolActive ? "crosshair"
                : "default";
 
   return (
