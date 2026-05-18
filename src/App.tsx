@@ -20,6 +20,8 @@ import { ModelInfoPanel } from "./components/ModelInfoPanel";
 import { useBillingStore } from "./billing/billingStore";
 import { BatchPanel } from "./batch/BatchPanel";
 
+import { AlignmentPanel } from "./alignment/AlignmentPanel";
+import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifcLoader";
@@ -116,6 +118,8 @@ function MainApp() {
     smartViewsPanelOpen, setSmartViewsPanelOpen,
     qtoPanelOpen, setQTOPanelOpen,
   } = useModelStore();
+
+  const alignmentPanelOpen = useAlignmentStore(s => s.panelOpen);
 
   const activeLoads = loadStates.size;
   const hasModels = models.size > 0;
@@ -390,7 +394,7 @@ function MainApp() {
 
           <Panel defaultSize={20} minSize={12} collapsible>
             <div className="h-full overflow-hidden border-r border-border">
-              {(listPanelOpen || smartViewsPanelOpen) ? (
+              {(listPanelOpen || smartViewsPanelOpen || alignmentPanelOpen) ? (
                 <PanelGroup orientation="vertical" className="h-full">
                   <Panel defaultSize={50} minSize={15}>
                     <div className="h-full overflow-hidden">
@@ -402,35 +406,42 @@ function MainApp() {
                     </div>
                   </Panel>
                   <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
-                  {listPanelOpen && smartViewsPanelOpen ? (
-                    <Panel defaultSize={50} minSize={20}>
-                      <PanelGroup orientation="vertical" className="h-full">
-                        <Panel defaultSize={50} minSize={15}>
+                  {/* Stack all open sub-panels; each gets an equal share */}
+                  <Panel defaultSize={50} minSize={20}>
+                    <PanelGroup orientation="vertical" className="h-full">
+                      {listPanelOpen && (
+                        <>
+                          <Panel defaultSize={34} minSize={15}>
+                            <div className="h-full overflow-hidden">
+                              <LensRulesPanel />
+                            </div>
+                          </Panel>
+                          {(smartViewsPanelOpen || alignmentPanelOpen) && (
+                            <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
+                          )}
+                        </>
+                      )}
+                      {smartViewsPanelOpen && (
+                        <>
+                          <Panel defaultSize={34} minSize={15}>
+                            <div className="h-full overflow-hidden">
+                              <SmartViewsPanel />
+                            </div>
+                          </Panel>
+                          {alignmentPanelOpen && (
+                            <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
+                          )}
+                        </>
+                      )}
+                      {alignmentPanelOpen && (
+                        <Panel defaultSize={34} minSize={15}>
                           <div className="h-full overflow-hidden">
-                            <LensRulesPanel />
+                            <AlignmentPanel />
                           </div>
                         </Panel>
-                        <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
-                        <Panel defaultSize={50} minSize={15}>
-                          <div className="h-full overflow-hidden">
-                            <SmartViewsPanel />
-                          </div>
-                        </Panel>
-                      </PanelGroup>
-                    </Panel>
-                  ) : listPanelOpen ? (
-                    <Panel defaultSize={50} minSize={15}>
-                      <div className="h-full overflow-hidden">
-                        <LensRulesPanel />
-                      </div>
-                    </Panel>
-                  ) : (
-                    <Panel defaultSize={50} minSize={15}>
-                      <div className="h-full overflow-hidden">
-                        <SmartViewsPanel />
-                      </div>
-                    </Panel>
-                  )}
+                      )}
+                    </PanelGroup>
+                  </Panel>
                 </PanelGroup>
               ) : (
                 <HierarchyPanel

@@ -20,7 +20,6 @@ import { FaceEdgePicker } from "../geometry-inspector/FaceEdgePicker";
 import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorPanel";
 import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
 import { useAlignmentStore } from "../alignment/alignmentStore";
-import { AlignmentPanel } from "../alignment/AlignmentPanel";
 import { buildRobustPolyline } from "../alignment/landXmlParser";
 
 interface Props {
@@ -1800,9 +1799,6 @@ export function ViewportContainer({ onElementClick }: Props) {
           } : undefined}
         />
       )}
-
-      {/* Alignment panel */}
-      <AlignmentPanel />
 
       {/* SmartView: apply hint */}
       {stagedSmartViewId && stagedSmartViewId !== activeSmartViewId && (

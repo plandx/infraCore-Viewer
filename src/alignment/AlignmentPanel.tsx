@@ -40,7 +40,7 @@ interface ProfileChartProps {
 function ProfileChart({ alignment, color }: ProfileChartProps) {
   const { profileGeom, staStart, staEnd } = alignment;
   if (profileGeom.vertices.length < 2) {
-    return <p className="text-xs text-zinc-500 italic px-1 mt-1">Kein Profil verfügbar</p>;
+    return <p className="text-xs text-muted-foreground italic px-1 mt-1">Kein Profil verfügbar</p>;
   }
 
   const W = 288, H = 140;
@@ -61,7 +61,7 @@ function ProfileChart({ alignment, color }: ProfileChartProps) {
     if (elev !== null) pts.push({ sta, elev });
   }
   if (pts.length < 2) {
-    return <p className="text-xs text-zinc-500 italic px-1 mt-1">Kein Profil verfügbar</p>;
+    return <p className="text-xs text-muted-foreground italic px-1 mt-1">Kein Profil verfügbar</p>;
   }
 
   const elevs  = pts.map(p => p.elev);
@@ -143,20 +143,20 @@ function AlignmentRow({ alignment, color, visible, selected, onToggleVisible, on
     <div
       className={cn(
         "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-xs select-none",
-        selected ? "bg-zinc-700" : "hover:bg-zinc-800"
+        selected ? "bg-muted" : "hover:bg-muted/50"
       )}
       onClick={onSelect}
     >
       <button
-        className="shrink-0 text-zinc-400 hover:text-zinc-100"
+        className="shrink-0 text-muted-foreground hover:text-foreground"
         onClick={e => { e.stopPropagation(); onToggleVisible(); }}
         aria-label={visible ? "Ausblenden" : "Einblenden"}
       >
         {visible ? <Eye size={12} /> : <EyeOff size={12} />}
       </button>
-      <span className="shrink-0 w-2.5 h-2.5 rounded-full border border-zinc-600" style={{ backgroundColor: color }} />
-      <span className="flex-1 truncate text-zinc-200">{alignment.displayName}</span>
-      <span className="text-zinc-500 shrink-0">{formatLength(alignment.length)}</span>
+      <span className="shrink-0 w-2.5 h-2.5 rounded-full border border-border" style={{ backgroundColor: color }} />
+      <span className="flex-1 truncate">{alignment.displayName}</span>
+      <span className="text-muted-foreground shrink-0">{formatLength(alignment.length)}</span>
       {alignment.zSource === "profile"    && <span className="text-sky-400   text-[10px] font-mono shrink-0">Z</span>}
       {alignment.zSource === "coordgeom" && <span className="text-yellow-400 text-[10px] font-mono shrink-0">Z?</span>}
     </div>
@@ -181,12 +181,12 @@ function FileGroup({ fileId, fileName, alignments, colors, visibleIds, selectedI
   void fileId;
   return (
     <div className="mb-1">
-      <div className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 select-none">
-        <button className="text-zinc-500 hover:text-zinc-200" onClick={() => setExpanded(e => !e)}>
+      <div className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground select-none">
+        <button className="text-muted-foreground hover:text-foreground" onClick={() => setExpanded(e => !e)}>
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
-        <span className="flex-1 truncate font-medium text-zinc-300">{fileName}</span>
-        <button className="text-zinc-600 hover:text-red-400 ml-auto" onClick={onRemove} aria-label="Datei entfernen">
+        <span className="flex-1 truncate font-medium text-foreground">{fileName}</span>
+        <button className="text-muted-foreground hover:text-red-400 ml-auto" onClick={onRemove} aria-label="Datei entfernen">
           <X size={12} />
         </button>
       </div>
@@ -211,7 +211,6 @@ function FileGroup({ fileId, fileName, alignments, colors, visibleIds, selectedI
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 export function AlignmentPanel() {
-  const panelOpen      = useAlignmentStore(s => s.panelOpen);
   const files          = useAlignmentStore(s => s.files);
   const selectedId     = useAlignmentStore(s => s.selectedId);
   const visibleIds     = useAlignmentStore(s => s.visibleIds);
@@ -220,7 +219,6 @@ export function AlignmentPanel() {
   const removeFile     = useAlignmentStore(s => s.removeFile);
   const toggleVisible  = useAlignmentStore(s => s.toggleVisible);
   const selectAlignment = useAlignmentStore(s => s.selectAlignment);
-  const togglePanel    = useAlignmentStore(s => s.togglePanel);
 
   const sampleInterval    = useAlignmentStore(s => s.sampleInterval);
   const stationToolActive = useAlignmentStore(s => s.stationToolActive);
@@ -245,8 +243,6 @@ export function AlignmentPanel() {
     handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
 
-  if (!panelOpen) return null;
-
   const allAlignments  = files.flatMap(f => f.alignments);
   const selectedAlign  = selectedId !== null ? allAlignments.find(a => a.id === selectedId) : null;
   const segmentCounts  = selectedAlign
@@ -258,14 +254,11 @@ export function AlignmentPanel() {
     : null;
 
   return (
-    <div className="absolute top-4 left-4 z-30 w-80 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl flex flex-col max-h-[calc(100vh-5rem)]">
+    <div className="h-full flex flex-col bg-card text-foreground overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-700 shrink-0">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
         <Navigation2 size={15} className="text-sky-400 shrink-0" />
-        <span className="flex-1 text-sm font-semibold text-zinc-100">Trassen-Viewer</span>
-        <button className="text-zinc-500 hover:text-zinc-200" onClick={togglePanel} aria-label="Panel schließen">
-          <X size={14} />
-        </button>
+        <span className="flex-1 text-sm font-semibold">Achsen (LandXML)</span>
       </div>
 
       <div className="overflow-y-auto flex-1 min-h-0">
@@ -274,7 +267,7 @@ export function AlignmentPanel() {
           <div
             className={cn(
               "border-2 border-dashed rounded-md px-3 py-4 flex flex-col items-center gap-1.5 cursor-pointer transition-colors",
-              dragOver ? "border-sky-500 bg-sky-950/30" : "border-zinc-700 hover:border-zinc-500 hover:bg-zinc-800/30"
+              dragOver ? "border-sky-500 bg-sky-950/30" : "border-border hover:border-muted-foreground hover:bg-muted/20"
             )}
             onClick={() => inputRef.current?.click()}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -285,10 +278,10 @@ export function AlignmentPanel() {
             onKeyDown={e => e.key === "Enter" && inputRef.current?.click()}
             aria-label="LandXML-Datei laden"
           >
-            <Upload size={18} className="text-zinc-500" />
-            <span className="text-xs text-zinc-400 text-center">
+            <Upload size={18} className="text-muted-foreground" />
+            <span className="text-xs text-muted-foreground text-center">
               LandXML / .xml hier ablegen<br />
-              <span className="text-zinc-600">oder klicken zum Durchsuchen</span>
+              <span className="text-muted-foreground/60">oder klicken zum Durchsuchen</span>
             </span>
           </div>
           <input
@@ -323,7 +316,7 @@ export function AlignmentPanel() {
 
         {/* Station tool + resolution toolbar */}
         {files.length > 0 && (
-          <div className="px-2 pb-2 border-t border-zinc-800 pt-2 flex flex-col gap-2">
+          <div className="px-2 pb-2 border-t border-border pt-2 flex flex-col gap-2">
             {/* Station tool */}
             <div className="flex items-center gap-2">
               <button
@@ -332,7 +325,7 @@ export function AlignmentPanel() {
                   "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors",
                   stationToolActive
                     ? "bg-sky-600 text-white"
-                    : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
                 )}
               >
                 <Ruler size={11} />
@@ -341,21 +334,21 @@ export function AlignmentPanel() {
             </div>
             {/* Hovered station display */}
             {stationToolActive && hoveredStation && (
-              <div className="bg-zinc-800 rounded px-2 py-1 text-xs">
-                <span className="text-zinc-400">{hoveredStation.name}: </span>
-                <span className="text-sky-300 font-mono">{formatStation(hoveredStation.station)}</span>
+              <div className="bg-muted rounded px-2 py-1 text-xs">
+                <span className="text-muted-foreground">{hoveredStation.name}: </span>
+                <span className="text-sky-400 font-mono">{formatStation(hoveredStation.station)}</span>
               </div>
             )}
             {stationToolActive && !hoveredStation && (
-              <p className="text-xs text-zinc-500 italic">Maus über Achse bewegen…</p>
+              <p className="text-xs text-muted-foreground italic">Maus über Achse bewegen…</p>
             )}
             {/* Arc spacing interval */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-zinc-400 shrink-0">Auflösung:</span>
+              <span className="text-xs text-muted-foreground shrink-0">Auflösung:</span>
               <select
                 value={sampleInterval}
                 onChange={e => setSampleInterval(Number(e.target.value))}
-                className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs rounded px-1 py-0.5"
+                className="flex-1 bg-muted border border-border text-foreground text-xs rounded px-1 py-0.5"
               >
                 {[1, 2, 5, 10, 25, 50].map(v => (
                   <option key={v} value={v}>{v} m</option>
@@ -371,19 +364,19 @@ export function AlignmentPanel() {
 
         {/* Selected alignment details */}
         {selectedAlign && segmentCounts && (
-          <div className="mx-2 mb-2 p-2 bg-zinc-800 rounded-md text-xs border border-zinc-700">
-            <div className="font-semibold text-zinc-100 truncate mb-1">{selectedAlign.displayName}</div>
-            <div className="text-zinc-400 mb-0.5">
+          <div className="mx-2 mb-2 p-2 bg-muted rounded-md text-xs border border-border">
+            <div className="font-semibold truncate mb-1">{selectedAlign.displayName}</div>
+            <div className="text-muted-foreground mb-0.5">
               {formatStation(selectedAlign.staStart)} – {formatStation(selectedAlign.staEnd)}
             </div>
-            <div className="text-zinc-400 mb-1">Länge: {formatLength(selectedAlign.length)}</div>
-            <div className="flex gap-2 text-zinc-500 flex-wrap">
+            <div className="text-muted-foreground mb-1">Länge: {formatLength(selectedAlign.length)}</div>
+            <div className="flex gap-2 text-muted-foreground flex-wrap">
               {segmentCounts.lines   > 0 && <span>{segmentCounts.lines} Gerade{segmentCounts.lines   !== 1 ? "n" : ""}</span>}
               {segmentCounts.curves  > 0 && <span>{segmentCounts.curves} Bogen{segmentCounts.curves  !== 1 ? "bögen" : ""}</span>}
               {segmentCounts.spirals > 0 && <span>{segmentCounts.spirals} Spirale{segmentCounts.spirals !== 1 ? "n" : ""}</span>}
             </div>
             {selectedAlign.zStatus && (
-              <div className="mt-1 text-zinc-500 truncate">{selectedAlign.zStatus}</div>
+              <div className="mt-1 text-muted-foreground truncate">{selectedAlign.zStatus}</div>
             )}
           </div>
         )}
@@ -391,7 +384,7 @@ export function AlignmentPanel() {
         {/* Profile chart */}
         {selectedAlign && selectedAlign.profileGeom.vertices.length > 0 && (
           <div className="mx-2 mb-3">
-            <div className="text-xs text-zinc-400 font-medium mb-1 px-0.5">Längsprofil</div>
+            <div className="text-xs text-muted-foreground font-medium mb-1 px-0.5">Längsprofil</div>
             <ProfileChart alignment={selectedAlign} color={colors[selectedAlign.id] ?? "#42a5f5"} />
           </div>
         )}
