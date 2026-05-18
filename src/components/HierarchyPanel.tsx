@@ -1,5 +1,30 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+
+function useSimpleVirtualizer(
+  count: number,
+  itemHeight: number,
+  scrollRef: React.RefObject<HTMLDivElement | null>,
+  overscan = 15,
+) {
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewHeight, setViewHeight] = useState(600);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setViewHeight(el.clientHeight);
+    setScrollTop(el.scrollTop);
+    const onScroll = () => setScrollTop(el.scrollTop);
+    const ro = new ResizeObserver(() => setViewHeight(el.clientHeight));
+    el.addEventListener("scroll", onScroll, { passive: true });
+    ro.observe(el);
+    return () => { el.removeEventListener("scroll", onScroll); ro.disconnect(); };
+  }, [scrollRef]);
+  const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
+  const end   = Math.min(count - 1, Math.ceil((scrollTop + viewHeight) / itemHeight) + overscan);
+  const items = [];
+  for (let i = start; i <= end; i++) items.push({ index: i, start: i * itemHeight, size: itemHeight });
+  return { items, totalSize: count * itemHeight };
+}
 import {
   ChevronRight, ChevronDown, Eye, EyeOff,
   Trash2, Focus, Layers, LayoutList, Search, X,
@@ -411,20 +436,13 @@ function VisibleView({ snapshot, scrollContainerRef, onRefresh, activeKey, multi
 }) {
   useEffect(() => { onRefresh(); }, []);
 
-  const virtualizer = useVirtualizer({
-    count: snapshot?.length ?? 0,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => VISIBLE_ROW_HEIGHT,
-    overscan: 15,
-  });
+  const { items, totalSize } = useSimpleVirtualizer(snapshot?.length ?? 0, VISIBLE_ROW_HEIGHT, scrollContainerRef);
 
   if (!snapshot) return (
     <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-[11px] gap-2">
       <p>Wird geladen…</p>
     </div>
   );
-
-  const items = virtualizer.getVirtualItems();
 
   return (
     <div>
@@ -444,7 +462,7 @@ function VisibleView({ snapshot, scrollContainerRef, onRefresh, activeKey, multi
         </div>
       )}
       {snapshot.length > 0 && (
-        <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
+        <div style={{ height: `${totalSize}px`, position: "relative" }}>
           {items.map((vItem) => {
             const entry = snapshot[vItem.index];
             const key = `${entry.modelId}:${entry.expressId}`;
