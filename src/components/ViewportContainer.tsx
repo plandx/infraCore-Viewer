@@ -437,7 +437,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       // carries the same Easting/Elevation/Northing components depending on
       // which Y-up vs Z-up convention the IFC file uses).
       // When no IFC is loaded we use geoOrigin = first segment start point.
-      const ifc = useModelStore.getState().models[0];
+      const ifc = useModelStore.getState().models.values().next().value as import("../types/ifc").IFCModelEntry | undefined;
       let ox: number, oy: number, oz: number;
       if (ifc) {
         ox = ifc.originOffset.x;    // Easting
