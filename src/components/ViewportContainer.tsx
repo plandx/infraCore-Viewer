@@ -24,6 +24,37 @@ import type { PlacedLabel, OffsetMeasurement } from "../alignment/alignmentStore
 import { buildRobustPolyline } from "../alignment/landXmlParser";
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
 
+// Build EdgesGeometry + LineSegments in idle-time batches of 30 meshes.
+// Uses a single shared material — never clones it.
+function scheduleEdgeBuild(
+  queue: THREE.Mesh[],
+  mat: THREE.LineBasicMaterial,
+  edgeLinesRef: React.MutableRefObject<THREE.LineSegments[]>,
+  needsRenderRef: React.MutableRefObject<boolean>,
+) {
+  if (queue.length === 0) return;
+  const run = () => {
+    const batch = queue.splice(0, 30);
+    for (const mesh of batch) {
+      if (mesh.children.some(c => c.userData.isEdge)) continue; // already built
+      const geo  = new THREE.EdgesGeometry(mesh.geometry, 15);
+      const line = new THREE.LineSegments(geo, mat);   // shared mat — no .clone()
+      line.userData.isEdge = true;
+      mesh.add(line);
+      edgeLinesRef.current.push(line);
+    }
+    needsRenderRef.current = true;
+    if (queue.length > 0) {
+      ("requestIdleCallback" in window)
+        ? requestIdleCallback(run, { timeout: 500 })
+        : setTimeout(run, 0);
+    }
+  };
+  ("requestIdleCallback" in window)
+    ? requestIdleCallback(run, { timeout: 500 })
+    : setTimeout(run, 0);
+}
+
 // Patch Three.js prototypes once at module load — enables O(log N) BVH raycasting
 // and adds computeBoundsTree / disposeBoundsTree helpers to BufferGeometry.
 (THREE.BufferGeometry.prototype as any).computeBoundsTree = computeBoundsTree;
@@ -254,6 +285,8 @@ export function ViewportContainer({ onElementClick }: Props) {
   const meshIndexRef     = useRef<Map<string, THREE.Mesh[]>>(new Map());
   const edgeLinesRef     = useRef<THREE.LineSegments[]>([]);
   const pickableMeshesRef = useRef<THREE.Mesh[]>([]);
+  // Shared edge material — one instance for the entire scene, never cloned
+  const edgeMatRef       = useRef<THREE.LineBasicMaterial | null>(null);
 
   // Render-on-demand: only draw when something changed
   const needsRenderRef = useRef(true);
@@ -873,22 +906,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
 
       if (model.status === "loaded" && existing !== model.mesh) {
-        // Add edge overlays to every mesh in this model
-        const edgeMat = new THREE.LineBasicMaterial({
-          color: 0x000000, transparent: true, opacity: 0.18,
-        });
-        const edgesVisible = useModelStore.getState().settings.edges;
-        model.mesh.traverse((child) => {
-          if (child instanceof THREE.Mesh && !child.userData.isHighlight && !child.userData.isEdge) {
-            const edgesGeo = new THREE.EdgesGeometry(child.geometry, 15);
-            const lines = new THREE.LineSegments(edgesGeo, edgeMat.clone());
-            lines.userData.isEdge = true;
-            lines.visible = edgesVisible;
-            child.add(lines);
-          }
-        });
         requestAnimationFrame(() => fitAllLoaded());
-        // Rebuild section caps so newly loaded geometry gets cut properly
         sectionModuleRef.current?.syncPlanes(useModelStore.getState().sectionPlanes);
       }
 
@@ -901,15 +919,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     // This single O(scene) traversal replaces per-effect traversals in visibility,
     // highlight, basket, color, raycast — all of which become O(k) lookups.
     const newIndex  = new Map<string, THREE.Mesh[]>();
-    const newEdges: THREE.LineSegments[] = [];
     const newPickable: THREE.Mesh[] = [];
     const newBillingMap = new Map<string, THREE.Mesh[]>();
     const sessionModels = useModelStore.getState().models;
     scene.traverse((obj) => {
-      if (obj instanceof THREE.LineSegments && obj.userData.isEdge) {
-        newEdges.push(obj);
-        return;
-      }
+      if (obj instanceof THREE.LineSegments && obj.userData.isEdge) return; // managed separately
       if (!(obj instanceof THREE.Mesh)) return;
       if (obj.userData.expressId == null) return;
       if (obj.userData.isHighlight || obj.userData.isSectionVisual ||
@@ -946,9 +960,18 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
     });
     meshIndexRef.current = newIndex;
-    edgeLinesRef.current = newEdges;
     pickableMeshesRef.current = newPickable;
     billingMeshMapRef.current = newBillingMap;
+
+    // Remove stale edge refs (their parent mesh may have been removed with a model)
+    edgeLinesRef.current = edgeLinesRef.current.filter(l => l.parent !== null);
+
+    // If edges are enabled, queue building for meshes that don't have edges yet
+    if (useModelStore.getState().settings.edges) {
+      const mat = edgeMatRef.current ?? (edgeMatRef.current = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
+      const queue = newPickable.filter(m => !m.children.some(c => c.userData.isEdge));
+      scheduleEdgeBuild(queue, mat, edgeLinesRef, needsRenderRef);
+    }
 
     // Build BVHs in idle-time batches — never blocks the main thread.
     const bvhQueue = newPickable
@@ -985,11 +1008,21 @@ export function ViewportContainer({ onElementClick }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models]);
 
-  // ── Edge visibility toggle ────────────────────────────────────────────────
+  // ── Edge visibility: lazy build on first enable, full removal on disable ──
   useEffect(() => {
-    const vis = settings.edges;
-    for (const line of edgeLinesRef.current) line.visible = vis;
-    needsRenderRef.current = true;
+    if (settings.edges) {
+      const mat = edgeMatRef.current ?? (edgeMatRef.current = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
+      const queue = pickableMeshesRef.current.filter(m => !m.children.some(c => c.userData.isEdge));
+      scheduleEdgeBuild(queue, mat, edgeLinesRef, needsRenderRef);
+    } else {
+      // Remove all edge LineSegments from the scene graph and free geometry memory.
+      for (const line of edgeLinesRef.current) {
+        line.geometry.dispose();
+        line.parent?.remove(line);
+      }
+      edgeLinesRef.current = [];
+      needsRenderRef.current = true;
+    }
   }, [settings.edges]);
 
   // ── Element-level visibility (hide/isolate) ───────────────────────────────
