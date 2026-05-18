@@ -160,7 +160,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     const camera   = cameraRef.current;
     const renderer = rendererRef.current;
     if (!picker || !camera || !renderer) { setInspLabels([]); return; }
-    const rect = renderer.domElement.getBoundingClientRect();
+    const rect = domRectRef.current ?? renderer.domElement.getBoundingClientRect();
     const fmt  = (n: number) => n.toFixed(2).replace(".", ",");
     const mode = inspPickModeRef.current;
     const out: typeof inspLabels = [];
@@ -1498,22 +1498,21 @@ export function ViewportContainer({ onElementClick }: Props) {
     const renderer = rendererRef.current;
     if (!camera || !renderer) return null;
 
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndcVec = new THREE.Vector2(
+    const rect = domRectRef.current ?? renderer.domElement.getBoundingClientRect();
+    _ndc.set(
       ((e.clientX - rect.left) / rect.width)  * 2 - 1,
       -((e.clientY - rect.top) / rect.height) * 2 + 1,
     );
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(ndcVec, camera);
-    const ro = raycaster.ray.origin;
-    const rd = raycaster.ray.direction;
+    _ray.setFromCamera(_ndc, camera);
+    const ro = _ray.ray.origin;
+    const rd = _ray.ray.direction;
     const c  = rd.dot(rd);
 
     const { visibleIds } = useAlignmentStore.getState();
     let bestDist = Infinity;
     let bestAlignId = -1;
     let bestStation = 0;
-    let bestFoot    = new THREE.Vector3();
+    const bestFoot  = new THREE.Vector3();
     let bestLandXML = { x: 0, y: 0, z: null as number | null };
 
     for (const [alignId, cache] of alignPolylineRef.current.entries()) {
@@ -1522,26 +1521,31 @@ export function ViewportContainer({ onElementClick }: Props) {
       for (let i = 0; i < pts.length - 1; i++) {
         const A = pts[i], B = pts[i + 1];
         const { ox, oy, oz } = A;
-        const p0 = new THREE.Vector3(A.x - ox, (A.z ?? oz) - oz, -(A.y - oy));
-        const p1 = new THREE.Vector3(B.x - ox, (B.z ?? oz) - oz, -(B.y - oy));
-        const seg = new THREE.Vector3().subVectors(p1, p0);
-        const w   = new THREE.Vector3().subVectors(p0, ro);
-        const a   = seg.dot(seg);
-        const b   = seg.dot(rd);
-        const d   = seg.dot(w);
-        const ev  = rd.dot(w);
+        _v3.set(A.x - ox, (A.z ?? oz) - oz, -(A.y - oy));   // p0
+        _v3b.set(B.x - ox, (B.z ?? oz) - oz, -(B.y - oy));  // p1
+        const segX = _v3b.x - _v3.x, segY = _v3b.y - _v3.y, segZ = _v3b.z - _v3.z;
+        const wX = _v3.x - ro.x, wY = _v3.y - ro.y, wZ = _v3.z - ro.z;
+        const a   = segX*segX + segY*segY + segZ*segZ;
+        const b   = segX*rd.x + segY*rd.y + segZ*rd.z;
+        const d   = segX*wX   + segY*wY   + segZ*wZ;
+        const ev  = rd.x*wX   + rd.y*wY   + rd.z*wZ;
         const den = a * c - b * b;
         let sc = den > 1e-10 ? Math.min(1, Math.max(0, (b * ev - c * d) / den)) : 0;
         const tc = (b * sc + ev) / c;
         if (tc < 0) sc = Math.min(1, Math.max(0, -d / a));
-        const foot   = new THREE.Vector3().copy(p0).addScaledVector(seg, sc);
-        const rayPt  = new THREE.Vector3().copy(ro).addScaledVector(rd, Math.max(0, (b * sc + ev) / c));
-        const dist   = foot.distanceTo(rayPt);
+        // foot = p0 + sc * seg (reuse _v3 for foot)
+        _v3.x += sc * segX; _v3.y += sc * segY; _v3.z += sc * segZ;
+        // dist = |foot - rayPt|
+        const tc2 = Math.max(0, (b * sc + ev) / c);
+        const fpX = _v3.x - (ro.x + tc2*rd.x);
+        const fpY = _v3.y - (ro.y + tc2*rd.y);
+        const fpZ = _v3.z - (ro.z + tc2*rd.z);
+        const dist = Math.sqrt(fpX*fpX + fpY*fpY + fpZ*fpZ);
         if (dist < bestDist) {
           bestDist    = dist;
           bestAlignId = alignId;
           bestStation = A.sta + sc * (B.sta - A.sta);
-          bestFoot    = foot;
+          bestFoot.copy(_v3);
           const az = A.z ?? null, bz = B.z ?? null;
           bestLandXML = {
             x: A.x + sc * (B.x - A.x),
