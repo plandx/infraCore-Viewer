@@ -883,6 +883,14 @@ export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): 
         if (segs[k].type !== "Transition") { entryTan = segs[k].tangentEndRad; break; }
       }
 
+      const offsetFn = seg.spiralType === "bloss" ? blossOffset : clothoidOffset;
+      // Compute where pure integration lands at s=L; it may differ from seg.end
+      // due to numerical drift. Distribute the residual linearly so every
+      // intermediate point transitions smoothly — no resolution-dependent jump.
+      const [endDx, endDy] = offsetFn(entryTan, seg.k0, seg.k1, seg.length, seg.length);
+      const corrDx = (seg.end.x - seg.start.x) - endDx;
+      const corrDy = (seg.end.y - seg.start.y) - endDy;
+
       const n = Math.max(4, Math.ceil(seg.length / Math.max(1, arcSpacingM)));
       for (let i = 0; i <= n; i++) {
         const t   = i / n;
@@ -890,15 +898,11 @@ export function buildRobustPolyline(alignment: Alignment, arcSpacingM: number): 
         if (i === 0) {
           pushPt(seg.start.x, seg.start.y, getElev(seg.start.z, sta), sta);
         } else if (i === n) {
-          // Always snap to XML endpoint — prevents any integration drift from
-          // creating a gap to the next segment.
           pushPt(seg.end.x, seg.end.y, getElev(seg.end.z, sta), sta);
         } else {
           const s = t * seg.length;
-          const [dx, dy] = seg.spiralType === "bloss"
-            ? blossOffset(entryTan, seg.k0, seg.k1, seg.length, s)
-            : clothoidOffset(entryTan, seg.k0, seg.k1, seg.length, s);
-          pushPt(seg.start.x + dx, seg.start.y + dy, getElev(null, sta), sta);
+          const [dx, dy] = offsetFn(entryTan, seg.k0, seg.k1, seg.length, s);
+          pushPt(seg.start.x + dx + t * corrDx, seg.start.y + dy + t * corrDy, getElev(null, sta), sta);
         }
       }
     }
