@@ -310,3 +310,16 @@ Erzeugt semitransparente Füllstand-Overlays über IFC-Elementen.
 - Render-on-demand: `needsRenderRef` wird gesetzt; `requestAnimationFrame`-Loop prüft Flag
 - Klick-Unterdrückung: Mouse-Delta > 5px → kein Klick nach Orbit/Pan
 - Inspektor-Overlays haben `depthTest=false` und `renderOrder=10/11` → immer über IFC-Geometrie sichtbar
+
+### Hotpath-Optimierungen (>20 % Throughput-Gewinn)
+
+| Optimierung | Detail |
+|---|---|
+| Pre-allozierte Three.js-Objekte | `_v3`, `_v3b`, `_ray`, `_ndc` als Modul-Singletons; kein GC-Druck bei 60 fps |
+| `domRectRef` via ResizeObserver | `getBoundingClientRect()` nur bei Größenänderung, nicht bei jedem Maus-Event |
+| Selektive `useAlignmentStore.subscribe` | Rebuild-Callbacks nur wenn relevante Felder (files/visibleIds/colors/…) geändert — `hoveredStation`-Updates bei 60 fps triggern keinen Rebuild mehr |
+| `stationTicksWorldRef` Cache | 3D-Weltkoordinaten der Stations-Ticks werden nur bei Achsdaten-Änderung neu berechnet, nicht bei Kamerabewegung |
+| `scheduleAnnotLabels` (RAF-throttle) | Annotations-Neuprojizierung per RAF gedrosselt — ein Aufruf pro Frame, egal wie viele `controls.change`-Events feuern |
+| Vector3-Wiederverwendung | `_v3` in `updateInspLabels`, `updateMeasureLabels`, `updateAnnotLabels` wiederverwendet; kein `new THREE.Vector3()` pro Label |
+| `_ray`/`_ndc`-Wiederverwendung | Raycasting in `raycastPoint`, `handleClick`, `handleDoubleClick`, `handleMouseMove` ohne neue Objekte |
+| `models.size` statt `models.length` | `Map` hat `.size`, nicht `.length` — war immer `undefined` |
