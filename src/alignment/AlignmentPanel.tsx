@@ -12,6 +12,7 @@ import {
 import { cn } from "../lib/utils";
 import { useAlignmentStore } from "./alignmentStore";
 import { evaluateProfile } from "./landXmlParser";
+import { AlignmentAnnotations } from "./AlignmentAnnotations";
 import type { Alignment } from "./types";
 
 function formatStation(sta: number): string {
@@ -388,6 +389,9 @@ export function AlignmentPanel() {
             <ProfileChart alignment={selectedAlign} color={colors[selectedAlign.id] ?? "#42a5f5"} />
           </div>
         )}
+
+        {/* Annotation controls */}
+        <AlignmentAnnotations />
       </div>
     </div>
   );

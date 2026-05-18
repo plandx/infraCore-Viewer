@@ -20,6 +20,7 @@ import { FaceEdgePicker } from "../geometry-inspector/FaceEdgePicker";
 import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorPanel";
 import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
 import { useAlignmentStore } from "../alignment/alignmentStore";
+import type { PlacedLabel, OffsetMeasurement } from "../alignment/alignmentStore";
 import { buildRobustPolyline } from "../alignment/landXmlParser";
 
 interface Props {
@@ -59,6 +60,18 @@ export function ViewportContainer({ onElementClick }: Props) {
   const measureMidpointsRef = useRef<Array<{ a: THREE.Vector3; b: THREE.Vector3 }>>([]);
   const [measureLabels, setMeasureLabels] = useState<MeasureLabel[]>([]);
   const [measurePending, setMeasurePending] = useState(false);
+
+  // Annotation label overlay (station ticks, placed labels, offset measurements)
+  interface AnnotLabel {
+    id: string;
+    x: number; y: number;
+    type: "station" | "placed" | "offset";
+    lines: string[];
+    color: string;
+    footX?: number; footY?: number;   // screen coords for offset line endpoint
+    clickSX?: number; clickSY?: number;
+  }
+  const [annotLabels, setAnnotLabels] = useState<AnnotLabel[]>([]);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -105,7 +118,8 @@ export function ViewportContainer({ onElementClick }: Props) {
   const billingVizRef    = useRef<BillingVisualizer | null>(null);
   const billingMeshMapRef = useRef<Map<string, THREE.Mesh[]>>(new Map());
   const alignGroupRef  = useRef<THREE.Group | null>(null);
-  const alignPolylineRef = useRef<Map<number, { pts: Array<{ x: number; y: number; z: number; sta: number; ox: number; oy: number; oz: number }>; name: string }>>(new Map());
+  const annotGroupRef  = useRef<THREE.Group | null>(null);
+  const alignPolylineRef = useRef<Map<number, { pts: Array<{ x: number; y: number; z: number | null; sta: number; ox: number; oy: number; oz: number }>; name: string }>>(new Map());
   const pickerRef      = useRef<FaceEdgePicker | null>(null);
   const pendingSelectKeyRef = useRef<string | null>(null);
   const [inspSession,  setInspSession]  = useState<InspectionSession | null>(null);
@@ -250,6 +264,11 @@ export function ViewportContainer({ onElementClick }: Props) {
     alignGroup.name = "__alignments";
     scene.add(alignGroup);
     alignGroupRef.current = alignGroup;
+
+    const annotGroup = new THREE.Group();
+    annotGroup.name = "__annotations";
+    scene.add(annotGroup);
+    annotGroupRef.current = annotGroup;
 
     // Separate scene for section handles/gizmos — rendered without clip planes
     const handleScene = new THREE.Scene();
@@ -1280,6 +1299,202 @@ export function ViewportContainer({ onElementClick }: Props) {
     return () => controls.removeEventListener("change", updateMeasureLabels);
   }, [updateMeasureLabels]);
 
+  // ── Annotation label screen-position computation ───────────────────────────
+  const fmtSta = (sta: number) => {
+    const km = Math.floor(sta / 1000);
+    return `${km}+${(sta - km * 1000).toFixed(0).padStart(3, "0")}`;
+  };
+
+  const updateAnnotLabels = useCallback(() => {
+    const camera = cameraRef.current;
+    const renderer = rendererRef.current;
+    if (!camera || !renderer) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    const store = useAlignmentStore.getState();
+    const out: typeof annotLabels = [];
+
+    const project = (wx: number, wy: number, wz: number) => {
+      const v = new THREE.Vector3(wx, wy, wz).project(camera);
+      return {
+        x: ((v.x + 1) / 2) * rect.width,
+        y: (-(v.y - 1) / 2) * rect.height,
+        ok: v.z < 1,
+      };
+    };
+
+    // Station tick labels
+    if (store.stationLabelVisible) {
+      const interval = store.stationLabelInterval;
+      for (const [alignId, cache] of alignPolylineRef.current.entries()) {
+        if (!store.visibleIds.has(alignId)) continue;
+        const { pts } = cache;
+        if (pts.length < 2) continue;
+        const color = store.colors[alignId] ?? "#ff7043";
+        const staStart = pts[0].sta;
+        const staEnd   = pts[pts.length - 1].sta;
+        const firstTick = Math.ceil(staStart / interval) * interval;
+
+        for (let sta = firstTick; sta <= staEnd + 1e-6; sta += interval) {
+          for (let i = 0; i < pts.length - 1; i++) {
+            const A = pts[i], B = pts[i + 1];
+            if (sta < A.sta - 1e-6 || sta > B.sta + 1e-6) continue;
+            const t = Math.min(1, Math.max(0, (sta - A.sta) / Math.max(1e-9, B.sta - A.sta)));
+            const { ox, oy, oz } = A;
+            const az = A.z ?? oz, bz = B.z ?? oz;
+            const wx = (A.x + t * (B.x - A.x)) - ox;
+            const wy = (az + t * (bz - az)) - oz;
+            const wz = -((A.y + t * (B.y - A.y)) - oy);
+            const s = project(wx, wy, wz);
+            if (s.ok) {
+              out.push({ id: `tick-${alignId}-${sta}`, x: s.x, y: s.y, type: "station", lines: [fmtSta(sta)], color });
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    // Placed labels
+    for (const lbl of store.placedLabels) {
+      const s = project(lbl.worldX, lbl.worldY, lbl.worldZ);
+      if (!s.ok) continue;
+      const color = store.colors[lbl.alignmentId] ?? "#ff7043";
+      const lines = [
+        fmtSta(lbl.station),
+        `X ${lbl.easting.toFixed(3)}`,
+        `Y ${lbl.northing.toFixed(3)}`,
+        ...(lbl.elevation !== null ? [`Z ${lbl.elevation.toFixed(3)}`] : []),
+      ];
+      out.push({ id: `placed-${lbl.id}`, x: s.x, y: s.y, type: "placed", lines, color });
+    }
+
+    // Offset labels (rendered at midpoint of click↔foot line)
+    for (const m of store.offsetMeasurements) {
+      const foot  = project(m.footWorldX,  m.footWorldY,  m.footWorldZ);
+      const click = project(m.clickWorldX, m.clickWorldY, m.clickWorldZ);
+      if (!foot.ok && !click.ok) continue;
+      const color = store.colors[m.alignmentId] ?? "#ff7043";
+      const side  = m.offset >= 0 ? "R" : "L";
+      out.push({
+        id: `offset-${m.id}`,
+        x: (foot.x + click.x) / 2,
+        y: (foot.y + click.y) / 2,
+        type: "offset",
+        lines: [fmtSta(m.station), `${side} ${Math.abs(m.offset).toFixed(3)} m`],
+        color,
+        footX: foot.x, footY: foot.y,
+        clickSX: click.x, clickSY: click.y,
+      });
+    }
+
+    setAnnotLabels(out);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Rebuild 3D offset lines + recompute screen labels on any annotation store change
+  useEffect(() => {
+    function rebuild() {
+      const group = annotGroupRef.current;
+      if (group) {
+        while (group.children.length > 0) {
+          const child = group.children[0] as THREE.Line;
+          child.geometry?.dispose();
+          (child.material as THREE.Material)?.dispose();
+          group.remove(child);
+        }
+        const { offsetMeasurements, colors } = useAlignmentStore.getState();
+        for (const m of offsetMeasurements) {
+          const A = new THREE.Vector3(m.footWorldX,  m.footWorldY,  m.footWorldZ);
+          const B = new THREE.Vector3(m.clickWorldX, m.clickWorldY, m.clickWorldZ);
+          const geo = new THREE.BufferGeometry().setFromPoints([A, B]);
+          const col = new THREE.Color(colors[m.alignmentId] ?? "#4caf50");
+          const mat = new THREE.LineDashedMaterial({ color: col, dashSize: 0.3, gapSize: 0.15 });
+          const line = new THREE.Line(geo, mat);
+          line.computeLineDistances();
+          line.renderOrder = 997;
+          group.add(line);
+        }
+        needsRenderRef.current = true;
+      }
+      updateAnnotLabels();
+    }
+    rebuild();
+    const unsub = useAlignmentStore.subscribe(rebuild);
+    return () => unsub();
+  }, [updateAnnotLabels]);
+
+  // Also re-project annotation labels on camera pan/zoom
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    controls.addEventListener("change", updateAnnotLabels);
+    return () => controls.removeEventListener("change", updateAnnotLabels);
+  }, [updateAnnotLabels]);
+
+  // ── Alignment click helpers ────────────────────────────────────────────────
+  // Returns the closest point on visible alignment polylines to the mouse ray.
+  const findClosestAlignPoint = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const camera   = cameraRef.current;
+    const renderer = rendererRef.current;
+    if (!camera || !renderer) return null;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    const ndcVec = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(ndcVec, camera);
+    const ro = raycaster.ray.origin;
+    const rd = raycaster.ray.direction;
+    const c  = rd.dot(rd);
+
+    const { visibleIds } = useAlignmentStore.getState();
+    let bestDist = Infinity;
+    let bestAlignId = -1;
+    let bestStation = 0;
+    let bestFoot    = new THREE.Vector3();
+    let bestLandXML = { x: 0, y: 0, z: null as number | null };
+
+    for (const [alignId, cache] of alignPolylineRef.current.entries()) {
+      if (!visibleIds.has(alignId)) continue;
+      const { pts } = cache;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const A = pts[i], B = pts[i + 1];
+        const { ox, oy, oz } = A;
+        const p0 = new THREE.Vector3(A.x - ox, (A.z ?? oz) - oz, -(A.y - oy));
+        const p1 = new THREE.Vector3(B.x - ox, (B.z ?? oz) - oz, -(B.y - oy));
+        const seg = new THREE.Vector3().subVectors(p1, p0);
+        const w   = new THREE.Vector3().subVectors(p0, ro);
+        const a   = seg.dot(seg);
+        const b   = seg.dot(rd);
+        const d   = seg.dot(w);
+        const ev  = rd.dot(w);
+        const den = a * c - b * b;
+        let sc = den > 1e-10 ? Math.min(1, Math.max(0, (b * ev - c * d) / den)) : 0;
+        const tc = (b * sc + ev) / c;
+        if (tc < 0) sc = Math.min(1, Math.max(0, -d / a));
+        const foot   = new THREE.Vector3().copy(p0).addScaledVector(seg, sc);
+        const rayPt  = new THREE.Vector3().copy(ro).addScaledVector(rd, Math.max(0, (b * sc + ev) / c));
+        const dist   = foot.distanceTo(rayPt);
+        if (dist < bestDist) {
+          bestDist    = dist;
+          bestAlignId = alignId;
+          bestStation = A.sta + sc * (B.sta - A.sta);
+          bestFoot    = foot;
+          const az = A.z ?? null, bz = B.z ?? null;
+          bestLandXML = {
+            x: A.x + sc * (B.x - A.x),
+            y: A.y + sc * (B.y - A.y),
+            z: az !== null && bz !== null ? az + sc * (bz - az) : null,
+          };
+        }
+      }
+    }
+    if (bestAlignId < 0 || bestDist > 50) return null;
+    return { alignId: bestAlignId, station: bestStation, foot: bestFoot, landXML: bestLandXML };
+  }, []);
+
   // ── Measurement helper functions ──────────────────────────────────────────
   const clearMeasure = useCallback(() => {
     const scene = sceneRef.current;
@@ -1385,6 +1600,92 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     const hit = raycastPoint(e);
 
+    // ── Alignment annotation tools ───────────────────────────────────────────
+    const annotStore = useAlignmentStore.getState();
+    if (annotStore.labelToolActive || annotStore.offsetToolActive) {
+      const closest = findClosestAlignPoint(e);
+      if (!closest) return;
+      const { alignId, station, foot, landXML } = closest;
+      const alignName = alignPolylineRef.current.get(alignId)?.name ?? "";
+
+      if (annotStore.labelToolActive) {
+        const lbl: PlacedLabel = {
+          id: crypto.randomUUID(),
+          alignmentId: alignId,
+          alignmentName: alignName,
+          station,
+          easting:   landXML.x,
+          northing:  landXML.y,
+          elevation: landXML.z,
+          worldX: foot.x,
+          worldY: foot.y,
+          worldZ: foot.z,
+        };
+        useAlignmentStore.getState().addPlacedLabel(lbl);
+        needsRenderRef.current = true;
+        return;
+      }
+
+      if (annotStore.offsetToolActive) {
+        // Get actual 3D click point from IFC geometry, falling back to the
+        // horizontal plane at the alignment foot elevation.
+        let clickPt: THREE.Vector3;
+        if (hit) {
+          clickPt = hit.point;
+        } else {
+          const camera   = cameraRef.current;
+          const renderer = rendererRef.current;
+          if (!camera || !renderer) return;
+          const rect = renderer.domElement.getBoundingClientRect();
+          const mouse = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1,
+          );
+          const rc = new THREE.Raycaster();
+          rc.setFromCamera(mouse, camera);
+          const plane  = new THREE.Plane(new THREE.Vector3(0, 1, 0), -foot.y);
+          const target = new THREE.Vector3();
+          if (!rc.ray.intersectPlane(plane, target)) return;
+          clickPt = target;
+        }
+
+        // Alignment tangent at foot (from surrounding polyline segments)
+        let tx = 0, tz = 0;
+        const cache = alignPolylineRef.current.get(alignId);
+        if (cache) {
+          for (let i = 0; i < cache.pts.length - 1; i++) {
+            const A = cache.pts[i], B = cache.pts[i + 1];
+            if (station >= A.sta - 1e-6 && station <= B.sta + 1e-6) {
+              const { ox, oy } = A;
+              tx = (B.x - A.x); tz = -(B.y - A.y - (oy - oy)); // XZ
+              tx = (B.x - ox) - (A.x - ox); tz = -(B.y - A.y);
+              const len = Math.hypot(tx, tz);
+              if (len > 1e-9) { tx /= len; tz /= len; }
+              break;
+            }
+          }
+        }
+        // Right-hand perpendicular in XZ: T × UP = (-tz, 0, tx)
+        const right = new THREE.Vector3(-tz, 0, tx);
+        const diff  = new THREE.Vector3().subVectors(clickPt, foot);
+        const signedOffset = diff.dot(right);
+        const horzOffset   = Math.sign(signedOffset) * Math.hypot(diff.x, diff.z);
+
+        const m: OffsetMeasurement = {
+          id: crypto.randomUUID(),
+          alignmentId: alignId,
+          alignmentName: alignName,
+          station,
+          offset: horzOffset,
+          clickWorldX: clickPt.x, clickWorldY: clickPt.y, clickWorldZ: clickPt.z,
+          footWorldX:  foot.x,    footWorldY:  foot.y,    footWorldZ:  foot.z,
+        };
+        useAlignmentStore.getState().addOffsetMeasurement(m);
+        needsRenderRef.current = true;
+        return;
+      }
+    }
+
     if (activeTool === "measure") {
       // Measure needs a 3D point even on empty space — use a large plane
       const renderer = rendererRef.current;
@@ -1469,7 +1770,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     // Select tool: store update triggers the highlight useEffect
     onElementClick(hit.modelId, hit.expressId);
-  }, [activeTool, raycastPoint, addSphere, addMeasurement, updateMeasureLabels, onElementClick]);
+  }, [activeTool, raycastPoint, addSphere, addMeasurement, updateMeasureLabels, findClosestAlignPoint, onElementClick]);
 
   // ── Mouse position tracking for click-suppression ────────────────────────
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -1682,8 +1983,12 @@ export function ViewportContainer({ onElementClick }: Props) {
   }, []);
 
   // Cursor style per tool
+  const { labelToolActive: _lta, offsetToolActive: _ota } = useAlignmentStore(s => ({
+    labelToolActive: s.labelToolActive, offsetToolActive: s.offsetToolActive,
+  }));
   const cursor = activeTool === "measure" ? "crosshair"
                : activeTool === "section" ? "crosshair"
+               : _lta || _ota         ? "crosshair"
                : "default";
 
   return (
@@ -1720,6 +2025,86 @@ export function ViewportContainer({ onElementClick }: Props) {
           {lbl.text}
         </div>
       ))}
+
+      {/* Annotation labels: station ticks, placed labels, offset measurements */}
+      {annotLabels.map(lbl => {
+        if (lbl.type === "station") {
+          return (
+            <div
+              key={lbl.id}
+              className="absolute pointer-events-none select-none"
+              style={{ left: lbl.x, top: lbl.y, transform: "translate(-50%, -130%)" }}
+            >
+              <div
+                className="text-[9px] font-mono font-semibold px-1 py-0.5 rounded whitespace-nowrap shadow-sm"
+                style={{ color: lbl.color, backgroundColor: "rgba(0,0,0,0.55)", border: `1px solid ${lbl.color}55` }}
+              >
+                {lbl.lines[0]}
+              </div>
+              {/* Tick line */}
+              <div className="absolute left-1/2 -translate-x-px w-px h-2.5 top-full" style={{ backgroundColor: lbl.color, opacity: 0.7 }} />
+            </div>
+          );
+        }
+
+        if (lbl.type === "placed") {
+          return (
+            <div
+              key={lbl.id}
+              className="absolute pointer-events-none select-none"
+              style={{ left: lbl.x, top: lbl.y, transform: "translate(6px, -50%)" }}
+            >
+              {/* Pin dot */}
+              <div className="absolute -left-5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2"
+                style={{ backgroundColor: lbl.color, borderColor: lbl.color, boxShadow: `0 0 4px ${lbl.color}` }} />
+              <div
+                className="text-[9px] font-mono px-1.5 py-1 rounded whitespace-nowrap shadow-lg leading-snug"
+                style={{ backgroundColor: "rgba(0,0,0,0.75)", border: `1px solid ${lbl.color}66`, color: "#e4e4e7" }}
+              >
+                <div className="font-semibold mb-0.5" style={{ color: lbl.color }}>{lbl.lines[0]}</div>
+                {lbl.lines.slice(1).map((l, i) => <div key={i}>{l}</div>)}
+              </div>
+            </div>
+          );
+        }
+
+        if (lbl.type === "offset") {
+          const fx = lbl.footX ?? lbl.x, fy = lbl.footY ?? lbl.y;
+          const cx = lbl.clickSX ?? lbl.x, cy = lbl.clickSY ?? lbl.y;
+          const dx = cx - fx, dy = cy - fy;
+          const len = Math.hypot(dx, dy);
+          const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+          return (
+            <div key={lbl.id} className="absolute pointer-events-none select-none" style={{ left: 0, top: 0 }}>
+              {/* Offset line SVG */}
+              {len > 2 && (
+                <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none">
+                  <line x1={fx} y1={fy} x2={cx} y2={cy}
+                    stroke={lbl.color} strokeWidth={1.5} strokeDasharray="4 2" opacity={0.8} />
+                  <circle cx={fx} cy={fy} r={3} fill={lbl.color} opacity={0.9} />
+                  <circle cx={cx} cy={cy} r={3} fill={lbl.color} opacity={0.9} />
+                </svg>
+              )}
+              {/* Label at midpoint */}
+              <div
+                className="absolute text-[9px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg leading-snug"
+                style={{
+                  left: lbl.x, top: lbl.y,
+                  transform: `translate(-50%, -50%) rotate(${angle > 90 || angle < -90 ? angle + 180 : angle}deg)`,
+                  backgroundColor: "rgba(0,0,0,0.75)",
+                  border: `1px solid ${lbl.color}66`,
+                  color: "#e4e4e7",
+                }}
+              >
+                <div className="font-semibold" style={{ color: lbl.color }}>{lbl.lines[0]}</div>
+                <div>{lbl.lines[1]}</div>
+              </div>
+            </div>
+          );
+        }
+
+        return null;
+      })}
 
       {/* Inspector labels — face (F1…) and edge (K1…) labels in 3D viewport */}
       {inspSession && inspShowLabels && inspLabels.map((lbl) => (

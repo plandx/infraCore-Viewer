@@ -494,3 +494,26 @@ Drag-and-Drop-Zone + „Datei öffnen"-Button. Verschwindet sobald Modelle gelad
 **Datei:** `src/components/StatusBar.tsx`
 
 Unterste Zeile: Anzahl Modelle, Gesamt-Dreiecke, JS-Heap, FPS-Zähler (farbcodiert), Version.
+
+---
+
+## AlignmentPanel
+
+**Datei:** `src/alignment/AlignmentPanel.tsx`
+
+Seitenleisten-Panel für LandXML-Trassen. Anzeige von Dateien, einzelnen Achsen (ein-/ausblendbar, farbig), Stationierungswerkzeug, Auflösungswähler, Längsprofil-Chart. Enthält `<AlignmentAnnotations />` als Unterabschnitt.
+
+Props: keine (liest aus `useAlignmentStore`).
+
+---
+
+## AlignmentAnnotations
+
+**Datei:** `src/alignment/AlignmentAnnotations.tsx`
+
+Neuer Beschriftungs-Unterbereich im Achsen-Panel mit drei Funktionen:
+1. **Stationierungsintervalle** – automatische Beschriftung der Achse im gewählten Abstand (10–1000 m). Labels werden als CSS-Overlay in den Viewport projiziert.
+2. **Punkt setzen** – Tool zum Klicken auf die Achse; speichert Beschriftung mit X/Y/Z (Echtkoordinaten) und Stationierung. Anzeige als positioniertes Info-Overlay.
+3. **Absetzmass** – Tool zum Klicken auf IFC-Geometrie; berechnet Station des Fußpunkts und vorzeichenbehafteten horizontalen Querabstand (+ = rechts, − = links). Visualisierung als gestrichelte 3D-Linie + Label.
+
+State in `useAlignmentStore`: `stationLabelVisible`, `stationLabelInterval`, `labelToolActive`, `offsetToolActive`, `placedLabels`, `offsetMeasurements`.

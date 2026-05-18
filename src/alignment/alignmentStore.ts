@@ -22,18 +22,51 @@ interface AlignFile {
   alignments: Alignment[];
 }
 
+export interface PlacedLabel {
+  id: string;
+  alignmentId: number;
+  alignmentName: string;
+  station: number;
+  easting: number;   // real-world Easting (LandXML x)
+  northing: number;  // real-world Northing (LandXML y)
+  elevation: number | null; // real-world Elevation (LandXML z)
+  worldX: number;    // Three.js scene X
+  worldY: number;    // Three.js scene Y
+  worldZ: number;    // Three.js scene Z
+}
+
+export interface OffsetMeasurement {
+  id: string;
+  alignmentId: number;
+  alignmentName: string;
+  station: number;
+  offset: number;          // signed horizontal offset (+ = right, - = left)
+  clickWorldX: number;     // Three.js scene coords of click point
+  clickWorldY: number;
+  clickWorldZ: number;
+  footWorldX: number;      // Three.js scene coords of foot on alignment
+  footWorldY: number;
+  footWorldZ: number;
+}
+
 interface AlignmentStore {
   files: AlignFile[];
   selectedId: number | null;
   visibleIds: Set<number>;
   colors: Record<number, string>;
-  // Geographic origin used for Three.js scene offset when no IFC is loaded.
-  // x = Easting, y = Northing, z = Elevation of first alignment's first point.
   geoOrigin: { x: number; y: number; z: number } | null;
   panelOpen: boolean;
   sampleInterval: number;
   stationToolActive: boolean;
   hoveredStation: { alignmentId: number; station: number; name: string } | null;
+
+  // Annotation state
+  stationLabelVisible: boolean;
+  stationLabelInterval: number;
+  labelToolActive: boolean;
+  offsetToolActive: boolean;
+  placedLabels: PlacedLabel[];
+  offsetMeasurements: OffsetMeasurement[];
 
   loadFile(file: File): Promise<void>;
   removeFile(fileId: string): void;
@@ -43,6 +76,17 @@ interface AlignmentStore {
   setSampleInterval(n: number): void;
   toggleStationTool(): void;
   setHoveredStation(info: { alignmentId: number; station: number; name: string } | null): void;
+
+  // Annotation actions
+  toggleStationLabels(): void;
+  setStationLabelInterval(n: number): void;
+  toggleLabelTool(): void;
+  toggleOffsetTool(): void;
+  addPlacedLabel(l: PlacedLabel): void;
+  removePlacedLabel(id: string): void;
+  addOffsetMeasurement(m: OffsetMeasurement): void;
+  removeOffsetMeasurement(id: string): void;
+  clearAllAnnotations(): void;
 }
 
 export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
@@ -55,6 +99,13 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   sampleInterval: 5,
   stationToolActive: false,
   hoveredStation: null,
+
+  stationLabelVisible: false,
+  stationLabelInterval: 100,
+  labelToolActive: false,
+  offsetToolActive: false,
+  placedLabels: [],
+  offsetMeasurements: [],
 
   loadFile: async (file: File) => {
     const text = await file.text();
@@ -73,10 +124,6 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
     set(state => {
       let geoOrigin = state.geoOrigin;
       if (!geoOrigin) {
-        // Use the first segment's start coordinates as the geographic reference.
-        // We always take x/y from the geometry so the alignment is placed at
-        // a sane distance from the Three.js origin (otherwise national-grid
-        // coordinates in the millions cause float32 precision loss).
         const firstAlign = parsed.alignments[0];
         const firstSeg = firstAlign.segments[0];
         if (firstSeg) {
@@ -86,8 +133,6 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
             z: firstSeg.start.z ?? firstAlign.profileGeom.vertices[0]?.elev ?? 0,
           };
         }
-        // If there are no segments (shouldn't happen — parseLandXmlText returns
-        // null for segment-less alignments), leave geoOrigin null.
       }
 
       const newFile: AlignFile = {
@@ -128,6 +173,8 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
             ? null
             : state.selectedId,
         geoOrigin: newFiles.length === 0 ? null : state.geoOrigin,
+        placedLabels: state.placedLabels.filter(l => !removedIds.has(l.alignmentId)),
+        offsetMeasurements: state.offsetMeasurements.filter(m => !removedIds.has(m.alignmentId)),
       };
     });
   },
@@ -147,4 +194,22 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   setSampleInterval: (n) => set({ sampleInterval: n }),
   toggleStationTool: () => set(state => ({ stationToolActive: !state.stationToolActive })),
   setHoveredStation: (info) => set({ hoveredStation: info }),
+
+  toggleStationLabels: () => set(state => ({ stationLabelVisible: !state.stationLabelVisible })),
+  setStationLabelInterval: (n) => set({ stationLabelInterval: n }),
+  toggleLabelTool: () => set(state => ({
+    labelToolActive: !state.labelToolActive,
+    offsetToolActive: false,
+    stationToolActive: false,
+  })),
+  toggleOffsetTool: () => set(state => ({
+    offsetToolActive: !state.offsetToolActive,
+    labelToolActive: false,
+    stationToolActive: false,
+  })),
+  addPlacedLabel: (l) => set(state => ({ placedLabels: [...state.placedLabels, l] })),
+  removePlacedLabel: (id) => set(state => ({ placedLabels: state.placedLabels.filter(l => l.id !== id) })),
+  addOffsetMeasurement: (m) => set(state => ({ offsetMeasurements: [...state.offsetMeasurements, m] })),
+  removeOffsetMeasurement: (id) => set(state => ({ offsetMeasurements: state.offsetMeasurements.filter(m => m.id !== id) })),
+  clearAllAnnotations: () => set({ placedLabels: [], offsetMeasurements: [] }),
 }));
