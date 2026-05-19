@@ -1464,7 +1464,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   const fmtSta = (sta: number) => {
     const km = Math.floor(sta / 1000);
-    return `${km}+${(sta - km * 1000).toFixed(0).padStart(3, "0")}`;
+    return `${km}+${(sta - km * 1000).toFixed(3).padStart(7, "0")}`;
   };
 
   const updateAnnotLabels = useCallback(() => {

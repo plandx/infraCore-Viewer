@@ -9,7 +9,7 @@ import type { Alignment } from "./types";
 function fmtSta(sta: number): string {
   const km = Math.floor(sta / 1000);
   const m = sta - km * 1000;
-  return `${km}+${m.toFixed(0).padStart(3, "0")}`;
+  return `${km}+${m.toFixed(3).padStart(7, "0")}`;
 }
 
 function computeTicks(min: number, max: number, target: number): number[] {
