@@ -148,7 +148,17 @@ export function CrossSectionWindow() {
       if (e.data.t === "state") setState(e.data.s);
     };
     ch.postMessage({ t: "req" } satisfies XSMsg);
-    return () => { ch.close(); chRef.current = null; };
+
+    // Notify the main window when this popup closes so it can clear the section
+    const sendClose = () => { try { ch.postMessage({ t: "close" } satisfies XSMsg); } catch { /* ignore */ } };
+    window.addEventListener("beforeunload", sendClose);
+
+    return () => {
+      window.removeEventListener("beforeunload", sendClose);
+      sendClose(); // also fire on React unmount (e.g. HMR)
+      ch.close();
+      chRef.current = null;
+    };
   }, []);
 
   const send = (msg: XSMsg) => chRef.current?.postMessage(msg);

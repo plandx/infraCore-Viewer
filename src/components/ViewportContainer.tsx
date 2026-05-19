@@ -1825,10 +1825,10 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
       grp.clear();
 
-      const { showSectionSurface, crossSectionPolygons, crossSectionBasis, crossSectionOpen } =
+      const { showSectionSurface, crossSectionPolygons, crossSectionBasis, crossSectionOpen, crossSectionLines } =
         useAlignmentStore.getState();
 
-      if (!showSectionSurface || !crossSectionBasis || !crossSectionOpen || crossSectionPolygons.length === 0) {
+      if (!showSectionSurface || !crossSectionBasis || !crossSectionOpen) {
         needsRenderRef.current = true;
         return;
       }
@@ -1842,20 +1842,42 @@ export function ViewportContainer({ onElementClick }: Props) {
       // Matrix that maps 2D cross-section space (right=X, up=Y) to world space
       const basisMat = new THREE.Matrix4().makeBasis(rightVec, upVec, normalVec).setPosition(originVec);
 
-      for (const poly of crossSectionPolygons) {
-        const shape = new THREE.Shape(poly.points.map(([r, u]) => new THREE.Vector2(r, u)));
-        const geo   = new THREE.ShapeGeometry(shape);
+      const addMesh = (shape: THREE.Shape, color: THREE.ColorRepresentation, opacity: number) => {
+        const geo  = new THREE.ShapeGeometry(shape);
         geo.applyMatrix4(basisMat);
-
         const mat  = new THREE.MeshBasicMaterial({
-          color: poly.color, transparent: true, opacity: 0.35,
+          color, transparent: true, opacity,
           side: THREE.DoubleSide, depthTest: true, depthWrite: false,
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.userData.isXSSurface = true;
-        // Small nudge along normal to avoid Z-fighting with section indicator
         mesh.position.addScaledVector(normalVec, 0.005);
         grp.add(mesh);
+      };
+
+      if (crossSectionPolygons.length > 0) {
+        // Polygon fills reconstructed from section line loops
+        for (const poly of crossSectionPolygons) {
+          addMesh(
+            new THREE.Shape(poly.points.map(([r, u]) => new THREE.Vector2(r, u))),
+            poly.color, 0.35,
+          );
+        }
+      } else {
+        // Fallback: bounded section plane sized to the current section extent
+        let xMin = -5, xMax = 5, yMin = -2, yMax = 5;
+        for (const l of crossSectionLines) {
+          xMin = Math.min(xMin, l.x1, l.x2); xMax = Math.max(xMax, l.x1, l.x2);
+          yMin = Math.min(yMin, l.y1, l.y2); yMax = Math.max(yMax, l.y1, l.y2);
+        }
+        const px = (xMax - xMin) * 0.06, py = (yMax - yMin) * 0.06;
+        const shape = new THREE.Shape([
+          new THREE.Vector2(xMin - px, yMin - py),
+          new THREE.Vector2(xMax + px, yMin - py),
+          new THREE.Vector2(xMax + px, yMax + py),
+          new THREE.Vector2(xMin - px, yMax + py),
+        ]);
+        addMesh(shape, 0x4488ff, 0.12);
       }
       needsRenderRef.current = true;
     };

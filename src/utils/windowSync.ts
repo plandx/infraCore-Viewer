@@ -102,6 +102,7 @@ export interface XSSyncState {
 export type XSMsg =
   | { t: "state"; s: XSSyncState }
   | { t: "req" }
+  | { t: "close" }
   | { t: "setStation"; alignmentId: number; station: number }
   | { t: "nextStation"; delta: number }
   | { t: "setMode"; mode: "vertical" | "normal" }

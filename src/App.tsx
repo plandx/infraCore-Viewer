@@ -156,6 +156,9 @@ function useCrossSectionSync() {
         store.setCrossSectionMode(msg.mode);
       } else if (msg.t === "toggleSectionSurface") {
         store.setShowSectionSurface(!store.showSectionSurface);
+      } else if (msg.t === "close") {
+        store.closeCrossSection();
+        store.setShowSectionSurface(false);
       }
     };
 
