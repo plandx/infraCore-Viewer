@@ -476,6 +476,15 @@ Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen 
 | `sampleInterval` | `number` | Bogenabtastabstand in Metern (Standard: 5 m) |
 | `stationToolActive` | `boolean` | Stationierungs-Mess-Werkzeug aktiv |
 | `hoveredStation` | `{alignmentId, station, name} \| null` | Aktuelle Hover-Station (vom Viewport befüllt) |
+| `crossSectionOpen` | `boolean` | Querschnitt-Fenster offen |
+| `crossSectionStation` | `number \| null` | Aktuelle Schnittstation in Metern |
+| `crossSectionAlignmentId` | `number \| null` | Alignment-ID des Schnitts |
+| `crossSectionMode` | `"vertical" \| "normal"` | Schnittebenen-Modus |
+| `crossSectionLines` | `SectionLine[]` | Rohsegmente der 2D-Schnittdarstellung |
+| `crossSectionPolygons` | `SectionPolygon[]` | Rekonstruierte geschlossene Polygone (Hatch-Fill) |
+| `crossSectionBasis` | `{origin,right,up,normal: [number,number,number]} \| null` | 3D-Basis der letzten Schnittebene im Szenen-Koordinatensystem |
+| `crossSectionComputing` | `boolean` | Berechnung läuft |
+| `showSectionSurface` | `boolean` | 3D-Schnittfläche im Viewport anzeigen |
 
 ### Aktionen
 
@@ -489,6 +498,11 @@ Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen 
 | `setSampleInterval(n)` | Bogenabtastabstand setzen |
 | `toggleStationTool()` | Stationierungs-Werkzeug an/aus |
 | `setHoveredStation(info)` | Hover-Station setzen (vom ViewportContainer aufgerufen) |
+| `openCrossSection(alignmentId, station)` | Schnitt öffnen und Berechnung starten |
+| `setCrossSectionStation(alignmentId, station)` | Station wechseln (löst Neuberechnung aus) |
+| `setCrossSectionMode(mode)` | Schnittmodus wechseln |
+| `setCrossSectionResult(lines, basis?)` | Berechnungsergebnis speichern; leitet `buildSectionPolygons` ab |
+| `setShowSectionSurface(v)` | 3D-Schnittfläche im Viewport ein-/ausblenden |
 
 ### Koordinaten-Konvention in `geoOrigin`
 

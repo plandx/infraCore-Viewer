@@ -75,6 +75,7 @@ export function serializeState(store: {
 export const CROSS_SECTION_CHANNEL = "infracore-cross-section";
 
 export type XSSyncLine = { x1: number; y1: number; x2: number; y2: number; color: string };
+export type XSSyncPolygon = { points: Array<[number, number]>; color: string };
 
 export interface XSSyncState {
   station: number | null;
@@ -84,7 +85,9 @@ export interface XSSyncState {
   staEnd: number;
   mode: "vertical" | "normal";
   lines: XSSyncLine[];
+  polygons: XSSyncPolygon[];
   computing: boolean;
+  showSectionSurface: boolean;
 }
 
 export type XSMsg =
@@ -92,7 +95,8 @@ export type XSMsg =
   | { t: "req" }
   | { t: "setStation"; alignmentId: number; station: number }
   | { t: "nextStation"; delta: number }
-  | { t: "setMode"; mode: "vertical" | "normal" };
+  | { t: "setMode"; mode: "vertical" | "normal" }
+  | { t: "toggleSectionSurface" };
 
 export function openCrossSectionWindow() {
   const url = `${window.location.pathname}?cross-section`;

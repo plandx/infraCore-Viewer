@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { parseLandXmlText } from "./landXmlParser";
 import type { Alignment } from "./types";
-import type { SectionLine } from "./crossSectionUtils";
+import type { SectionLine, SectionPolygon } from "./crossSectionUtils";
+import { buildSectionPolygons } from "./crossSectionUtils";
 
 const PALETTE = [
   "#ff7043",
@@ -70,7 +71,10 @@ interface AlignmentStore {
   crossSectionAlignmentId: number | null;
   crossSectionMode: "vertical" | "normal";
   crossSectionLines: SectionLine[];
+  crossSectionPolygons: SectionPolygon[];
+  crossSectionBasis: { origin: [number,number,number]; right: [number,number,number]; up: [number,number,number]; normal: [number,number,number] } | null;
   crossSectionComputing: boolean;
+  showSectionSurface: boolean;
 
   // Annotation state
   stationLabelVisible: boolean;
@@ -95,7 +99,8 @@ interface AlignmentStore {
   closeCrossSection(): void;
   setCrossSectionStation(alignmentId: number, station: number): void;
   setCrossSectionMode(mode: "vertical" | "normal"): void;
-  setCrossSectionResult(lines: SectionLine[]): void;
+  setCrossSectionResult(lines: SectionLine[], basis?: AlignmentStore["crossSectionBasis"]): void;
+  setShowSectionSurface(v: boolean): void;
 
   // Annotation actions
   toggleStationLabels(): void;
@@ -126,7 +131,10 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   crossSectionAlignmentId: null,
   crossSectionMode: "vertical",
   crossSectionLines: [],
+  crossSectionPolygons: [],
+  crossSectionBasis: null,
   crossSectionComputing: false,
+  showSectionSurface: false,
 
   stationLabelVisible: false,
   stationLabelInterval: 100,
@@ -224,11 +232,12 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   setHoveredStation: (info) => set({ hoveredStation: info }),
   setProfileHover: (alignmentId, station) => set({ profileHoverAlignmentId: alignmentId, profileHoverStation: station }),
 
-  openCrossSection: (alignmentId, station) => set({ crossSectionOpen: true, crossSectionStation: station, crossSectionAlignmentId: alignmentId, crossSectionComputing: true, crossSectionLines: [] }),
+  openCrossSection: (alignmentId, station) => set({ crossSectionOpen: true, crossSectionStation: station, crossSectionAlignmentId: alignmentId, crossSectionComputing: true, crossSectionLines: [], crossSectionPolygons: [], crossSectionBasis: null }),
   closeCrossSection: () => set({ crossSectionOpen: false }),
-  setCrossSectionStation: (alignmentId, station) => set({ crossSectionStation: station, crossSectionAlignmentId: alignmentId, crossSectionComputing: true, crossSectionLines: [] }),
-  setCrossSectionMode: (mode) => set({ crossSectionMode: mode, crossSectionComputing: true, crossSectionLines: [] }),
-  setCrossSectionResult: (lines) => set({ crossSectionLines: lines, crossSectionComputing: false }),
+  setCrossSectionStation: (alignmentId, station) => set({ crossSectionStation: station, crossSectionAlignmentId: alignmentId, crossSectionComputing: true, crossSectionLines: [], crossSectionPolygons: [], crossSectionBasis: null }),
+  setCrossSectionMode: (mode) => set({ crossSectionMode: mode, crossSectionComputing: true, crossSectionLines: [], crossSectionPolygons: [], crossSectionBasis: null }),
+  setCrossSectionResult: (lines, basis) => set({ crossSectionLines: lines, crossSectionPolygons: buildSectionPolygons(lines), crossSectionBasis: basis ?? null, crossSectionComputing: false }),
+  setShowSectionSurface: (v) => set({ showSectionSurface: v }),
 
   toggleStationLabels: () => set(state => ({ stationLabelVisible: !state.stationLabelVisible })),
   setStationLabelInterval: (n) => set({ stationLabelInterval: n }),

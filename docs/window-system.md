@@ -253,6 +253,39 @@ interface ElementQuantities {
 5. `applyRemoteState()` (`modelStore.ts`)
 6. `docs/state-management.md` + `docs/window-system.md` aktualisieren
 
+## Querschnitt-Kanal (`"infracore-cross-section"`)
+
+Separater BroadcastChannel für das Querschnitt-Fenster (`?cross-section`).
+
+```
+Main-Fenster (useCrossSectionSync)        CrossSectionWindow
+──────────────────────────────────────────────────────────────
+   │── { t: "state", s: XSSyncState } ──►│  vollständiger Push
+   │◄─ { t: "req" } ────────────────────│  beim Öffnen des Fensters
+   │◄─ { t: "setStation", ... } ─────────│  Stationsnavigation
+   │◄─ { t: "nextStation", delta } ──────│  Schritt-Navigation
+   │◄─ { t: "setMode", mode } ───────────│  Modus-Wechsel
+   │◄─ { t: "toggleSectionSurface" } ────│  3D-Fläche ein/aus
+```
+
+### XSSyncState
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `station` | `number \| null` | Aktuelle Station in Metern |
+| `alignmentId` | `number \| null` | ID des Alignments |
+| `alignmentName` | `string` | Anzeigename |
+| `staStart` / `staEnd` | `number` | Alignment-Ausdehnung |
+| `mode` | `"vertical" \| "normal"` | Schnittmodus |
+| `lines` | `XSSyncLine[]` | Rohsegmente des 2D-Schnitts |
+| `polygons` | `XSSyncPolygon[]` | Geschlossene Polygone (für Hatch-Fill) |
+| `computing` | `boolean` | Berechnung aktiv |
+| `showSectionSurface` | `boolean` | 3D-Schnittfläche im Viewport sichtbar |
+
+### 3D-Schnittfläche
+
+Wenn `showSectionSurface = true` und `crossSectionBasis` vorhanden ist, baut `ViewportContainer` aus `crossSectionPolygons` `THREE.ShapeGeometry`-Meshes und projiziert sie über `Matrix4.makeBasis(right, up, normal).setPosition(origin)` in den Weltkoordinatenraum. Die Meshes sind semi-transparent (`opacity 0.35`, `depthWrite: false`) und werden in der Gruppe `__xsSurface` gehalten.
+
 ## Checkliste bei neuen BillingMsg-Typen
 
 1. `BillingMsg` Union in `src/billing/types.ts` erweitern

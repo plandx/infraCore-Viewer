@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useMemo } from "react";
-import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers } from "lucide-react";
 import { cn } from "../lib/utils";
 import { CROSS_SECTION_CHANNEL } from "../utils/windowSync";
 import type { XSMsg, XSSyncState } from "../utils/windowSync";
@@ -86,7 +86,8 @@ export function CrossSectionWindow() {
     return () => ro.disconnect();
   }, []);
 
-  const lines = state?.lines ?? [];
+  const lines    = state?.lines    ?? [];
+  const polygons = state?.polygons ?? [];
 
   // ── Domain ────────────────────────────────────────────────────────────────
   const domain = useMemo(() => {
@@ -311,6 +312,21 @@ export function CrossSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
+        {/* 3D section surface toggle */}
+        <button
+          onClick={() => send({ t: "toggleSectionSurface" })}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            state?.showSectionSurface
+              ? "bg-sky-600 text-white"
+              : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Schnittfläche im 3D-Viewer anzeigen"
+        >
+          <Layers size={13} /> 3D-Fläche
+        </button>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
         {/* Measure */}
         <button
           onClick={() => { setMeasActive(a => !a); setPending(null); }}
@@ -363,13 +379,16 @@ export function CrossSectionWindow() {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onMouseLeave={() => { panRef.current = null; setPanning(false); setMouseWorld(null); }}
+            onMouseLeave={() => { dragRef.current = null; setPanning(false); setMouseWorld(null); }}
             style={{ cursor: measActive ? "crosshair" : panning ? "grabbing" : "grab", display: "block" }}
           >
             <defs>
               <clipPath id="xs-clip">
                 <rect x={M.left} y={M.top} width={chartW} height={chartH} />
               </clipPath>
+              <pattern id="xs-hatch" patternUnits="userSpaceOnUse" x="0" y="0" width="8" height="8">
+                <line x1="0" y1="8" x2="8" y2="0" stroke="currentColor" strokeWidth="0.9" opacity="0.4" />
+              </pattern>
             </defs>
 
             {/* Grid */}
@@ -386,6 +405,19 @@ export function CrossSectionWindow() {
               {/* Alignment axis (dashed vertical) */}
               <line x1={xs(0)} y1={M.top} x2={xs(0)} y2={M.top + chartH}
                 stroke="var(--color-muted-foreground)" strokeWidth={1} strokeDasharray="6,4" opacity={0.5} />
+
+              {/* Hatched polygon fills for cut faces */}
+              {polygons.map((poly, i) => {
+                const d = poly.points.map(([x, y], j) =>
+                  `${j === 0 ? "M" : "L"}${xs(x).toFixed(1)},${ys(y).toFixed(1)}`
+                ).join(" ") + " Z";
+                return (
+                  <g key={i} style={{ color: poly.color }}>
+                    <path d={d} fill={poly.color} fillOpacity={0.18} stroke="none" />
+                    <path d={d} fill="url(#xs-hatch)" stroke="none" opacity={0.6} />
+                  </g>
+                );
+              })}
 
               {/* Section lines */}
               {lines.map((l, i) => (

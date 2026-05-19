@@ -128,7 +128,9 @@ function useCrossSectionSync() {
           staEnd: alignment?.staEnd ?? 0,
           mode: store.crossSectionMode,
           lines: store.crossSectionLines,
+          polygons: store.crossSectionPolygons,
           computing: store.crossSectionComputing,
+          showSectionSurface: store.showSectionSurface,
         },
       } satisfies XSMsg);
     };
@@ -151,15 +153,19 @@ function useCrossSectionSync() {
         }
       } else if (msg.t === "setMode") {
         store.setCrossSectionMode(msg.mode);
+      } else if (msg.t === "toggleSectionSurface") {
+        store.setShowSectionSurface(!store.showSectionSurface);
       }
     };
 
     const unsub = useAlignmentStore.subscribe((state, prev) => {
       if (
-        state.crossSectionLines     !== prev.crossSectionLines     ||
-        state.crossSectionStation   !== prev.crossSectionStation   ||
-        state.crossSectionMode      !== prev.crossSectionMode      ||
-        state.crossSectionComputing !== prev.crossSectionComputing
+        state.crossSectionLines      !== prev.crossSectionLines      ||
+        state.crossSectionPolygons   !== prev.crossSectionPolygons   ||
+        state.crossSectionStation    !== prev.crossSectionStation    ||
+        state.crossSectionMode       !== prev.crossSectionMode       ||
+        state.crossSectionComputing  !== prev.crossSectionComputing  ||
+        state.showSectionSurface     !== prev.showSectionSurface
       ) broadcast();
     });
 

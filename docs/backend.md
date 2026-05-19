@@ -436,3 +436,28 @@ Kleine Hilfs-Funktionen:
 - `formatBytes(bytes)` — formatiert Dateigröße (B / KB / MB / GB)
 - `computeModelOffset` — berechnet Origin-Offset für World-Space-Normalisierung
 - `generateModelColor` — generiert eindeutige Farbe je Modell-Index
+
+
+---
+
+## crossSectionUtils.ts
+
+**Pfad:** `src/alignment/crossSectionUtils.ts`
+
+Geometrie-Werkzeuge für den 2D-Querschnitt.
+
+### Interfaces
+
+```typescript
+SectionLine    { x1, y1, x2, y2, color }   // ein Schnittsegment (projiziert in Schnittebene)
+SectionPolygon { points: [number,number][]; color }  // geschlossenes Polygon (für Hatch-Fill)
+```
+
+### Funktionen
+
+| Funktion | Beschreibung |
+|---|---|
+| `sliceScene(scene, origin, normal, right, up)` | Schneidet alle sichtbaren Meshes der Szene mit einer Ebene; gibt projizierte 2D-Segmente zurück |
+| `buildSectionPolygons(lines, eps?)` | Rekonstruiert geschlossene Polygone aus `SectionLine[]` via räumlichem Hash-Join; filtert Fläche < 0,01 m² |
+
+`buildSectionPolygons` gruppiert Segmente nach Farbe, baut eine Adjazenz-Map mit quantisierten Endpunkten (Standard `eps = 1e-3 m`) und verfolgt Ketten greedy. Nur geschlossene Ketten mit ≥ 3 Punkten und Fläche ≥ 0,01 m² (Shoelace) werden übernommen.

@@ -6,6 +6,88 @@ export interface SectionLine {
   color: string;
 }
 
+export interface SectionPolygon {
+  points: Array<[number, number]>;
+  color: string;
+}
+
+function qKey(x: number, y: number, eps: number): string {
+  return `${Math.round(x / eps)},${Math.round(y / eps)}`;
+}
+
+export function buildSectionPolygons(lines: SectionLine[], eps = 1e-3): SectionPolygon[] {
+  if (lines.length === 0) return [];
+  const results: SectionPolygon[] = [];
+
+  // Group by color
+  const byColor = new Map<string, SectionLine[]>();
+  for (const l of lines) {
+    let g = byColor.get(l.color);
+    if (!g) { g = []; byColor.set(l.color, g); }
+    g.push(l);
+  }
+
+  for (const [color, group] of byColor) {
+    const used = new Uint8Array(group.length);
+
+    // Build adjacency: quantized endpoint key → [(lineIdx, endIdx)]
+    const adj = new Map<string, Array<[number, number]>>();
+    const push = (key: string, li: number, ei: number) => {
+      let a = adj.get(key);
+      if (!a) { a = []; adj.set(key, a); }
+      a.push([li, ei]);
+    };
+    for (let i = 0; i < group.length; i++) {
+      const l = group[i];
+      push(qKey(l.x1, l.y1, eps), i, 0);
+      push(qKey(l.x2, l.y2, eps), i, 1);
+    }
+
+    for (let start = 0; start < group.length; start++) {
+      if (used[start]) continue;
+      used[start] = 1;
+      const l0 = group[start];
+      const startKey = qKey(l0.x1, l0.y1, eps);
+      const chain: Array<[number, number]> = [[l0.x1, l0.y1], [l0.x2, l0.y2]];
+      let nextKey = qKey(l0.x2, l0.y2, eps);
+      let limit = group.length;
+
+      while (nextKey !== startKey && limit-- > 0) {
+        const cands = adj.get(nextKey) ?? [];
+        let found = false;
+        for (const [li, ei] of cands) {
+          if (used[li]) continue;
+          used[li] = 1;
+          const l = group[li];
+          if (ei === 0) {
+            chain.push([l.x2, l.y2]);
+            nextKey = qKey(l.x2, l.y2, eps);
+          } else {
+            chain.push([l.x1, l.y1]);
+            nextKey = qKey(l.x1, l.y1, eps);
+          }
+          found = true;
+          break;
+        }
+        if (!found) break;
+      }
+
+      if (nextKey !== startKey || chain.length < 3) continue;
+
+      // Shoelace area test
+      let area = 0;
+      const n = chain.length;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        area += chain[i][0] * chain[j][1] - chain[j][0] * chain[i][1];
+      }
+      if (Math.abs(area) / 2 >= 0.01) results.push({ points: chain, color });
+    }
+  }
+
+  return results;
+}
+
 // Pre-allocated to avoid GC pressure in the hot loop
 const _vA = new THREE.Vector3();
 const _vB = new THREE.Vector3();

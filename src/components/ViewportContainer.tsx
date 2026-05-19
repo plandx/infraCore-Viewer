@@ -291,8 +291,9 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // Profile hover marker sphere
   const profileSphereRef = useRef<THREE.Mesh | null>(null);
-  // Cross-section plane indicator
+  // Cross-section plane indicator + 3D section surface group
   const sectionIndicatorRef = useRef<THREE.Mesh | null>(null);
+  const xsSurfaceGroupRef   = useRef<THREE.Group | null>(null);
 
   // Render-on-demand: only draw when something changed
   const needsRenderRef = useRef(true);
@@ -420,6 +421,12 @@ export function ViewportContainer({ onElementClick }: Props) {
     indMesh.name = "__sectionIndicator";
     scene.add(indMesh);
     sectionIndicatorRef.current = indMesh;
+
+    // Cross-section 3D surface group
+    const xsSurfaceGroup = new THREE.Group();
+    xsSurfaceGroup.name = "__xsSurface";
+    scene.add(xsSurfaceGroup);
+    xsSurfaceGroupRef.current = xsSurfaceGroup;
 
     // Trigger a render whenever the camera moves; throttle inspector label updates via RAF
     controls.addEventListener("change", () => {
@@ -953,7 +960,8 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!(obj instanceof THREE.Mesh)) return;
       if (obj.userData.expressId == null) return;
       if (obj.userData.isHighlight || obj.userData.isSectionVisual ||
-          obj.userData.isSectionCap || obj.userData.isBillingOverlay) return;
+          obj.userData.isSectionCap || obj.userData.isBillingOverlay ||
+          obj.userData.isXSSurface) return;
 
       let modelId = "";
       let node: THREE.Object3D | null = obj;
@@ -1730,12 +1738,20 @@ export function ViewportContainer({ onElementClick }: Props) {
         needsRenderRef.current = true;
       }
 
+      // Capture basis as plain tuples (Three.js instances not storable in Zustand)
+      const basisSnap = {
+        origin: [origin3.x,    origin3.y,    origin3.z   ] as [number,number,number],
+        right:  [rightDir.x,   rightDir.y,   rightDir.z  ] as [number,number,number],
+        up:     [upDir.x,      upDir.y,      upDir.z     ] as [number,number,number],
+        normal: [planeNormal.x, planeNormal.y, planeNormal.z] as [number,number,number],
+      };
+
       // Compute slice (deferred to avoid blocking frame)
       setTimeout(() => {
         const sc = sceneRef.current;
         if (!sc) return;
         const lines = sliceScene(sc, origin3, planeNormal, rightDir, upDir);
-        useAlignmentStore.getState().setCrossSectionResult(lines);
+        useAlignmentStore.getState().setCrossSectionResult(lines, basisSnap);
       }, 0);
     };
 
@@ -1749,6 +1765,76 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!state.crossSectionOpen && prev.crossSectionOpen) {
         const indicator = sectionIndicatorRef.current;
         if (indicator) { indicator.visible = false; needsRenderRef.current = true; }
+        // Clear 3D section surface when cross-section window is closed
+        const grp = xsSurfaceGroupRef.current;
+        if (grp) {
+          for (const child of [...grp.children]) {
+            const m = child as THREE.Mesh;
+            m.geometry?.dispose();
+            (m.material as THREE.Material)?.dispose();
+          }
+          grp.clear();
+          needsRenderRef.current = true;
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // ── 3D section surface rebuild ────────────────────────────────────────────
+  useEffect(() => {
+    const rebuildSurface = () => {
+      const grp = xsSurfaceGroupRef.current;
+      if (!grp) return;
+
+      // Dispose existing meshes
+      for (const child of [...grp.children]) {
+        const m = child as THREE.Mesh;
+        m.geometry?.dispose();
+        (m.material as THREE.Material)?.dispose();
+      }
+      grp.clear();
+
+      const { showSectionSurface, crossSectionPolygons, crossSectionBasis, crossSectionOpen } =
+        useAlignmentStore.getState();
+
+      if (!showSectionSurface || !crossSectionBasis || !crossSectionOpen || crossSectionPolygons.length === 0) {
+        needsRenderRef.current = true;
+        return;
+      }
+
+      const { origin, right, up, normal } = crossSectionBasis;
+      const rightVec  = new THREE.Vector3(...right);
+      const upVec     = new THREE.Vector3(...up);
+      const normalVec = new THREE.Vector3(...normal);
+      const originVec = new THREE.Vector3(...origin);
+
+      // Matrix that maps 2D cross-section space (right=X, up=Y) to world space
+      const basisMat = new THREE.Matrix4().makeBasis(rightVec, upVec, normalVec).setPosition(originVec);
+
+      for (const poly of crossSectionPolygons) {
+        const shape = new THREE.Shape(poly.points.map(([r, u]) => new THREE.Vector2(r, u)));
+        const geo   = new THREE.ShapeGeometry(shape);
+        geo.applyMatrix4(basisMat);
+
+        const mat  = new THREE.MeshBasicMaterial({
+          color: poly.color, transparent: true, opacity: 0.35,
+          side: THREE.DoubleSide, depthTest: true, depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.userData.isXSSurface = true;
+        // Small nudge along normal to avoid Z-fighting with section indicator
+        mesh.position.addScaledVector(normalVec, 0.005);
+        grp.add(mesh);
+      }
+      needsRenderRef.current = true;
+    };
+
+    const unsub = useAlignmentStore.subscribe((state, prev) => {
+      if (state.crossSectionPolygons !== prev.crossSectionPolygons ||
+          state.showSectionSurface   !== prev.showSectionSurface   ||
+          state.crossSectionOpen     !== prev.crossSectionOpen) {
+        rebuildSurface();
       }
     });
     return () => unsub();
