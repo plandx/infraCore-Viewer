@@ -492,8 +492,9 @@ export function ViewportContainer({ onElementClick }: Props) {
     const ro = new ResizeObserver(() => {
       if (!mount) return;
       const w = mount.clientWidth, h = mount.clientHeight;
-      domRectRef.current = renderer.domElement.getBoundingClientRect();
       renderer.setSize(w, h);
+      // Cache rect AFTER setSize so stored dimensions match the new canvas size
+      domRectRef.current = renderer.domElement.getBoundingClientRect();
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       const a = w / h;
