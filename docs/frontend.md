@@ -535,6 +535,16 @@ Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstel
 | Messen | Ruler-Icon (blau) | Klick-Klick-Messung: misst Abstand zwischen zwei Punkten im Schnittbild, zeigt Linie + Maßtext |
 | Punkt X/Y | MapPin-Icon (violett) | Setzt eine Bemaßungs-Annotation mit Querabstand (R/L) und Höhenabstand (+/−) vom Achspunkt als Maßlinien |
 | Fang | Magnet-Icon (himmelblau) | Aktiviert Snap-Modus: Vertex-Fang (Priorität, 14px-Schwelle) dann Kanten-Fang (Lot auf Segment) |
+| Objekte | Tag-Icon (grün) | Schaltet Objektbeschriftung ein; Dropdown wählt das Anzeigeattribut (Name, Typ, beliebige geladene Property) |
+
+### Objektbeschriftung
+
+- `state.objectLabels: XSSyncObjectLabel[]` — vom Hauptfenster nach jedem Schnitt gesendet; enthält `{ key, name, type, props }` pro geschnittenem IFC-Element
+- `buildLabelPositions(objectLabels, lines, propKey, xs, ys)` — gruppiert Segmente nach `objectKey`, berechnet Schwerpunkt, schätzt Boxbreite aus Textlänge
+- `deOverlapLabels(labels)` — 60-Iterationen Force-Repulsion in Y-Richtung; bricht ab sobald keine Überlappung mehr besteht
+- Leader-Line: gestrichelte Linie in Objektfarbe vom Schwerpunkt zur nächsten Box-Kante
+- Verfügbare Attribute: "Name" + "Typ" immer vorhanden; weitere Properties nur wenn für das Element bereits via Klick/Selektion geladen
+
 
 ### Fangmodus (Snap)
 
