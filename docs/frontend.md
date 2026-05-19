@@ -4,6 +4,14 @@
 
 **Einstiegspunkt.** Erkennt anhand von URL-Parametern ob Main- oder Sekundär-Fenster.
 
+Neue Komponenten in `MainApp`:
+- `<SettingsPanel />` — Modal für Schriftgröße + Tastenkürzel (öffnet wenn `settingsPanelOpen`)
+- `<CollisionPanel />` — Kollisionsprüfungs-Dialog (öffnet wenn `collisionPanelOpen`)
+- `<DroneOverlay />` — Drohnen-HUD wenn `activeTool === "drone"`
+- `<FaceCrossSectionPanel />` — Flächen-QS-Steuerung (floating, wenn `faceCrossSectionActive`)
+
+Tastenkürzel aus `keyBindings` (Zustand-Store, localStorage-persistent) gelesen; `activeTool === "fly" || "drone"` deaktiviert alle Shortcuts außer Escape.
+
 ```typescript
 const IS_SECONDARY = new URLSearchParams(window.location.search).has("secondary");
 const SECONDARY_PANEL = params.get("panel") ?? "hierarchy";

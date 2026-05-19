@@ -526,3 +526,36 @@ Diese Zustände sind **React-State** in `ViewportContainer`, nicht im Zustand-St
 | `inspSelEdges` | `Set<number>` | IDs der ausgewählten Kanten |
 
 `pickerRef: React.MutableRefObject<FaceEdgePicker | null>` — Three.js-Interaktionsobjekt, außerhalb des React-State-Zyklus.
+
+---
+
+## Neue Felder (2026-05-19)
+
+### modelStore
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `keyBindings` | `KeyBindings` | Tastenkürzel-Map; aus localStorage initialisiert |
+| `settingsPanelOpen` | `boolean` | Einstellungs-Modal sichtbar |
+| `collisionPanelOpen` | `boolean` | Kollisionsprüfungs-Dialog sichtbar |
+| `settings.fontSize` | `"sm" \| "md" \| "lg"` | Globale Schriftgröße (12/14/16px) |
+
+**Aktionen:**
+- `setKeyBindings(kb)` — speichert nach localStorage, aktualisiert Store
+- `setSettingsPanelOpen(open)` — toggled das Einstellungs-Modal
+- `setCollisionPanelOpen(open)` — toggled den Kollisions-Dialog
+- `updateSettings({ fontSize })` — setzt `data-font-size` Attribut auf `<html>`
+
+### alignmentStore
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `faceCrossSectionActive` | `boolean` | Flächen-QS gerade aktiv |
+| `faceCrossSectionOrigin` | `[x,y,z] \| null` | Schnittebene-Ursprung (3D) |
+| `faceCrossSectionNormal` | `[x,y,z] \| null` | Flächen-Normale |
+| `faceCrossSectionOffset` | `number` | Versatz entlang Normale in Metern |
+
+**Aktionen:**
+- `openFaceCrossSection(origin, normal)` — öffnet QS an Fläche
+- `closeFaceCrossSection()` — schließt QS, resettet alle Felder
+- `setFaceCrossSectionOffset(offset)` — verschiebt Schnittebene, triggert Neuberechnung
