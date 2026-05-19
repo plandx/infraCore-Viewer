@@ -102,6 +102,11 @@ export function ViewportContainer({ onElementClick }: Props) {
   const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   const clickSuppressedRef = useRef(false);
 
+  // Fly mode
+  const flyActiveRef = useRef(false);
+  const flyKeysRef   = useRef({ w: false, a: false, s: false, d: false, q: false, e: false });
+  const flyEulerRef  = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
+
 
   // Measurement state
   const measureLinesRef = useRef<THREE.Line[]>([]);
@@ -444,9 +449,36 @@ export function ViewportContainer({ onElementClick }: Props) {
     // Render-on-demand loop: only calls renderer.render() when needsRenderRef is set.
     // With enableDamping=false, controls.update() is a no-op so we skip it here.
     let running = true;
+    let lastTime = performance.now();
     const animate = () => {
       if (!running) return;
       rafRef.current = requestAnimationFrame(animate);
+
+      // Fly mode: apply WASD movement every frame
+      if (flyActiveRef.current) {
+        const now = performance.now();
+        const dt  = Math.min((now - lastTime) / 1000, 0.1); // cap at 100ms
+        lastTime  = now;
+        const keys = flyKeysRef.current;
+        const anyKey = keys.w || keys.a || keys.s || keys.d || keys.q || keys.e;
+        if (anyKey) {
+          // Speed: shift held = 5×
+          const spd = 20 * dt;
+          if (keys.w) camera.translateZ(-spd);
+          if (keys.s) camera.translateZ( spd);
+          if (keys.a) camera.translateX(-spd);
+          if (keys.d) camera.translateX( spd);
+          if (keys.q) camera.translateY(-spd);
+          if (keys.e) camera.translateY( spd);
+          controls.target.copy(camera.position).addScaledVector(
+            new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), 1
+          );
+          needsRenderRef.current = true;
+        }
+      } else {
+        lastTime = performance.now();
+      }
+
       if (!needsRenderRef.current) return;
       needsRenderRef.current = false;
 
@@ -2521,10 +2553,92 @@ export function ViewportContainer({ onElementClick }: Props) {
     }, "image/png");
   }, []);
 
+  // ── Fly mode ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount) return;
+
+    const isFly = activeTool === "fly";
+    flyActiveRef.current = isFly;
+
+    const controls = controlsRef.current;
+    if (controls) controls.enabled = !isFly;
+
+    if (!isFly) {
+      // Exit: release pointer lock if held
+      if (document.pointerLockElement === mount) document.exitPointerLock();
+      flyKeysRef.current = { w: false, a: false, s: false, d: false, q: false, e: false };
+      return;
+    }
+
+    // Enter: request pointer lock on click
+    const onClickLock = () => {
+      if (document.pointerLockElement !== mount) mount.requestPointerLock();
+    };
+    mount.addEventListener("click", onClickLock);
+
+    // Mouse look while locked
+    const onMouseMove = (e: MouseEvent) => {
+      if (document.pointerLockElement !== mount) return;
+      const camera = cameraRef.current;
+      if (!camera) return;
+      const euler = flyEulerRef.current;
+      euler.setFromQuaternion(camera.quaternion);
+      euler.y -= e.movementX * 0.002;
+      euler.x -= e.movementY * 0.002;
+      euler.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, euler.x));
+      camera.quaternion.setFromEuler(euler);
+      needsRenderRef.current = true;
+    };
+    document.addEventListener("mousemove", onMouseMove);
+
+    // WASD key tracking
+    const onKeyDown = (e: KeyboardEvent) => {
+      const k = flyKeysRef.current;
+      if (e.code === "KeyW") k.w = true;
+      if (e.code === "KeyA") k.a = true;
+      if (e.code === "KeyS") k.s = true;
+      if (e.code === "KeyD") k.d = true;
+      if (e.code === "KeyQ") k.q = true;
+      if (e.code === "KeyE") k.e = true;
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const k = flyKeysRef.current;
+      if (e.code === "KeyW") k.w = false;
+      if (e.code === "KeyA") k.a = false;
+      if (e.code === "KeyS") k.s = false;
+      if (e.code === "KeyD") k.d = false;
+      if (e.code === "KeyQ") k.q = false;
+      if (e.code === "KeyE") k.e = false;
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup",   onKeyUp);
+
+    // ESC exits fly mode (pointer lock releases automatically via browser)
+    const onLockChange = () => {
+      if (document.pointerLockElement !== mount) {
+        // Pointer lock released (ESC pressed) — exit fly mode
+        useModelStore.getState().setActiveTool("select");
+      }
+    };
+    document.addEventListener("pointerlockchange", onLockChange);
+
+    return () => {
+      mount.removeEventListener("click", onClickLock);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keyup",   onKeyUp);
+      document.removeEventListener("pointerlockchange", onLockChange);
+      if (document.pointerLockElement === mount) document.exitPointerLock();
+      flyKeysRef.current = { w: false, a: false, s: false, d: false, q: false, e: false };
+    };
+  }, [activeTool]);
+
   // Cursor style per tool
   const labelToolActive  = useAlignmentStore(s => s.labelToolActive);
   const offsetToolActive = useAlignmentStore(s => s.offsetToolActive);
-  const cursor = activeTool === "measure" ? "crosshair"
+  const cursor = activeTool === "fly"     ? "none"
+               : activeTool === "measure" ? "crosshair"
                : activeTool === "section" ? "crosshair"
                : labelToolActive || offsetToolActive ? "crosshair"
                : "default";
@@ -2543,6 +2657,25 @@ export function ViewportContainer({ onElementClick }: Props) {
         style={{ cursor }}
         data-viewport="main"
       />
+
+      {/* Fly mode hint */}
+      {activeTool === "fly" && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div className="bg-card/90 backdrop-blur border border-border rounded-lg px-4 py-2 text-xs text-foreground text-center leading-relaxed">
+            <span className="font-semibold text-primary">Fly-Mode</span>
+            <span className="mx-2 opacity-40">·</span>
+            Klicken zum Aktivieren
+            <span className="mx-2 opacity-40">·</span>
+            <span className="font-mono">WASD</span> Bewegen
+            <span className="mx-2 opacity-40">·</span>
+            <span className="font-mono">Q/E</span> Hoch/Runter
+            <span className="mx-2 opacity-40">·</span>
+            Maus Umsehen
+            <span className="mx-2 opacity-40">·</span>
+            <span className="font-mono">Esc</span> Beenden
+          </div>
+        </div>
+      )}
 
       {/* Measure hint */}
       {activeTool === "measure" && (

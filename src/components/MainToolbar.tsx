@@ -369,6 +369,14 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           <Scissors size={16} />
         </button>
 
+        <button
+          className={cn("toolbar-button", activeTool === "fly" && "active text-primary")}
+          title="Fly-Mode [N] · WASD fliegen · Maus umsehen · Esc beenden"
+          onClick={() => handleToolClick("fly")}
+        >
+          <Navigation2 size={16} />
+        </button>
+
         <div className="w-px h-5 bg-border mx-1" />
 
         {/* ── Visibility ── */}

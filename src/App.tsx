@@ -223,6 +223,7 @@ function MainApp() {
           clearMeasurements();
           setActiveTool("select");
         }
+        if (activeTool === "fly") setActiveTool("select");
         return;
       }
 
@@ -269,6 +270,9 @@ function MainApp() {
           break;
         case "p":
           setProfilePanelOpen(!profilePanelOpen);
+          break;
+        case "n":
+          setActiveTool(activeTool === "fly" ? "select" : "fly");
           break;
         case "delete":
         case "backspace":

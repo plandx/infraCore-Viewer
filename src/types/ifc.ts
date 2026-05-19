@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type ActiveTool = "select" | "measure" | "section";
+export type ActiveTool = "select" | "measure" | "section" | "fly";
 export type BasketMode = "highlight" | "ghost" | "isolate";
 
 /** A single property override: edited value + optional IFC type code override */
