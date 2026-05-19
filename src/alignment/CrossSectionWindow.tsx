@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useMemo } from "react";
-import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers } from "lucide-react";
+import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers, Magnet, MapPin } from "lucide-react";
 import { cn } from "../lib/utils";
 import { CROSS_SECTION_CHANNEL } from "../utils/windowSync";
 import type { XSMsg, XSSyncState } from "../utils/windowSync";
@@ -34,7 +34,40 @@ function computeTicks(min: number, max: number, target: number): number[] {
 
 const M = { top: 12, right: 20, bottom: 40, left: 64 };
 
-type Meas = { p1: [number, number]; p2: [number, number] };
+type Meas     = { p1: [number, number]; p2: [number, number] };
+type PtLabel  = { id: string; x: number; y: number };
+type SnapInfo = { pt: [number, number]; type: "vertex" | "edge" };
+
+function computeSnap(
+  wx: number, wy: number,
+  segs: Array<{ x1: number; y1: number; x2: number; y2: number }>,
+  scale: number,
+): SnapInfo | null {
+  const T = 14 / scale; // 14 px → world units
+  let best: SnapInfo | null = null;
+  let bestD = Infinity;
+
+  // Vertex snap has priority
+  for (const l of segs) {
+    for (const [px, py] of [[l.x1, l.y1], [l.x2, l.y2]] as [number, number][]) {
+      const d = Math.hypot(wx - px, wy - py);
+      if (d < T && d < bestD) { bestD = d; best = { pt: [px, py], type: "vertex" }; }
+    }
+  }
+  if (best) return best;
+
+  // Edge snap (foot of perpendicular, clamped to segment)
+  for (const l of segs) {
+    const dx = l.x2 - l.x1, dy = l.y2 - l.y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1e-12) continue;
+    const t  = Math.max(0, Math.min(1, ((wx - l.x1) * dx + (wy - l.y1) * dy) / len2));
+    const px = l.x1 + t * dx, py = l.y1 + t * dy;
+    const d  = Math.hypot(wx - px, wy - py);
+    if (d < T && d < bestD) { bestD = d; best = { pt: [px, py], type: "edge" }; }
+  }
+  return best;
+}
 
 export function CrossSectionWindow() {
   const [state, setState] = useState<XSSyncState | null>(null);
@@ -189,20 +222,32 @@ export function CrossSectionWindow() {
   const [pending, setPending] = useState<[number, number] | null>(null);
   const [mouseWorld, setMouseWorld] = useState<[number, number] | null>(null);
 
+  // ── Point-label tool ─────────────────────────────────────────────────────
+  const [ptLabelMode, setPtLabelMode] = useState(false);
+  const [pointLabels, setPointLabels] = useState<PtLabel[]>([]);
+
+  // ── Snap mode ────────────────────────────────────────────────────────────
+  const [snapActive, setSnapActive] = useState(false);
+  const [snapDisplay, setSnapDisplay] = useState<SnapInfo | null>(null);
+  const snapRef      = useRef<SnapInfo | null>(null);
+  const snapActiveRef = useRef(false);
+  useEffect(() => { snapActiveRef.current = snapActive; }, [snapActive]);
+
   const svgToWorld = (svgX: number, svgY: number): [number, number] => [
     vxMin + (svgX - M.left) / chartW * visW,
     vyMax - (svgY - M.top)  / chartH * visH,
   ];
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (measActive || e.button !== 0) return;
+    if (measActive || ptLabelMode || e.button !== 0) return;
     dragRef.current = { mx: e.clientX, my: e.clientY, cx, cy, sc: scale };
     setPanning(true);
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    setMouseWorld(svgToWorld(e.clientX - rect.left, e.clientY - rect.top));
+    const raw = svgToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    setMouseWorld(raw);
 
     if (dragRef.current) {
       const dx = e.clientX - dragRef.current.mx;
@@ -211,18 +256,29 @@ export function CrossSectionWindow() {
         dragRef.current.cx - dx / dragRef.current.sc,
         dragRef.current.cy + dy / dragRef.current.sc,
       ]);
+      if (snapRef.current) { snapRef.current = null; setSnapDisplay(null); }
+    } else if (snapActiveRef.current) {
+      const s = computeSnap(raw[0], raw[1], lines, scale);
+      snapRef.current = s;
+      setSnapDisplay(s);
+    } else if (snapRef.current) {
+      snapRef.current = null;
+      setSnapDisplay(null);
     }
   };
 
   const handleMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (measActive && e.button === 0) {
+    if (e.button === 0) {
       const rect = e.currentTarget.getBoundingClientRect();
-      const w = svgToWorld(e.clientX - rect.left, e.clientY - rect.top);
-      if (pending == null) {
-        setPending(w);
-      } else {
-        setMeasurements(ms => [...ms, { p1: pending, p2: w }]);
-        setPending(null);
+      const raw = svgToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      const w: [number, number] = snapActiveRef.current && snapRef.current
+        ? snapRef.current.pt : raw;
+
+      if (measActive) {
+        if (pending == null) setPending(w);
+        else { setMeasurements(ms => [...ms, { p1: pending, p2: w }]); setPending(null); }
+      } else if (ptLabelMode) {
+        setPointLabels(ls => [...ls, { id: crypto.randomUUID(), x: w[0], y: w[1] }]);
       }
     }
     dragRef.current = null;
@@ -233,6 +289,9 @@ export function CrossSectionWindow() {
   const yTicks = useMemo(() => computeTicks(vyMin, vyMax, Math.max(3, Math.floor(chartH / 45))), [vyMin, vyMax, chartH]);
 
   const isZoomed = zoomFactor !== 1.0 || viewCenter !== null;
+
+  // Effective world position: snap point when snap is active, else raw mouse
+  const effW = (snapActive && snapDisplay) ? snapDisplay.pt : mouseWorld;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -329,7 +388,7 @@ export function CrossSectionWindow() {
 
         {/* Measure */}
         <button
-          onClick={() => { setMeasActive(a => !a); setPending(null); }}
+          onClick={() => { setMeasActive(a => !a); setPending(null); setPtLabelMode(false); }}
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
             measActive ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
           )}
@@ -349,6 +408,39 @@ export function CrossSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
+        {/* Point-label tool */}
+        <button
+          onClick={() => { setPtLabelMode(a => !a); setMeasActive(false); setPending(null); }}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            ptLabelMode ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Punkt X/Y beschriften (gemessen vom Achspunkt)"
+        >
+          <MapPin size={13} /> Punkt
+        </button>
+        {pointLabels.length > 0 && (
+          <button onClick={() => setPointLabels([])}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-red-400 transition-colors"
+            title="Alle Punktbeschriftungen löschen">
+            <Trash2 size={12} />
+          </button>
+        )}
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
+        {/* Snap toggle */}
+        <button
+          onClick={() => setSnapActive(a => !a)}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            snapActive ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Fangmodus: Punkt- und Linienfang"
+        >
+          <Magnet size={13} /> Fang
+        </button>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
         {isZoomed && (
           <button onClick={() => { setZoomFactor(1.0); setViewCenter(null); }}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground"
@@ -359,11 +451,17 @@ export function CrossSectionWindow() {
 
         {state?.computing && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
 
-        {/* Mouse position readout */}
-        {mouseWorld != null && (
-          <span className="ml-auto text-[10px] font-mono text-muted-foreground">
-            {mouseWorld[0] >= 0 ? "R" : "L"}&nbsp;{Math.abs(mouseWorld[0]).toFixed(3)} m&nbsp;&nbsp;
-            Δh&nbsp;{mouseWorld[1] >= 0 ? "+" : ""}{mouseWorld[1].toFixed(3)} m
+        {/* Mouse position readout (shows snap position when snap is active) */}
+        {effW != null && (
+          <span className={cn("ml-auto text-[10px] font-mono",
+            snapActive && snapDisplay ? "text-amber-400" : "text-muted-foreground")}>
+            {effW[0] >= 0 ? "R" : "L"}&nbsp;{Math.abs(effW[0]).toFixed(3)} m&nbsp;&nbsp;
+            Δh&nbsp;{effW[1] >= 0 ? "+" : ""}{effW[1].toFixed(3)} m
+            {snapActive && snapDisplay && (
+              <span className="ml-1 text-[9px] opacity-70">
+                {snapDisplay.type === "vertex" ? "●" : "—"}
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -379,8 +477,8 @@ export function CrossSectionWindow() {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onMouseLeave={() => { dragRef.current = null; setPanning(false); setMouseWorld(null); }}
-            style={{ cursor: measActive ? "crosshair" : panning ? "grabbing" : "grab", display: "block" }}
+            onMouseLeave={() => { dragRef.current = null; setPanning(false); setMouseWorld(null); snapRef.current = null; setSnapDisplay(null); }}
+            style={{ cursor: (measActive || ptLabelMode) ? "crosshair" : panning ? "grabbing" : "grab", display: "block" }}
           >
             <defs>
               <clipPath id="xs-clip">
@@ -458,13 +556,13 @@ export function CrossSectionWindow() {
               {pending != null && (
                 <>
                   <circle cx={xs(pending[0])} cy={ys(pending[1])} r={4} fill="#fbbf24" />
-                  {mouseWorld != null && (() => {
-                    const d  = Math.sqrt((mouseWorld[0]-pending[0])**2 + (mouseWorld[1]-pending[1])**2);
-                    const mx = (xs(pending[0]) + xs(mouseWorld[0])) / 2;
-                    const my = (ys(pending[1]) + ys(mouseWorld[1])) / 2;
+                  {effW != null && (() => {
+                    const d  = Math.sqrt((effW[0]-pending[0])**2 + (effW[1]-pending[1])**2);
+                    const mx = (xs(pending[0]) + xs(effW[0])) / 2;
+                    const my = (ys(pending[1]) + ys(effW[1])) / 2;
                     return (
                       <>
-                        <line x1={xs(pending[0])} y1={ys(pending[1])} x2={xs(mouseWorld[0])} y2={ys(mouseWorld[1])}
+                        <line x1={xs(pending[0])} y1={ys(pending[1])} x2={xs(effW[0])} y2={ys(effW[1])}
                           stroke="#fbbf24" strokeWidth={1} strokeDasharray="3,2" opacity={0.7} />
                         <text x={mx} y={my - 5} textAnchor="middle" fontSize={10}
                           fill="#fbbf24" fontFamily="monospace">{d.toFixed(3)} m</text>
@@ -473,7 +571,83 @@ export function CrossSectionWindow() {
                   })()}
                 </>
               )}
+
+              {/* Point labels (X/Y from axis origin) */}
+              {pointLabels.map(lbl => {
+                const sx  = xs(lbl.x), sy  = ys(lbl.y);
+                const s0x = xs(0),     s0y = ys(0);
+                const xLbl = lbl.x === 0 ? "0.00 m"
+                  : `${lbl.x > 0 ? "R" : "L"} ${Math.abs(lbl.x).toFixed(2)} m`;
+                const yLbl = `${lbl.y >= 0 ? "+" : ""}${lbl.y.toFixed(2)} m`;
+                // midpoints for text labels
+                const mhx = (s0x + sx) / 2, mvy = (s0y + sy) / 2;
+                // text offsets depending on quadrant
+                const xTxtDy = sy < s0y ? -5 : 12; // above line if point above axis
+                const yTxtDx = sx > s0x ? 5 : -5;  // right of line if point right of axis
+                const yAnchor = sx > s0x ? "start" : "end";
+                return (
+                  <g key={lbl.id}>
+                    {/* Horizontal dimension line: axis → point, at point's y level */}
+                    {lbl.x !== 0 && (
+                      <line x1={s0x} y1={sy} x2={sx} y2={sy}
+                        stroke="#a78bfa" strokeWidth={0.9} strokeDasharray="4,2" opacity={0.75} />
+                    )}
+                    {/* Vertical dimension line: axis level → point, at point's x */}
+                    {lbl.y !== 0 && (
+                      <line x1={sx} y1={s0y} x2={sx} y2={sy}
+                        stroke="#a78bfa" strokeWidth={0.9} strokeDasharray="4,2" opacity={0.75} />
+                    )}
+                    {/* Tick at axis intersections */}
+                    {lbl.x !== 0 && <line x1={s0x - 3} y1={sy} x2={s0x + 3} y2={sy} stroke="#a78bfa" strokeWidth={1.2} />}
+                    {lbl.y !== 0 && <line x1={sx} y1={s0y - 3} x2={sx} y2={s0y + 3} stroke="#a78bfa" strokeWidth={1.2} />}
+                    {/* X label (horizontal offset) */}
+                    {lbl.x !== 0 && (
+                      <>
+                        <rect x={mhx - 26} y={sy + xTxtDy - 9} width={52} height={11} rx={2}
+                          fill="var(--color-popover)" opacity={0.88} />
+                        <text x={mhx} y={sy + xTxtDy} textAnchor="middle" fontSize={9}
+                          fill="#a78bfa" fontFamily="monospace" fontWeight="bold">{xLbl}</text>
+                      </>
+                    )}
+                    {/* Y label (vertical offset) */}
+                    {lbl.y !== 0 && (
+                      <>
+                        <rect x={sx + yTxtDx - (yAnchor === "start" ? 0 : 52)} y={mvy - 9} width={52} height={11} rx={2}
+                          fill="var(--color-popover)" opacity={0.88} />
+                        <text x={sx + yTxtDx} y={mvy} textAnchor={yAnchor} fontSize={9}
+                          fill="#a78bfa" fontFamily="monospace" fontWeight="bold">{yLbl}</text>
+                      </>
+                    )}
+                    {/* Point dot */}
+                    <circle cx={sx} cy={sy} r={3} fill="#a78bfa" />
+                  </g>
+                );
+              })}
+
+              {/* Live preview dot when ptLabelMode active */}
+              {ptLabelMode && effW != null && (
+                <circle cx={xs(effW[0])} cy={ys(effW[1])} r={3}
+                  fill="none" stroke="#a78bfa" strokeWidth={1.2} opacity={0.7} strokeDasharray="2,1" />
+              )}
             </g>
+
+            {/* Snap indicator — rendered above clip group so always visible */}
+            {snapActive && snapDisplay && (() => {
+              const sx = xs(snapDisplay.pt[0]), sy = ys(snapDisplay.pt[1]);
+              return snapDisplay.type === "vertex" ? (
+                <g>
+                  <rect x={sx - 5} y={sy - 5} width={10} height={10}
+                    fill="none" stroke="#f59e0b" strokeWidth={1.5} opacity={0.9}
+                    transform={`rotate(45,${sx},${sy})`} />
+                  <circle cx={sx} cy={sy} r={1.5} fill="#f59e0b" opacity={0.9} />
+                </g>
+              ) : (
+                <g>
+                  <circle cx={sx} cy={sy} r={6} fill="none" stroke="#f59e0b" strokeWidth={1.5} opacity={0.9} />
+                  <circle cx={sx} cy={sy} r={1.5} fill="#f59e0b" opacity={0.9} />
+                </g>
+              );
+            })()}
 
             {/* X axis */}
             <line x1={M.left} y1={M.top + chartH} x2={M.left + chartW} y2={M.top + chartH}
