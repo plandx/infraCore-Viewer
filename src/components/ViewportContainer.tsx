@@ -1682,27 +1682,38 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       const wx = pt.x - ox;
       const wz = -(pt.y - oy);
-      const T = pt.tangentRad; // horizontal bearing (math radians, CCW from East)
 
-      // Horizontal tangent in Three.js: (cos(T), 0, -sin(T))
-      // Perpendicular right direction (tangentDir × worldUp): (sin(T), 0, cos(T))
-      const tangentDir = new THREE.Vector3(Math.cos(T), 0, -Math.sin(T)).normalize();
-      const rightDir   = new THREE.Vector3(Math.sin(T), 0,  Math.cos(T)).normalize();
+      // Compute horizontal tangent numerically from two nearby samples.
+      // This avoids relying on tangentRad convention and works for all segment types.
+      const dS = Math.min(2.0, (alignment.staEnd - alignment.staStart) * 0.005 + 0.1);
+      const ptA = sampleAtDisplayStation(alignment, Math.max(alignment.staStart, crossSectionStation - dS));
+      const ptB = sampleAtDisplayStation(alignment, Math.min(alignment.staEnd,   crossSectionStation + dS));
+      if (!ptA || !ptB) return;
+
+      // Three.js direction: X = ΔEasting, Z = -ΔNorthing
+      const dxH = ptB.x - ptA.x;
+      const dzH = -(ptB.y - ptA.y);
+      const hLen = Math.sqrt(dxH * dxH + dzH * dzH);
+      if (hLen < 1e-9) return;
+
+      const tangentDir = new THREE.Vector3(dxH / hLen, 0, dzH / hLen);
+      // rightDir = tangentDir × worldUp = (-tz, 0, tx)
+      const rightDir = new THREE.Vector3(-tangentDir.z, 0, tangentDir.x);
 
       let planeNormal: THREE.Vector3;
       let upDir: THREE.Vector3;
 
       if (crossSectionMode === "normal") {
-        // True normal section: plane is perpendicular to the 3D alignment tangent
+        // True normal section: include grade from profile in the 3D tangent
         const delta = 1.0;
         const e1 = evaluateProfile(alignment.profileGeom, crossSectionStation + delta);
         const e0 = evaluateProfile(alignment.profileGeom, crossSectionStation - delta);
         const grade = (e1 !== null && e0 !== null) ? (e1 - e0) / (2 * delta) : 0;
-        planeNormal = new THREE.Vector3(Math.cos(T), grade, -Math.sin(T)).normalize();
-        // "Up" in the tilted section plane: rightDir × planeNormal (always magnitude 1 since they're orthogonal)
+        planeNormal = new THREE.Vector3(dxH / hLen, grade, dzH / hLen).normalize();
+        // "Up" in the tilted section plane: rightDir × planeNormal
         upDir = new THREE.Vector3().crossVectors(rightDir, planeNormal).normalize();
       } else {
-        // Vertikal: plane normal is the horizontal tangent → cutting plane is vertical
+        // Vertikal: plane is vertical, normal = horizontal tangent
         planeNormal = tangentDir.clone();
         upDir = new THREE.Vector3(0, 1, 0);
       }
