@@ -5,6 +5,7 @@ import type {
   ColorGroup, ColorGroupEntry, SmartView, SmartTier, FlatElementProps, SyncState, BasketMode, PropOverride, QTOList, SectionPlane,
 } from "../types/ifc";
 import { evaluateTier, PALETTE } from "../utils/smartViewUtils";
+import { loadAllElementProperties } from "../utils/ifcLoader";
 
 interface PreSmartViewState {
   hiddenElements: Set<string>;
@@ -35,6 +36,7 @@ interface ModelStore {
   // Shared loaded properties (for ListPanel and SmartViews)
   loadedProperties: Map<string, Map<number, FlatElementProps>> | null;
   loadedPropKeys: string[];
+  loadingPropertiesProgress: number | null; // null = idle, 0-100 = loading
 
   // Selection basket
   selectionBasket: Set<string>;
@@ -83,6 +85,7 @@ interface ModelStore {
     props: Map<string, Map<number, FlatElementProps>> | null,
     keys: string[],
   ) => void;
+  loadAllProperties: () => Promise<void>;
 
   // Selection basket actions
   setBasket: (basket: Set<string>) => void;
@@ -140,6 +143,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   preSmartViewState: null,
   loadedProperties: null,
   loadedPropKeys: [],
+  loadingPropertiesProgress: null,
   selectionBasket: new Set<string>(),
   basketMode: null,
   basketAutoAdd: false,
@@ -444,6 +448,33 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   setLoadedProperties: (props, keys) =>
     set({ loadedProperties: props, loadedPropKeys: keys }),
+
+  loadAllProperties: async () => {
+    const { models, loadingPropertiesProgress } = get();
+    if (loadingPropertiesProgress !== null || models.size === 0) return;
+    set({ loadingPropertiesProgress: 0 });
+    const result = new Map<string, Map<number, FlatElementProps>>();
+    const keySet = new Set<string>();
+    let total = 0;
+    models.forEach((m) => { for (const els of Object.values(m.elementsByType)) total += els.length; });
+    let base = 0;
+    for (const [modelId, model] of models.entries()) {
+      const ids: number[] = [];
+      for (const els of Object.values(model.elementsByType)) for (const el of els) ids.push(el.expressId);
+      const map = await loadAllElementProperties(model.file, ids, (done) =>
+        set({ loadingPropertiesProgress: Math.round(((base + done) / total) * 100) })
+      );
+      base += ids.length;
+      map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
+      result.set(modelId, map);
+    }
+    const sorted = Array.from(keySet).sort((a, b) => {
+      const ad = a.includes("."), bd = b.includes(".");
+      if (ad !== bd) return ad ? 1 : -1;
+      return a.localeCompare(b);
+    });
+    set({ loadedProperties: result, loadedPropKeys: sorted, loadingPropertiesProgress: null });
+  },
 
   // ── Selection basket ────────────────────────────────────────────────────────
 

@@ -28,6 +28,11 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
   const inputRef    = useRef<HTMLInputElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
 
+  const loadedProperties          = useModelStore((s) => s.loadedProperties);
+  const loadingPropertiesProgress = useModelStore((s) => s.loadingPropertiesProgress);
+  const loadAllProperties         = useModelStore((s) => s.loadAllProperties);
+  const loadedPropKeys            = useModelStore((s) => s.loadedPropKeys);
+
   const theme             = useModelStore((s) => s.settings.theme);
   const sectionActive     = useModelStore((s) => s.sectionPlanes.length > 0 || s.activeTool === "section");
   const orthographic      = useModelStore((s) => s.settings.orthographic);
@@ -387,6 +392,38 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           onClick={() => updateSettings({ edges: !edges })}
         >
           <Box size={16} />
+        </button>
+
+        <div className="w-px h-5 bg-border mx-1" />
+
+        {/* ── Load all properties ── */}
+        <button
+          onClick={() => loadAllProperties()}
+          disabled={loadingPropertiesProgress !== null || models.size === 0}
+          title={
+            loadedProperties
+              ? `Properties neu laden (${loadedPropKeys.length} Attribute geladen)`
+              : "Alle Properties aller Modelle laden"
+          }
+          className={cn(
+            "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors",
+            loadedProperties
+              ? "bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30"
+              : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80",
+            (loadingPropertiesProgress !== null || models.size === 0) && "opacity-50 cursor-not-allowed",
+          )}
+        >
+          {loadingPropertiesProgress !== null ? (
+            <>
+              <Loader2 size={13} className="animate-spin shrink-0" />
+              <span>{loadingPropertiesProgress}%</span>
+            </>
+          ) : (
+            <>
+              <Database size={13} className="shrink-0" />
+              <span>{loadedProperties ? `${loadedPropKeys.length} Attr.` : "Properties laden"}</span>
+            </>
+          )}
         </button>
 
         <div className="w-px h-5 bg-border mx-1" />

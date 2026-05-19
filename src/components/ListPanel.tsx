@@ -6,7 +6,6 @@ import {
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
-import { loadAllElementProperties } from "../utils/ifcLoader";
 import {
   CONDITION_LABELS, CONDITIONS_WITHOUT_VALUE, PALETTE,
 } from "../utils/smartViewUtils";
@@ -104,46 +103,18 @@ function buildGroups(
 // ── shared property loader ─────────────────────────────────────────────────────
 
 function PropertyLoader() {
-  const models = useModelStore((s) => s.models);
-  const loadedProperties = useModelStore((s) => s.loadedProperties);
-  const loadedPropKeys = useModelStore((s) => s.loadedPropKeys);
-  const setLoadedProperties = useModelStore((s) => s.setLoadedProperties);
-
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-
-  async function handleLoad() {
-    setLoading(true);
-    setProgress(0);
-    const result = new Map<string, Map<number, FlatElementProps>>();
-    const keySet = new Set<string>();
-    let total = 0;
-    models.forEach((m) => { for (const els of Object.values(m.elementsByType)) total += els.length; });
-    let base = 0;
-    for (const [modelId, model] of models.entries()) {
-      const ids: number[] = [];
-      for (const els of Object.values(model.elementsByType)) for (const el of els) ids.push(el.expressId);
-      const map = await loadAllElementProperties(model.file, ids, (done) =>
-        setProgress(Math.round(((base + done) / total) * 100))
-      );
-      base += ids.length;
-      map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
-      result.set(modelId, map);
-    }
-    const sorted = Array.from(keySet).sort((a, b) => {
-      const ad = a.includes("."), bd = b.includes(".");
-      if (ad !== bd) return ad ? 1 : -1;
-      return a.localeCompare(b);
-    });
-    setLoadedProperties(result, sorted);
-    setLoading(false);
-  }
+  const models                    = useModelStore((s) => s.models);
+  const loadedProperties          = useModelStore((s) => s.loadedProperties);
+  const loadedPropKeys            = useModelStore((s) => s.loadedPropKeys);
+  const loadAllProperties         = useModelStore((s) => s.loadAllProperties);
+  const loadingPropertiesProgress = useModelStore((s) => s.loadingPropertiesProgress);
+  const loading = loadingPropertiesProgress !== null;
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <button
         className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium bg-muted hover:bg-muted/80 text-foreground transition-colors"
-        onClick={handleLoad}
+        onClick={() => loadAllProperties()}
         disabled={loading || models.size === 0}
       >
         <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
@@ -152,9 +123,9 @@ function PropertyLoader() {
       {loading && (
         <>
           <div className="flex-1 h-1 bg-border rounded-full overflow-hidden min-w-[60px]">
-            <div className="h-full bg-primary rounded-full transition-all duration-150" style={{ width: `${progress}%` }} />
+            <div className="h-full bg-primary rounded-full transition-all duration-150" style={{ width: `${loadingPropertiesProgress}%` }} />
           </div>
-          <span className="text-muted-foreground text-[10px]">{progress}%</span>
+          <span className="text-muted-foreground text-[10px]">{loadingPropertiesProgress}%</span>
         </>
       )}
       {loadedProperties && !loading && (

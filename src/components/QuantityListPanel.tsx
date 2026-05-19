@@ -4,7 +4,6 @@ import * as XLSX from "xlsx";
 import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, RefreshCw, Check, ListFilter, Search, ShoppingBasket, ScanEye } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
 import { evaluateRule, CONDITION_LABELS, CONDITIONS_WITHOUT_VALUE } from "../utils/smartViewUtils";
-import { loadAllElementProperties } from "../utils/ifcLoader";
 import type { QTOList, QTOFilter, QTOColumn, SmartCondition, FlatElementProps } from "../types/ifc";
 import { cn } from "../lib/utils";
 
@@ -25,11 +24,11 @@ const MAX_VISIBLE = 500;
 // ── Property loader ───────────────────────────────────────────────────────────
 
 function PropertyLoader() {
-  const models = useModelStore((s) => s.models);
-  const loadedProperties = useModelStore((s) => s.loadedProperties);
-  const setLoadedProperties = useModelStore((s) => s.setLoadedProperties);
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const models                    = useModelStore((s) => s.models);
+  const loadedProperties          = useModelStore((s) => s.loadedProperties);
+  const loadAllProperties         = useModelStore((s) => s.loadAllProperties);
+  const loadingPropertiesProgress = useModelStore((s) => s.loadingPropertiesProgress);
+  const loading = loadingPropertiesProgress !== null;
 
   const isStale = !loading && loadedProperties !== null && (() => {
     const loadedIds = new Set(loadedProperties.keys());
@@ -42,34 +41,6 @@ function PropertyLoader() {
     return false;
   })();
 
-  async function handleLoad() {
-    setLoading(true);
-    setProgress(0);
-    const result = new Map<string, Map<number, FlatElementProps>>();
-    const keySet = new Set<string>();
-    let total = 0;
-    models.forEach((m) => { for (const els of Object.values(m.elementsByType)) total += els.length; });
-    let base = 0;
-    for (const [modelId, model] of models.entries()) {
-      if (model.status !== "loaded") continue;
-      const ids: number[] = [];
-      for (const els of Object.values(model.elementsByType)) for (const el of els) ids.push(el.expressId);
-      const map = await loadAllElementProperties(model.file, ids, (done) =>
-        setProgress(Math.round(((base + done) / total) * 100))
-      );
-      base += ids.length;
-      map.forEach((p) => Object.keys(p).forEach((k) => keySet.add(k)));
-      result.set(modelId, map);
-    }
-    const sorted = Array.from(keySet).sort((a, b) => {
-      const ad = a.includes("."), bd = b.includes(".");
-      if (ad !== bd) return ad ? 1 : -1;
-      return a.localeCompare(b);
-    });
-    setLoadedProperties(result, sorted);
-    setLoading(false);
-  }
-
   return (
     <div className={cn(
       "flex items-center gap-2 px-3 py-2 border-b border-border",
@@ -77,13 +48,13 @@ function PropertyLoader() {
     )}>
       <button
         className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium bg-muted hover:bg-muted/80 text-foreground transition-colors disabled:opacity-50"
-        onClick={handleLoad}
+        onClick={() => loadAllProperties()}
         disabled={loading || models.size === 0}
       >
         <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
         {loadedProperties ? "Properties neu laden" : "Properties laden"}
       </button>
-      {loading && <span className="text-[11px] text-muted-foreground">{progress}%</span>}
+      {loading && <span className="text-[11px] text-muted-foreground">{loadingPropertiesProgress}%</span>}
       {!loading && isStale && (
         <span className="text-[11px] text-red-400">Modelle geändert — bitte neu laden</span>
       )}
