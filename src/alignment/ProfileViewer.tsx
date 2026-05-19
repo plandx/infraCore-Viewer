@@ -47,8 +47,11 @@ export function ProfileViewer() {
   const files           = useAlignmentStore(s => s.files);
   const colors          = useAlignmentStore(s => s.colors);
   const visibleIds      = useAlignmentStore(s => s.visibleIds);
-  const setProfileHover = useAlignmentStore(s => s.setProfileHover);
-  const setOpen         = useModelStore(s => s.setProfilePanelOpen);
+  const setProfileHover  = useAlignmentStore(s => s.setProfileHover);
+  const openCrossSection = useAlignmentStore(s => s.openCrossSection);
+  const crossSectionSta  = useAlignmentStore(s => s.crossSectionStation);
+  const crossSectionOpen = useAlignmentStore(s => s.crossSectionOpen);
+  const setOpen          = useModelStore(s => s.setProfilePanelOpen);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -177,7 +180,19 @@ export function ProfileViewer() {
     setProfileHover(first?.a.id ?? null, sta);
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
+    // Click (not drag) → set cross-section station
+    if (dragRef.current && Math.abs(e.clientX - dragRef.current.x) < 5) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      if (mx >= M.left && mx <= M.left + chartW) {
+        const sta = vMin + ((mx - M.left) / chartW) * (vMax - vMin);
+        const first = profiles.find(p => p.visible);
+        if (first && sta >= domain.sMin && sta <= domain.sMax) {
+          openCrossSection(first.a.id, sta);
+        }
+      }
+    }
     dragRef.current = null;
     setIsDragging(false);
   };
@@ -274,6 +289,15 @@ export function ProfileViewer() {
             </defs>
 
             <g clipPath="url(#profile-clip)">
+              {/* Active cross-section station marker */}
+              {crossSectionOpen && crossSectionSta !== null && xs(crossSectionSta) >= M.left && xs(crossSectionSta) <= M.left + chartW && (
+                <line
+                  x1={xs(crossSectionSta)} y1={M.top}
+                  x2={xs(crossSectionSta)} y2={M.top + chartH}
+                  stroke="#4488ff" strokeWidth={1.5} opacity={0.8}
+                />
+              )}
+
               {/* Profile polylines */}
               {profiles.map(({ a, color, visible, pts }) => pts.length < 2 ? null : (
                 <polyline key={a.id}

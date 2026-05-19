@@ -21,7 +21,8 @@ import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorP
 import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
 import { useAlignmentStore } from "../alignment/alignmentStore";
 import type { PlacedLabel, OffsetMeasurement } from "../alignment/alignmentStore";
-import { buildRobustPolyline, sampleAtDisplayStation } from "../alignment/landXmlParser";
+import { buildRobustPolyline, sampleAtDisplayStation, evaluateProfile } from "../alignment/landXmlParser";
+import { sliceScene } from "../alignment/crossSectionUtils";
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
 
 // Build EdgesGeometry + LineSegments in idle-time batches of 30 meshes.
@@ -290,6 +291,8 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // Profile hover marker sphere
   const profileSphereRef = useRef<THREE.Mesh | null>(null);
+  // Cross-section plane indicator
+  const sectionIndicatorRef = useRef<THREE.Mesh | null>(null);
 
   // Render-on-demand: only draw when something changed
   const needsRenderRef = useRef(true);
@@ -407,6 +410,16 @@ export function ViewportContainer({ onElementClick }: Props) {
     profileSphere.name = "__profileSphere";
     scene.add(profileSphere);
     profileSphereRef.current = profileSphere;
+
+    // Cross-section plane indicator (semi-transparent rectangle at section station)
+    const indGeo = new THREE.PlaneGeometry(100, 60);
+    const indMat = new THREE.MeshBasicMaterial({ color: 0x4488ff, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthTest: false });
+    const indMesh = new THREE.Mesh(indGeo, indMat);
+    indMesh.renderOrder = 997;
+    indMesh.visible = false;
+    indMesh.name = "__sectionIndicator";
+    scene.add(indMesh);
+    sectionIndicatorRef.current = indMesh;
 
     // Trigger a render whenever the camera moves; throttle inspector label updates via RAF
     controls.addEventListener("change", () => {
@@ -1634,6 +1647,96 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (state.profileHoverStation !== prev.profileHoverStation ||
           state.profileHoverAlignmentId !== prev.profileHoverAlignmentId) {
         updateSphere();
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Cross-section: compute slice and update 3D plane indicator
+  useEffect(() => {
+    const computeSection = () => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const { crossSectionStation, crossSectionAlignmentId, crossSectionMode, files, geoOrigin } = useAlignmentStore.getState();
+      const indicator = sectionIndicatorRef.current;
+
+      if (crossSectionStation === null) {
+        if (indicator) indicator.visible = false;
+        needsRenderRef.current = true;
+        return;
+      }
+
+      // Origin (same logic as alignment lines)
+      const ifc = useModelStore.getState().models.values().next().value as import("../types/ifc").IFCModelEntry | undefined;
+      let ox: number, oy: number, oz: number;
+      if (ifc) { ox = ifc.originOffset.x; oy = -ifc.originOffset.z; oz = ifc.originOffset.y; }
+      else if (geoOrigin) { ox = geoOrigin.x; oy = geoOrigin.y; oz = geoOrigin.z; }
+      else { ox = 0; oy = 0; oz = 0; }
+
+      const allAligns = files.flatMap(f => f.alignments);
+      const alignment = allAligns.find(a => a.id === crossSectionAlignmentId) ?? allAligns[0];
+      if (!alignment) return;
+
+      const pt = sampleAtDisplayStation(alignment, crossSectionStation);
+      if (!pt) return;
+
+      const wx = pt.x - ox;
+      const wz = -(pt.y - oy);
+      const T = pt.tangentRad; // horizontal bearing (math radians, CCW from East)
+
+      // Horizontal tangent in Three.js: (cos(T), 0, -sin(T))
+      // Right direction: (sin(T), 0, cos(T))
+      const tangentDir = new THREE.Vector3(Math.cos(T), 0, -Math.sin(T)).normalize();
+      const rightDir   = new THREE.Vector3(Math.sin(T), 0,  Math.cos(T)).normalize();
+      const upDir      = new THREE.Vector3(0, 1, 0);
+
+      let planeNormal = tangentDir.clone();
+
+      if (crossSectionMode === "normal") {
+        // Include grade in the plane normal (true normal section)
+        const delta = 1.0;
+        const e1 = evaluateProfile(alignment.profileGeom, crossSectionStation + delta);
+        const e0 = evaluateProfile(alignment.profileGeom, crossSectionStation - delta);
+        const grade = (e1 !== null && e0 !== null) ? (e1 - e0) / (2 * delta) : 0;
+        planeNormal = new THREE.Vector3(Math.cos(T), grade, -Math.sin(T)).normalize();
+      }
+
+      // World Y of alignment at this station
+      const wy = (pt.z ?? oz) - oz;
+      const origin3 = new THREE.Vector3(wx, wy, wz);
+
+      // Update indicator plane
+      if (indicator) {
+        indicator.position.copy(origin3);
+        indicator.lookAt(origin3.clone().add(tangentDir));
+        indicator.visible = true;
+        needsRenderRef.current = true;
+      }
+
+      // Compute slice (deferred to avoid blocking frame)
+      setTimeout(() => {
+        const sc = sceneRef.current;
+        if (!sc) return;
+        const lines = sliceScene(sc, origin3, planeNormal, rightDir, upDir);
+        // Re-project lines so Y = elevation relative to alignment (0 = alignment elevation)
+        const shifted = lines.map(l => ({
+          ...l,
+          // x1/x2 are already right-offset; y1/y2 are already world elevation offset from origin3
+        }));
+        useAlignmentStore.getState().setCrossSectionResult(shifted);
+      }, 0);
+    };
+
+    const unsub = useAlignmentStore.subscribe((state, prev) => {
+      if (state.crossSectionStation !== prev.crossSectionStation ||
+          state.crossSectionAlignmentId !== prev.crossSectionAlignmentId ||
+          state.crossSectionMode !== prev.crossSectionMode ||
+          state.crossSectionComputing !== prev.crossSectionComputing) {
+        if (state.crossSectionComputing) computeSection();
+      }
+      if (!state.crossSectionOpen && prev.crossSectionOpen) {
+        const indicator = sectionIndicatorRef.current;
+        if (indicator) { indicator.visible = false; needsRenderRef.current = true; }
       }
     });
     return () => unsub();

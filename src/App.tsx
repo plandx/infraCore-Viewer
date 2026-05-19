@@ -22,6 +22,7 @@ import { BatchPanel } from "./batch/BatchPanel";
 
 import { AlignmentPanel } from "./alignment/AlignmentPanel";
 import { ProfileViewer } from "./alignment/ProfileViewer";
+import { CrossSectionViewer } from "./alignment/CrossSectionViewer";
 import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
@@ -533,6 +534,8 @@ function MainApp() {
       </div>
 
       <StatusBar />
+
+      <CrossSectionViewer />
 
       {basketEditorOpen && (
         <BasketEditor onClose={() => setBasketEditorOpen(false)} />

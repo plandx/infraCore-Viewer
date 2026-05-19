@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { parseLandXmlText } from "./landXmlParser";
 import type { Alignment } from "./types";
+import type { SectionLine } from "./crossSectionUtils";
 
 const PALETTE = [
   "#ff7043",
@@ -63,6 +64,14 @@ interface AlignmentStore {
   profileHoverStation: number | null;
   profileHoverAlignmentId: number | null;
 
+  // Cross-section state
+  crossSectionOpen: boolean;
+  crossSectionStation: number | null;
+  crossSectionAlignmentId: number | null;
+  crossSectionMode: "vertical" | "normal";
+  crossSectionLines: SectionLine[];
+  crossSectionComputing: boolean;
+
   // Annotation state
   stationLabelVisible: boolean;
   stationLabelInterval: number;
@@ -80,6 +89,13 @@ interface AlignmentStore {
   toggleStationTool(): void;
   setHoveredStation(info: { alignmentId: number; station: number; name: string } | null): void;
   setProfileHover(alignmentId: number | null, station: number | null): void;
+
+  // Cross-section actions
+  openCrossSection(alignmentId: number, station: number): void;
+  closeCrossSection(): void;
+  setCrossSectionStation(alignmentId: number, station: number): void;
+  setCrossSectionMode(mode: "vertical" | "normal"): void;
+  setCrossSectionResult(lines: SectionLine[]): void;
 
   // Annotation actions
   toggleStationLabels(): void;
@@ -105,6 +121,12 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   hoveredStation: null,
   profileHoverStation: null,
   profileHoverAlignmentId: null,
+  crossSectionOpen: false,
+  crossSectionStation: null,
+  crossSectionAlignmentId: null,
+  crossSectionMode: "vertical",
+  crossSectionLines: [],
+  crossSectionComputing: false,
 
   stationLabelVisible: false,
   stationLabelInterval: 100,
@@ -201,6 +223,12 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   toggleStationTool: () => set(state => ({ stationToolActive: !state.stationToolActive })),
   setHoveredStation: (info) => set({ hoveredStation: info }),
   setProfileHover: (alignmentId, station) => set({ profileHoverAlignmentId: alignmentId, profileHoverStation: station }),
+
+  openCrossSection: (alignmentId, station) => set({ crossSectionOpen: true, crossSectionStation: station, crossSectionAlignmentId: alignmentId, crossSectionComputing: true, crossSectionLines: [] }),
+  closeCrossSection: () => set({ crossSectionOpen: false }),
+  setCrossSectionStation: (alignmentId, station) => set({ crossSectionStation: station, crossSectionAlignmentId: alignmentId, crossSectionComputing: true, crossSectionLines: [] }),
+  setCrossSectionMode: (mode) => set({ crossSectionMode: mode, crossSectionComputing: true, crossSectionLines: [] }),
+  setCrossSectionResult: (lines) => set({ crossSectionLines: lines, crossSectionComputing: false }),
 
   toggleStationLabels: () => set(state => ({ stationLabelVisible: !state.stationLabelVisible })),
   setStationLabelInterval: (n) => set({ stationLabelInterval: n }),
