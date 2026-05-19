@@ -519,3 +519,42 @@ Neuer Beschriftungs-Unterbereich im Achsen-Panel mit drei Funktionen:
 3. **Absetzmass** – Tool zum Klicken auf IFC-Geometrie; berechnet Station des Fußpunkts und vorzeichenbehafteten horizontalen Querabstand (+ = rechts, − = links). Visualisierung als gestrichelte 3D-Linie + Label.
 
 State in `useAlignmentStore`: `stationLabelVisible`, `stationLabelInterval`, `labelToolActive`, `offsetToolActive`, `placedLabels`, `offsetMeasurements`.
+
+---
+
+## CrossSectionWindow
+
+**Datei:** `src/alignment/CrossSectionWindow.tsx`
+
+Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstellung. Empfängt Schnittdaten über `BroadcastChannel("infracore-cross-section")` und rendert ein SVG-Koordinatensystem mit Schnittlinien, Hatch-Füllung und Bemaßungen.
+
+### Werkzeuge
+
+| Werkzeug | Button | Beschreibung |
+|---|---|---|
+| Messen | Ruler-Icon (blau) | Klick-Klick-Messung: misst Abstand zwischen zwei Punkten im Schnittbild, zeigt Linie + Maßtext |
+| Punkt X/Y | MapPin-Icon (violett) | Setzt eine Bemaßungs-Annotation mit Querabstand (R/L) und Höhenabstand (+/−) vom Achspunkt als Maßlinien |
+| Fang | Magnet-Icon (himmelblau) | Aktiviert Snap-Modus: Vertex-Fang (Priorität, 14px-Schwelle) dann Kanten-Fang (Lot auf Segment) |
+
+### Fangmodus (Snap)
+
+- `computeSnap(wx, wy, segs, scale)` — sucht nächsten Vertex oder Kantenpunkt; Schwelle in Weltkoordinaten = `14 / scale` (px/m)
+- `snapRef` — synchroner Ref, in `handleMouseMove` aktualisiert, von `handleMouseUp` gelesen (vermeidet veraltete Closures)
+- `snapActiveRef` — via `useEffect` aus `snapActive`-State aktualisiert
+- `snapDisplay` — State für SVG-Rendering: bernsteinfarbene Raute (Vertex) oder Kreis (Kante)
+- `effW` — wirksame Weltkoordinate für alle Werkzeuge: Snap-Punkt wenn Fang aktiv, sonst Rohkoordinate
+
+### Punkt-Beschriftung (PtLabel)
+
+- `ptLabelMode: boolean` — Toggle-State
+- `pointLabels: PtLabel[]` — gespeicherte Punkte `{ id, x, y }` in Achskoordinaten
+- SVG-Darstellung: horizontale Maßlinie auf Höhe des Punkts (zeigt X-Abstand, R/L), vertikale Maßlinie an X-Position des Punkts (zeigt Y-Abstand +/−); Texte mit Hintergrundrechtecken
+
+### SVG-Aufbau
+
+1. Achsenkreuz + Tick-Labels (cm-Genauigkeit, 2 Dezimalstellen)
+2. `<clipPath>` begrenzt Schnittlinien und Hatch-Füllung auf Darstellungsbereich
+3. Schnittlinien (`<polyline>`) + Hatch-Füllung (`<polygon>` mit SVG-Pattern)
+4. Bemaßungen: Mess-Linie (blau gestrichelt), Punkt-Beschriftungs-Maßlinien (lila)
+5. Vorschau-Dot bei aktivem Werkzeug
+6. Snap-Indikator (außerhalb Clip-Gruppe, immer sichtbar)
