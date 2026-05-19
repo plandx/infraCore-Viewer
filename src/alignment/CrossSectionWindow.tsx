@@ -484,7 +484,7 @@ export function CrossSectionWindow() {
                   stroke="var(--color-muted-foreground)" strokeWidth={1} />
                 <text x={xs(x)} y={M.top + chartH + 16} textAnchor="middle" fontSize={10}
                   fill="var(--color-muted-foreground)" fontFamily="monospace">
-                  {x === 0 ? "0" : `${x > 0 ? "R" : "L"} ${Math.abs(x).toFixed(Math.abs(x) < 10 ? 1 : 0)}`}
+                  {x === 0 ? "0" : `${x > 0 ? "R" : "L"} ${Math.abs(x).toFixed(2)}`}
                 </text>
               </g>
             ))}
@@ -500,7 +500,7 @@ export function CrossSectionWindow() {
                   stroke="var(--color-muted-foreground)" strokeWidth={1} />
                 <text x={M.left - 8} y={ys(y) + 3} textAnchor="end" fontSize={10}
                   fill="var(--color-muted-foreground)" fontFamily="monospace">
-                  {y >= 0 ? "+" : ""}{y.toFixed(y % 1 !== 0 ? 1 : 0)}
+                  {y >= 0 ? "+" : ""}{y.toFixed(2)}
                 </text>
               </g>
             ))}
