@@ -1,10 +1,9 @@
 import { useRef, useState, useEffect, useMemo } from "react";
-import { X, ZoomIn } from "lucide-react";
+import { X, ZoomIn, ChevronDown } from "lucide-react";
 import { useAlignmentStore } from "./alignmentStore";
 import { useModelStore } from "../store/modelStore";
 import { evaluateProfile } from "./landXmlParser";
 import { openCrossSectionWindow } from "../utils/windowSync";
-import type { Alignment } from "./types";
 
 function fmtSta(sta: number): string {
   const km = Math.floor(sta / 1000);
@@ -26,13 +25,12 @@ function computeTicks(min: number, max: number, target: number): number[] {
   return ticks;
 }
 
-function sampleProfilePoints(a: Alignment, steps = 400): Array<{ sta: number; elev: number }> {
-  const { tangents, curves } = a.profileGeom;
-  if (!tangents.length && !curves.length) return [];
+function sampleProfilePoints(staStart: number, staEnd: number, profileGeom: { tangents: unknown[]; curves: unknown[] }, steps = 400): Array<{ sta: number; elev: number }> {
+  if (!profileGeom.tangents.length && !profileGeom.curves.length) return [];
   const out: Array<{ sta: number; elev: number }> = [];
   for (let i = 0; i <= steps; i++) {
-    const sta = a.staStart + (i / steps) * (a.staEnd - a.staStart);
-    const elev = evaluateProfile(a.profileGeom, sta);
+    const sta = staStart + (i / steps) * (staEnd - staStart);
+    const elev = evaluateProfile(profileGeom, sta);
     if (elev !== null) out.push({ sta, elev });
   }
   return out;
@@ -47,7 +45,7 @@ export function ProfileViewer() {
 
   const files           = useAlignmentStore(s => s.files);
   const colors          = useAlignmentStore(s => s.colors);
-  const visibleIds      = useAlignmentStore(s => s.visibleIds);
+  const selectedId      = useAlignmentStore(s => s.selectedId);
   const setProfileHover  = useAlignmentStore(s => s.setProfileHover);
   const openCrossSection = useAlignmentStore(s => s.openCrossSection);
   const crossSectionSta  = useAlignmentStore(s => s.crossSectionStation);
@@ -65,6 +63,7 @@ export function ProfileViewer() {
     return () => ro.disconnect();
   }, []);
 
+  // All alignments that have a profile
   const alignments = useMemo(
     () => files.flatMap(f => f.alignments).filter(
       a => a.profileGeom.tangents.length > 0 || a.profileGeom.curves.length > 0
@@ -72,33 +71,48 @@ export function ProfileViewer() {
     [files]
   );
 
-  const profiles = useMemo(
-    () => alignments.map(a => ({
-      a,
-      color: colors[a.id] ?? "#888",
-      visible: visibleIds.has(a.id),
-      pts: sampleProfilePoints(a),
-    })),
-    [alignments, colors, visibleIds]
+  // Active alignment: follow selectedId from panel when possible, otherwise first available
+  const [activeAlignId, setActiveAlignId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (alignments.length === 0) { setActiveAlignId(null); return; }
+    // If there's a selected alignment that has a profile, switch to it
+    if (selectedId !== null && alignments.some(a => a.id === selectedId)) {
+      setActiveAlignId(selectedId);
+    } else if (activeAlignId === null || !alignments.some(a => a.id === activeAlignId)) {
+      setActiveAlignId(alignments[0].id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, alignments]);
+
+  const activeAlignment = useMemo(
+    () => alignments.find(a => a.id === activeAlignId) ?? null,
+    [alignments, activeAlignId]
   );
 
-  // Full data domain (elevation only)
+  const pts = useMemo(
+    () => activeAlignment
+      ? sampleProfilePoints(activeAlignment.staStart, activeAlignment.staEnd, activeAlignment.profileGeom)
+      : [],
+    [activeAlignment]
+  );
+
+  const color = activeAlignment ? (colors[activeAlignment.id] ?? "#888") : "#888";
+
+  // Domain
   const domain = useMemo(() => {
+    if (!pts.length) return { sMin: 0, sMax: 1000, eMin: 0, eMax: 100 };
     let sMin = Infinity, sMax = -Infinity, eMin = Infinity, eMax = -Infinity;
-    for (const { pts } of profiles) {
-      for (const p of pts) {
-        if (p.sta < sMin) sMin = p.sta;
-        if (p.sta > sMax) sMax = p.sta;
-        if (p.elev < eMin) eMin = p.elev;
-        if (p.elev > eMax) eMax = p.elev;
-      }
+    for (const p of pts) {
+      if (p.sta < sMin) sMin = p.sta;
+      if (p.sta > sMax) sMax = p.sta;
+      if (p.elev < eMin) eMin = p.elev;
+      if (p.elev > eMax) eMax = p.elev;
     }
-    if (!isFinite(sMin)) return { sMin: 0, sMax: 1000, eMin: 0, eMax: 100 };
     const ep = Math.max(2, (eMax - eMin) * 0.15);
     return { sMin, sMax, eMin: eMin - ep, eMax: eMax + ep };
-  }, [profiles]);
+  }, [pts]);
 
-  // Zoom/pan: [viewMin, viewMax] in station units; null = full view
   const [viewSta, setViewSta] = useState<[number, number] | null>(null);
   useEffect(() => { setViewSta(null); }, [domain.sMin, domain.sMax]);
 
@@ -111,7 +125,11 @@ export function ProfileViewer() {
   const xs = (sta: number) => M.left + ((sta - vMin) / (vMax - vMin || 1)) * chartW;
   const ys = (elev: number) => M.top + chartH * (1 - (elev - domain.eMin) / (domain.eMax - domain.eMin || 1));
 
-  // Wheel zoom (non-passive listener to allow preventDefault)
+  const viewStaRef = useRef<[number, number] | null>(null);
+  const domainRef  = useRef(domain);
+  useEffect(() => { viewStaRef.current = viewSta; }, [viewSta]);
+  useEffect(() => { domainRef.current = domain; }, [domain]);
+
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
@@ -126,26 +144,16 @@ export function ProfileViewer() {
       const factor = e.deltaY > 0 ? 1.25 : 1 / 1.25;
       const half = (curMax - curMin) * factor / 2;
       const dom = domainRef.current;
-      const newMin = Math.max(dom.sMin, centerSta - half * ((centerSta - curMin) / (curMax - curMin || 1)) * 2);
-      const newMax = Math.min(dom.sMax, newMin + half * 2);
-      setViewSta([newMin, newMax]);
+      const newMin = Math.max(dom.sMin, Math.min(dom.sMax - half * 2, centerSta - half * ((centerSta - curMin) / (curMax - curMin || 1)) * 2));
+      setViewSta([newMin, newMin + half * 2]);
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
-  // Re-attach when svg mounts; refs handle current values
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Refs so wheel handler always sees current values without needing to re-attach
-  const viewStaRef = useRef<[number, number] | null>(null);
-  const domainRef  = useRef(domain);
-  useEffect(() => { viewStaRef.current = viewSta; }, [viewSta]);
-  useEffect(() => { domainRef.current = domain; }, [domain]);
-
-  // Drag pan state
   const dragRef = useRef<{ x: number; min: number; max: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-
   const [hoverSta, setHoverSta] = useState<number | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -156,7 +164,6 @@ export function ProfileViewer() {
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    // Pan while dragging
     if (dragRef.current) {
       const dx = e.clientX - dragRef.current.x;
       const range = dragRef.current.max - dragRef.current.min;
@@ -166,8 +173,6 @@ export function ProfileViewer() {
       setViewSta([newMin, newMin + range]);
       return;
     }
-
-    // Hover
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     if (mx < M.left || mx > M.left + chartW) {
@@ -177,20 +182,17 @@ export function ProfileViewer() {
     }
     const sta = vMin + ((mx - M.left) / chartW) * (vMax - vMin);
     setHoverSta(sta);
-    const first = profiles.find(p => p.visible);
-    setProfileHover(first?.a.id ?? null, sta);
+    setProfileHover(activeAlignId, sta);
   };
 
   const handleMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
-    // Click (not drag) → set cross-section station
     if (dragRef.current && Math.abs(e.clientX - dragRef.current.x) < 5) {
       const rect = e.currentTarget.getBoundingClientRect();
       const mx = e.clientX - rect.left;
-      if (mx >= M.left && mx <= M.left + chartW) {
+      if (mx >= M.left && mx <= M.left + chartW && activeAlignment) {
         const sta = vMin + ((mx - M.left) / chartW) * (vMax - vMin);
-        const first = profiles.find(p => p.visible);
-        if (first && sta >= domain.sMin && sta <= domain.sMax) {
-          openCrossSection(first.a.id, sta);
+        if (sta >= domain.sMin && sta <= domain.sMax) {
+          openCrossSection(activeAlignment.id, sta);
           openCrossSectionWindow();
         }
       }
@@ -221,18 +223,31 @@ export function ProfileViewer() {
   return (
     <div ref={containerRef} className="relative w-full h-full bg-background flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 flex items-center gap-2 px-2 py-0.5 border-b border-border">
-        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+      <div className="shrink-0 flex items-center gap-2 px-2 py-0.5 border-b border-border min-w-0">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide shrink-0">
           Längenschnitt
         </span>
-        <div className="flex items-center gap-1.5 ml-1 flex-1 overflow-hidden">
-          {profiles.map(({ a, color, visible }) => (
-            <span key={a.id} className="flex items-center gap-1 text-[9px] shrink-0" style={{ opacity: visible ? 1 : 0.4 }}>
-              <span className="inline-block w-2.5 h-0.5 rounded-full" style={{ background: color }} />
-              <span className="text-muted-foreground truncate max-w-24">{a.displayName}</span>
-            </span>
-          ))}
-        </div>
+
+        {/* Alignment selector */}
+        {alignments.length > 0 && (
+          <div className="relative flex items-center min-w-0">
+            <span className="inline-block w-2.5 h-0.5 rounded-full shrink-0 mr-1" style={{ background: color }} />
+            <select
+              value={activeAlignId ?? ""}
+              onChange={e => setActiveAlignId(Number(e.target.value))}
+              className="text-[10px] bg-transparent border-none outline-none text-foreground pr-3 max-w-40 truncate cursor-pointer appearance-none"
+              title="Achse auswählen"
+            >
+              {alignments.map(a => (
+                <option key={a.id} value={a.id}>{a.displayName}</option>
+              ))}
+            </select>
+            <ChevronDown size={9} className="absolute right-0 pointer-events-none text-muted-foreground" />
+          </div>
+        )}
+
+        <div className="flex-1" />
+
         {hoverSta !== null && (
           <span className="text-[9px] font-mono text-muted-foreground shrink-0">
             {fmtSta(hoverSta)}
@@ -283,7 +298,6 @@ export function ProfileViewer() {
               />
             ))}
 
-            {/* Clip to chart area via inline clip-path */}
             <defs>
               <clipPath id="profile-clip">
                 <rect x={M.left} y={M.top} width={chartW} height={chartH} />
@@ -292,7 +306,8 @@ export function ProfileViewer() {
 
             <g clipPath="url(#profile-clip)">
               {/* Active cross-section station marker */}
-              {crossSectionOpen && crossSectionSta !== null && xs(crossSectionSta) >= M.left && xs(crossSectionSta) <= M.left + chartW && (
+              {crossSectionOpen && crossSectionSta !== null &&
+               xs(crossSectionSta) >= M.left && xs(crossSectionSta) <= M.left + chartW && (
                 <line
                   x1={xs(crossSectionSta)} y1={M.top}
                   x2={xs(crossSectionSta)} y2={M.top + chartH}
@@ -300,38 +315,35 @@ export function ProfileViewer() {
                 />
               )}
 
-              {/* Profile polylines */}
-              {profiles.map(({ a, color, visible, pts }) => pts.length < 2 ? null : (
-                <polyline key={a.id}
+              {/* Profile polyline */}
+              {pts.length >= 2 && (
+                <polyline
                   points={pts.map(p => `${xs(p.sta)},${ys(p.elev)}`).join(" ")}
                   fill="none" stroke={color} strokeWidth={1.5}
-                  opacity={visible ? 1 : 0.2}
+                />
+              )}
+
+              {/* VPI markers */}
+              {activeAlignment?.profileGeom.vertices.map((v, i) => (
+                <circle key={i}
+                  cx={xs(v.sta)} cy={ys(v.elev)} r={2.5}
+                  fill={color}
                 />
               ))}
 
-              {/* VPI markers */}
-              {profiles.map(({ a, color, visible }) =>
-                a.profileGeom.vertices.map((v, i) => (
-                  <circle key={`${a.id}-${i}`}
-                    cx={xs(v.sta)} cy={ys(v.elev)} r={2.5}
-                    fill={color} opacity={visible ? 1 : 0.15}
-                  />
-                ))
-              )}
-
-              {/* Hover line + dots */}
-              {hoverSta !== null && (
+              {/* Hover line + elevation readout */}
+              {hoverSta !== null && activeAlignment && (
                 <>
                   <line
                     x1={xs(hoverSta)} y1={M.top} x2={xs(hoverSta)} y2={M.top + chartH}
                     stroke="white" strokeWidth={1} strokeDasharray="3,2" opacity={0.5}
                   />
-                  {profiles.filter(p => p.visible).map(({ a, color }) => {
-                    const elev = evaluateProfile(a.profileGeom, hoverSta);
+                  {(() => {
+                    const elev = evaluateProfile(activeAlignment.profileGeom, hoverSta);
                     if (elev === null) return null;
                     const flip = xs(hoverSta) > M.left + chartW * 0.75;
                     return (
-                      <g key={a.id}>
+                      <g>
                         <circle cx={xs(hoverSta)} cy={ys(elev)} r={3.5}
                           fill={color} stroke="white" strokeWidth={1.5} />
                         <text
@@ -344,7 +356,7 @@ export function ProfileViewer() {
                         </text>
                       </g>
                     );
-                  })}
+                  })()}
                 </>
               )}
             </g>
