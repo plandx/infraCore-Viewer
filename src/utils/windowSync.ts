@@ -74,8 +74,16 @@ export function serializeState(store: {
 
 export const CROSS_SECTION_CHANNEL = "infracore-cross-section";
 
-export type XSSyncLine = { x1: number; y1: number; x2: number; y2: number; color: string };
+export type XSSyncLine = { x1: number; y1: number; x2: number; y2: number; color: string; objectKey?: string };
 export type XSSyncPolygon = { points: Array<[number, number]>; color: string };
+
+/** Label metadata for one IFC element visible in the current cross-section */
+export interface XSSyncObjectLabel {
+  key: string;                  // "modelId:expressId"
+  name: string;                 // element name from elementsByType
+  type: string;                 // IFC type (e.g. "IfcWall")
+  props: Record<string, string>; // flat loaded properties (string/number only)
+}
 
 export interface XSSyncState {
   station: number | null;
@@ -88,6 +96,7 @@ export interface XSSyncState {
   polygons: XSSyncPolygon[];
   computing: boolean;
   showSectionSurface: boolean;
+  objectLabels: XSSyncObjectLabel[];
 }
 
 export type XSMsg =

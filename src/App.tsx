@@ -131,6 +131,7 @@ function useCrossSectionSync() {
           polygons: store.crossSectionPolygons,
           computing: store.crossSectionComputing,
           showSectionSurface: store.showSectionSurface,
+          objectLabels: store.crossSectionObjectLabels,
         },
       } satisfies XSMsg);
     };
@@ -160,12 +161,13 @@ function useCrossSectionSync() {
 
     const unsub = useAlignmentStore.subscribe((state, prev) => {
       if (
-        state.crossSectionLines      !== prev.crossSectionLines      ||
-        state.crossSectionPolygons   !== prev.crossSectionPolygons   ||
-        state.crossSectionStation    !== prev.crossSectionStation    ||
-        state.crossSectionMode       !== prev.crossSectionMode       ||
-        state.crossSectionComputing  !== prev.crossSectionComputing  ||
-        state.showSectionSurface     !== prev.showSectionSurface
+        state.crossSectionLines         !== prev.crossSectionLines         ||
+        state.crossSectionPolygons      !== prev.crossSectionPolygons      ||
+        state.crossSectionStation       !== prev.crossSectionStation       ||
+        state.crossSectionMode          !== prev.crossSectionMode          ||
+        state.crossSectionComputing     !== prev.crossSectionComputing     ||
+        state.showSectionSurface        !== prev.showSectionSurface        ||
+        state.crossSectionObjectLabels  !== prev.crossSectionObjectLabels
       ) broadcast();
     });
 

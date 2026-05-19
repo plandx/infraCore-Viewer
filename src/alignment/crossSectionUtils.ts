@@ -4,6 +4,8 @@ export interface SectionLine {
   x1: number; y1: number;
   x2: number; y2: number;
   color: string;
+  /** "modelId:expressId" — identifies the IFC element this segment belongs to */
+  objectKey?: string;
 }
 
 export interface SectionPolygon {
@@ -152,6 +154,13 @@ export function sliceScene(
     const col = (mat as THREE.MeshStandardMaterial)?.color;
     const color = col ? `#${col.getHexString()}` : "#888";
 
+    // Resolve objectKey once per mesh (walk parent chain for modelId)
+    let _mid: string | undefined;
+    let _n: THREE.Object3D | null = obj.parent;
+    while (_n) { if (_n.userData.modelId) { _mid = _n.userData.modelId as string; break; } _n = _n.parent; }
+    const _eid = obj.userData.expressId as number | undefined;
+    const objectKey = (_mid != null && _eid != null) ? `${_mid}:${_eid}` : undefined;
+
     const pos = geom.attributes.position as THREE.BufferAttribute;
     const idx = geom.index;
     const mx  = obj.matrixWorld;
@@ -187,7 +196,7 @@ export function sliceScene(
       edge(_vC, dC, _vA, dA);
 
       if (pts.length >= 2) {
-        lines.push({ x1: pts[0][0], y1: pts[0][1], x2: pts[1][0], y2: pts[1][1], color });
+        lines.push({ x1: pts[0][0], y1: pts[0][1], x2: pts[1][0], y2: pts[1][1], color, objectKey });
       }
     }
   });

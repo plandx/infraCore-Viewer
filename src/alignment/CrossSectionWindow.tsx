@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect, useMemo } from "react";
-import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers, Magnet, MapPin } from "lucide-react";
+import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers, Magnet, MapPin, Tag } from "lucide-react";
 import { cn } from "../lib/utils";
 import { CROSS_SECTION_CHANNEL } from "../utils/windowSync";
-import type { XSMsg, XSSyncState } from "../utils/windowSync";
+import type { XSMsg, XSSyncState, XSSyncObjectLabel } from "../utils/windowSync";
 
 function fmtSta(sta: number): string {
   const km = Math.floor(sta / 1000);
@@ -67,6 +67,94 @@ function computeSnap(
     if (d < T && d < bestD) { bestD = d; best = { pt: [px, py], type: "edge" }; }
   }
   return best;
+}
+
+// ── Object label layout ───────────────────────────────────────────────────────
+
+type ObjLabelPos = {
+  key: string;
+  text: string;
+  color: string;
+  /** Centroid in SVG pixels (leader line anchor) */
+  cx: number; cy: number;
+  /** Label box top-left in SVG pixels */
+  lx: number; ly: number;
+  bw: number; bh: number;
+};
+
+/** Push overlapping label boxes apart; mutates in place. */
+function deOverlapLabels(labels: ObjLabelPos[]): void {
+  const PAD = 3;
+  for (let iter = 0; iter < 60; iter++) {
+    let moved = false;
+    for (let i = 0; i < labels.length; i++) {
+      for (let j = i + 1; j < labels.length; j++) {
+        const a = labels[i], b = labels[j];
+        const overX = (a.bw / 2 + b.bw / 2 + PAD) - Math.abs((b.lx + b.bw / 2) - (a.lx + a.bw / 2));
+        const overY = (a.bh + PAD) - Math.abs((b.ly + b.bh / 2) - (a.ly + a.bh / 2));
+        if (overX > 0 && overY > 0) {
+          const pushY = overY / 2 + 0.5;
+          const aCy = a.ly + a.bh / 2, bCy = b.ly + b.bh / 2;
+          if (bCy >= aCy) { a.ly -= pushY; b.ly += pushY; }
+          else             { a.ly += pushY; b.ly -= pushY; }
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+}
+
+/**
+ * Given a label for which the preferred prop key, object labels list, and
+ * coordinate transforms are known, compute ObjLabelPos[] ready for SVG rendering.
+ */
+function buildLabelPositions(
+  objectLabels: XSSyncObjectLabel[],
+  lines: Array<{ x1: number; y1: number; x2: number; y2: number; color: string; objectKey?: string }>,
+  propKey: string,
+  xs: (x: number) => number,
+  ys: (y: number) => number,
+): ObjLabelPos[] {
+  // Group segments by objectKey
+  const groups = new Map<string, { segs: typeof lines; color: string }>();
+  for (const l of lines) {
+    if (!l.objectKey) continue;
+    let g = groups.get(l.objectKey);
+    if (!g) { g = { segs: [], color: l.color }; groups.set(l.objectKey, g); }
+    g.segs.push(l);
+  }
+
+  const BH = 15; // box height px
+  const positions: ObjLabelPos[] = [];
+
+  for (const lbl of objectLabels) {
+    const g = groups.get(lbl.key);
+    if (!g || g.segs.length === 0) continue;
+
+    const text = propKey === "name" ? lbl.name
+      : propKey === "type" ? lbl.type
+      : (lbl.props[propKey] ?? lbl.name);
+    if (!text) continue;
+
+    // Centroid = average of segment midpoints (in world space)
+    let wx = 0, wy = 0;
+    for (const s of g.segs) { wx += (s.x1 + s.x2) / 2; wy += (s.y1 + s.y2) / 2; }
+    wx /= g.segs.length; wy /= g.segs.length;
+
+    const cx = xs(wx), cy = ys(wy);
+    const bw = Math.max(40, text.length * 6 + 10);
+
+    positions.push({
+      key: lbl.key, text, color: g.color,
+      cx, cy,
+      lx: cx - bw / 2, ly: cy - 28,
+      bw, bh: BH,
+    });
+  }
+
+  deOverlapLabels(positions);
+  return positions;
 }
 
 export function CrossSectionWindow() {
@@ -226,6 +314,10 @@ export function CrossSectionWindow() {
   const [ptLabelMode, setPtLabelMode] = useState(false);
   const [pointLabels, setPointLabels] = useState<PtLabel[]>([]);
 
+  // ── Object label overlay ─────────────────────────────────────────────────
+  const [objLabelsVisible, setObjLabelsVisible] = useState(false);
+  const [objLabelProp, setObjLabelProp] = useState("name");
+
   // ── Snap mode ────────────────────────────────────────────────────────────
   const [snapActive, setSnapActive] = useState(false);
   const [snapDisplay, setSnapDisplay] = useState<SnapInfo | null>(null);
@@ -292,6 +384,23 @@ export function CrossSectionWindow() {
 
   // Effective world position: snap point when snap is active, else raw mouse
   const effW = (snapActive && snapDisplay) ? snapDisplay.pt : mouseWorld;
+
+  // ── Object labels ─────────────────────────────────────────────────────────
+  const objectLabels = state?.objectLabels ?? [];
+
+  const availablePropKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const lbl of objectLabels) {
+      for (const k of Object.keys(lbl.props)) keys.add(k);
+    }
+    return ["name", "type", ...Array.from(keys).sort()];
+  }, [objectLabels]);
+
+  const objLabelPositions = useMemo(() => {
+    if (!objLabelsVisible || objectLabels.length === 0) return [];
+    return buildLabelPositions(objectLabels, lines, objLabelProp, xs, ys);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objLabelsVisible, objectLabels, lines, objLabelProp, xs, ys, vxMin, vxMax, vyMin, vyMax, size]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -438,6 +547,33 @@ export function CrossSectionWindow() {
         >
           <Magnet size={13} /> Fang
         </button>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
+        {/* Object labels toggle + property selector */}
+        <button
+          onClick={() => setObjLabelsVisible(a => !a)}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            objLabelsVisible ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Objekte beschriften"
+        >
+          <Tag size={13} /> Objekte
+        </button>
+        {objLabelsVisible && availablePropKeys.length > 0 && (
+          <select
+            value={objLabelProp}
+            onChange={e => setObjLabelProp(e.target.value)}
+            className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground max-w-[120px]"
+            title="Beschriftungsattribut"
+          >
+            {availablePropKeys.map(k => (
+              <option key={k} value={k}>
+                {k === "name" ? "Name" : k === "type" ? "Typ" : k}
+              </option>
+            ))}
+          </select>
+        )}
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
@@ -648,6 +784,42 @@ export function CrossSectionWindow() {
                 </g>
               );
             })()}
+
+            {/* Object labels with leader lines */}
+            {objLabelPositions.map(lbl => {
+              // Clamp leader line anchor to chart area edges so the line stays visible
+              const clampedCx = Math.max(M.left, Math.min(M.left + chartW, lbl.cx));
+              const clampedCy = Math.max(M.top,  Math.min(M.top + chartH,  lbl.cy));
+              // Label box center
+              const boxCx = lbl.lx + lbl.bw / 2;
+              const boxCy = lbl.ly + lbl.bh / 2;
+              // Leader line: from centroid to nearest edge of box
+              const edgeX = boxCx + (clampedCx < boxCx ? -lbl.bw / 2 : lbl.bw / 2);
+              const edgeY = boxCy;
+              return (
+                <g key={lbl.key}>
+                  {/* Leader line */}
+                  <line
+                    x1={clampedCx} y1={clampedCy} x2={edgeX} y2={edgeY}
+                    stroke={lbl.color} strokeWidth={0.8} strokeDasharray="3,2" opacity={0.65}
+                  />
+                  {/* Dot at centroid */}
+                  <circle cx={clampedCx} cy={clampedCy} r={2.5} fill={lbl.color} opacity={0.8} />
+                  {/* Label box */}
+                  <rect
+                    x={lbl.lx} y={lbl.ly} width={lbl.bw} height={lbl.bh} rx={3}
+                    fill="var(--color-popover)" stroke={lbl.color} strokeWidth={1} opacity={0.95}
+                  />
+                  <text
+                    x={lbl.lx + lbl.bw / 2} y={lbl.ly + lbl.bh - 4}
+                    textAnchor="middle" fontSize={9}
+                    fill={lbl.color} fontFamily="sans-serif" fontWeight="600"
+                  >
+                    {lbl.text}
+                  </text>
+                </g>
+              );
+            })}
 
             {/* X axis */}
             <line x1={M.left} y1={M.top + chartH} x2={M.left + chartW} y2={M.top + chartH}
