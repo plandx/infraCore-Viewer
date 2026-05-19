@@ -1593,11 +1593,25 @@ export function ViewportContainer({ onElementClick }: Props) {
       const sphere = profileSphereRef.current;
       if (!sphere) return;
       const { profileHoverStation, profileHoverAlignmentId, files, geoOrigin, visibleIds } = useAlignmentStore.getState();
-      if (profileHoverStation === null || !geoOrigin) {
+      if (profileHoverStation === null) {
         sphere.visible = false;
         needsRenderRef.current = true;
         return;
       }
+
+      // Use same origin logic as alignment line builder
+      const ifc = useModelStore.getState().models.values().next().value as import("../types/ifc").IFCModelEntry | undefined;
+      let ox: number, oy: number, oz: number;
+      if (ifc) {
+        ox = ifc.originOffset.x;
+        oy = -ifc.originOffset.z;
+        oz = ifc.originOffset.y;
+      } else if (geoOrigin) {
+        ox = geoOrigin.x; oy = geoOrigin.y; oz = geoOrigin.z;
+      } else {
+        ox = 0; oy = 0; oz = 0;
+      }
+
       const allAligns = files.flatMap(f => f.alignments);
       const alignment = profileHoverAlignmentId !== null
         ? allAligns.find(a => a.id === profileHoverAlignmentId)
@@ -1608,9 +1622,9 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!pt) { sphere.visible = false; needsRenderRef.current = true; return; }
 
       sphere.position.set(
-        pt.x - geoOrigin.x,
-        (pt.z ?? geoOrigin.z) - geoOrigin.z,
-        -(pt.y - geoOrigin.y)
+        pt.x - ox,
+        (pt.z ?? oz) - oz,
+        -(pt.y - oy)
       );
       sphere.visible = true;
       needsRenderRef.current = true;
