@@ -1634,20 +1634,36 @@ export function ViewportContainer({ onElementClick }: Props) {
         ox = 0; oy = 0; oz = 0;
       }
 
-      const allAligns = files.flatMap(f => f.alignments);
-      const alignment = profileHoverAlignmentId !== null
-        ? allAligns.find(a => a.id === profileHoverAlignmentId)
-        : allAligns.find(a => visibleIds.has(a.id));
-      if (!alignment) { sphere.visible = false; needsRenderRef.current = true; return; }
+      // Prefer interpolating directly on the cached polyline so the sphere sits
+      // exactly on the drawn 3D line (sampleAtDisplayStation diverges on transitions).
+      const alignId = profileHoverAlignmentId !== null
+        ? profileHoverAlignmentId
+        : (() => { for (const id of visibleIds) return id; return null; })();
+      if (alignId === null) { sphere.visible = false; needsRenderRef.current = true; return; }
 
-      const pt = sampleAtDisplayStation(alignment, profileHoverStation);
-      if (!pt) { sphere.visible = false; needsRenderRef.current = true; return; }
-
-      sphere.position.set(
-        pt.x - ox,
-        (pt.z ?? oz) - oz,
-        -(pt.y - oy)
-      );
+      let cache = alignPolylineRef.current.get(alignId);
+      if (!cache) {
+        // Alignment not yet in cache (not visible in 3D) — fall back to analytical sample
+        const allAligns = files.flatMap(f => f.alignments);
+        const alignment = allAligns.find(a => a.id === alignId);
+        if (!alignment) { sphere.visible = false; needsRenderRef.current = true; return; }
+        const pt = sampleAtDisplayStation(alignment, profileHoverStation);
+        if (!pt) { sphere.visible = false; needsRenderRef.current = true; return; }
+        sphere.position.set(pt.x - ox, (pt.z ?? oz) - oz, -(pt.y - oy));
+      } else {
+        // Binary-search + lerp on the exact drawn polyline — no spiral-correction drift
+        const { pts } = cache;
+        if (pts.length === 0) { sphere.visible = false; needsRenderRef.current = true; return; }
+        const sta = profileHoverStation;
+        let lo = 0, hi = pts.length - 1;
+        while (lo < hi - 1) { const mid = (lo + hi) >> 1; if (pts[mid].sta <= sta) lo = mid; else hi = mid; }
+        const a = pts[lo], b = pts[hi];
+        const t = b.sta > a.sta ? Math.max(0, Math.min(1, (sta - a.sta) / (b.sta - a.sta))) : 0;
+        const ix = a.x + (b.x - a.x) * t;
+        const iy = a.y + (b.y - a.y) * t;
+        const iz = (a.z !== null && b.z !== null) ? a.z + (b.z - a.z) * t : null;
+        sphere.position.set(ix - ox, (iz ?? oz) - oz, -(iy - oy));
+      }
       sphere.visible = true;
       needsRenderRef.current = true;
     };
