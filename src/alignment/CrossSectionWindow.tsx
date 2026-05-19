@@ -101,27 +101,44 @@ export function CrossSectionWindow() {
     return { xMin: xMin - xp, xMax: xMax + xp, yMin: yMin - yp, yMax: yMax + yp };
   }, [lines]);
 
-  // ── Zoom / pan ────────────────────────────────────────────────────────────
-  const [viewX, setViewX] = useState<[number, number] | null>(null);
-  const [viewY, setViewY] = useState<[number, number] | null>(null);
-  useEffect(() => { setViewX(null); setViewY(null); }, [domain.xMin, domain.xMax, domain.yMin, domain.yMax]);
+  // ── Equal-scale zoom / pan ────────────────────────────────────────────────
+  // A single zoom factor + pan center keeps X and Y at the same px/m scale.
+  const [zoomFactor, setZoomFactor] = useState(1.0);
+  const [viewCenter, setViewCenter] = useState<[number, number] | null>(null); // data-space center
 
-  const vxMin = viewX ? viewX[0] : domain.xMin;
-  const vxMax = viewX ? viewX[1] : domain.xMax;
-  const vyMin = viewY ? viewY[0] : domain.yMin;
-  const vyMax = viewY ? viewY[1] : domain.yMax;
+  useEffect(() => { setZoomFactor(1.0); setViewCenter(null); },
+    [domain.xMin, domain.xMax, domain.yMin, domain.yMax]);
 
   const chartW = Math.max(1, size.w - M.left - M.right);
   const chartH = Math.max(1, size.h - M.top - M.bottom);
 
-  const xs = (x: number) => M.left + ((x - vxMin) / (vxMax - vxMin || 1)) * chartW;
-  const ys = (y: number) => M.top  + chartH * (1 - (y - vyMin) / (vyMax - vyMin || 1));
+  // Base scale (px/m) that fits the full domain
+  const baseScale = Math.min(
+    chartW / ((domain.xMax - domain.xMin) || 1),
+    chartH / ((domain.yMax - domain.yMin) || 1),
+  );
+  const scale = baseScale * zoomFactor;
 
-  // Keep refs for non-passive wheel handler
-  const viewXRef = useRef<[number, number] | null>(null);
-  const viewYRef = useRef<[number, number] | null>(null);
-  const domainRef = useRef(domain);
-  useEffect(() => { viewXRef.current = viewX; viewYRef.current = viewY; }, [viewX, viewY]);
+  const cx = viewCenter ? viewCenter[0] : (domain.xMin + domain.xMax) / 2;
+  const cy = viewCenter ? viewCenter[1] : (domain.yMin + domain.yMax) / 2;
+
+  const visW = chartW / scale;
+  const visH = chartH / scale;
+  const vxMin = cx - visW / 2;
+  const vxMax = cx + visW / 2;
+  const vyMin = cy - visH / 2;
+  const vyMax = cy + visH / 2;
+
+  // Equal-scale coordinate transforms
+  const xs = (x: number) => M.left  + (x - vxMin) / visW * chartW;
+  const ys = (y: number) => M.top   + (1 - (y - vyMin) / visH) * chartH;
+
+  // Refs for non-passive wheel handler
+  const zoomRef      = useRef(1.0);
+  const centerRef    = useRef<[number, number] | null>(null);
+  const domainRef    = useRef(domain);
+  useEffect(() => { zoomRef.current = zoomFactor; }, [zoomFactor]);
+  useEffect(() => { centerRef.current = viewCenter; }, [viewCenter]);
   useEffect(() => { domainRef.current = domain; }, [domain]);
 
   useEffect(() => {
@@ -129,24 +146,40 @@ export function CrossSectionWindow() {
     if (!svg) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const rect = svg.getBoundingClientRect();
-      const dom = domainRef.current;
-      const cx: [number, number] = viewXRef.current ?? [dom.xMin, dom.xMax];
-      const cy: [number, number] = viewYRef.current ?? [dom.yMin, dom.yMax];
-      const cw = rect.width  - M.left - M.right;
-      const ch = rect.height - M.top  - M.bottom;
-      const px = cx[0] + Math.max(0, Math.min(1, (e.clientX - rect.left - M.left)  / cw)) * (cx[1] - cx[0]);
-      const py = cy[0] + Math.max(0, Math.min(1, 1 - (e.clientY - rect.top  - M.top) / ch)) * (cy[1] - cy[0]);
-      const f  = e.deltaY > 0 ? 1.25 : 1 / 1.25;
-      setViewX([Math.max(dom.xMin, px - (px - cx[0]) * f), Math.min(dom.xMax, px + (cx[1] - px) * f)]);
-      setViewY([Math.max(dom.yMin, py - (py - cy[0]) * f), Math.min(dom.yMax, py + (cy[1] - py) * f)]);
+      const rect  = svg.getBoundingClientRect();
+      const dom   = domainRef.current;
+      const cw    = rect.width  - M.left - M.right;
+      const ch    = rect.height - M.top  - M.bottom;
+      const bs    = Math.min(cw / ((dom.xMax - dom.xMin) || 1), ch / ((dom.yMax - dom.yMin) || 1));
+      const curZ  = zoomRef.current;
+      const sc    = bs * curZ;
+      const curCx = centerRef.current ? centerRef.current[0] : (dom.xMin + dom.xMax) / 2;
+      const curCy = centerRef.current ? centerRef.current[1] : (dom.yMin + dom.yMax) / 2;
+      const curVW = cw / sc;
+      const curVH = ch / sc;
+
+      // Mouse position in data space
+      const mx    = Math.max(0, Math.min(cw, e.clientX - rect.left - M.left));
+      const my    = Math.max(0, Math.min(ch, e.clientY - rect.top  - M.top));
+      const mxD   = curCx - curVW / 2 + mx / sc;
+      const myD   = curCy + curVH / 2 - my / sc;
+
+      const f     = e.deltaY > 0 ? 1 / 1.25 : 1.25;
+      const newZ  = Math.max(0.1, Math.min(200, curZ * f));
+      const newSc = bs * newZ;
+      const newVW = cw / newSc;
+      const newVH = ch / newSc;
+
+      // Keep mouse data-position fixed
+      setZoomFactor(newZ);
+      setViewCenter([mxD - mx / newSc + newVW / 2, myD + my / newSc - newVH / 2]);
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const panRef   = useRef<{ mx: number; my: number; vx: [number,number]; vy: [number,number] } | null>(null);
+  const dragRef  = useRef<{ mx: number; my: number; cx: number; cy: number; sc: number } | null>(null);
   const [panning, setPanning] = useState(false);
 
   // ── Measurement tool ─────────────────────────────────────────────────────
@@ -156,13 +189,13 @@ export function CrossSectionWindow() {
   const [mouseWorld, setMouseWorld] = useState<[number, number] | null>(null);
 
   const svgToWorld = (svgX: number, svgY: number): [number, number] => [
-    vxMin + ((svgX - M.left) / chartW) * (vxMax - vxMin),
-    vyMin + (1 - (svgY - M.top)  / chartH) * (vyMax - vyMin),
+    vxMin + (svgX - M.left) / chartW * visW,
+    vyMax - (svgY - M.top)  / chartH * visH,
   ];
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     if (measActive || e.button !== 0) return;
-    panRef.current = { mx: e.clientX, my: e.clientY, vx: [vxMin, vxMax], vy: [vyMin, vyMax] };
+    dragRef.current = { mx: e.clientX, my: e.clientY, cx, cy, sc: scale };
     setPanning(true);
   };
 
@@ -170,17 +203,13 @@ export function CrossSectionWindow() {
     const rect = e.currentTarget.getBoundingClientRect();
     setMouseWorld(svgToWorld(e.clientX - rect.left, e.clientY - rect.top));
 
-    if (panRef.current) {
-      const dx = e.clientX - panRef.current.mx;
-      const dy = e.clientY - panRef.current.my;
-      const rx = (panRef.current.vx[1] - panRef.current.vx[0]) / chartW;
-      const ry = (panRef.current.vy[1] - panRef.current.vy[0]) / chartH;
-      const nx = Math.max(domain.xMin, Math.min(domain.xMax - (panRef.current.vx[1] - panRef.current.vx[0]),
-        panRef.current.vx[0] - dx * rx));
-      const ny = Math.max(domain.yMin, Math.min(domain.yMax - (panRef.current.vy[1] - panRef.current.vy[0]),
-        panRef.current.vy[0] + dy * ry));
-      setViewX([nx, nx + panRef.current.vx[1] - panRef.current.vx[0]]);
-      setViewY([ny, ny + panRef.current.vy[1] - panRef.current.vy[0]]);
+    if (dragRef.current) {
+      const dx = e.clientX - dragRef.current.mx;
+      const dy = e.clientY - dragRef.current.my;
+      setViewCenter([
+        dragRef.current.cx - dx / dragRef.current.sc,
+        dragRef.current.cy + dy / dragRef.current.sc,
+      ]);
     }
   };
 
@@ -195,14 +224,14 @@ export function CrossSectionWindow() {
         setPending(null);
       }
     }
-    panRef.current = null;
+    dragRef.current = null;
     setPanning(false);
   };
 
   const xTicks = useMemo(() => computeTicks(vxMin, vxMax, Math.max(3, Math.floor(chartW / 70))), [vxMin, vxMax, chartW]);
   const yTicks = useMemo(() => computeTicks(vyMin, vyMax, Math.max(3, Math.floor(chartH / 45))), [vyMin, vyMax, chartH]);
 
-  const isZoomed = viewX !== null || viewY !== null;
+  const isZoomed = zoomFactor !== 1.0 || viewCenter !== null;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -305,7 +334,7 @@ export function CrossSectionWindow() {
         <div className="w-px h-5 bg-border mx-0.5" />
 
         {isZoomed && (
-          <button onClick={() => { setViewX(null); setViewY(null); }}
+          <button onClick={() => { setZoomFactor(1.0); setViewCenter(null); }}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground"
             title="Zoom zurücksetzen">
             <ZoomIn size={12} /> Reset

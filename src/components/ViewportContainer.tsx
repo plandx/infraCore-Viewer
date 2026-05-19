@@ -1685,30 +1685,36 @@ export function ViewportContainer({ onElementClick }: Props) {
       const T = pt.tangentRad; // horizontal bearing (math radians, CCW from East)
 
       // Horizontal tangent in Three.js: (cos(T), 0, -sin(T))
-      // Right direction: (sin(T), 0, cos(T))
+      // Perpendicular right direction (tangentDir × worldUp): (sin(T), 0, cos(T))
       const tangentDir = new THREE.Vector3(Math.cos(T), 0, -Math.sin(T)).normalize();
       const rightDir   = new THREE.Vector3(Math.sin(T), 0,  Math.cos(T)).normalize();
-      const upDir      = new THREE.Vector3(0, 1, 0);
 
-      let planeNormal = tangentDir.clone();
+      let planeNormal: THREE.Vector3;
+      let upDir: THREE.Vector3;
 
       if (crossSectionMode === "normal") {
-        // Include grade in the plane normal (true normal section)
+        // True normal section: plane is perpendicular to the 3D alignment tangent
         const delta = 1.0;
         const e1 = evaluateProfile(alignment.profileGeom, crossSectionStation + delta);
         const e0 = evaluateProfile(alignment.profileGeom, crossSectionStation - delta);
         const grade = (e1 !== null && e0 !== null) ? (e1 - e0) / (2 * delta) : 0;
         planeNormal = new THREE.Vector3(Math.cos(T), grade, -Math.sin(T)).normalize();
+        // "Up" in the tilted section plane: rightDir × planeNormal (always magnitude 1 since they're orthogonal)
+        upDir = new THREE.Vector3().crossVectors(rightDir, planeNormal).normalize();
+      } else {
+        // Vertikal: plane normal is the horizontal tangent → cutting plane is vertical
+        planeNormal = tangentDir.clone();
+        upDir = new THREE.Vector3(0, 1, 0);
       }
 
       // World Y of alignment at this station
       const wy = (pt.z ?? oz) - oz;
       const origin3 = new THREE.Vector3(wx, wy, wz);
 
-      // Update indicator plane
+      // Update indicator plane (orient its face normal = planeNormal)
       if (indicator) {
         indicator.position.copy(origin3);
-        indicator.lookAt(origin3.clone().add(tangentDir));
+        indicator.lookAt(origin3.clone().add(planeNormal));
         indicator.visible = true;
         needsRenderRef.current = true;
       }
@@ -1718,12 +1724,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         const sc = sceneRef.current;
         if (!sc) return;
         const lines = sliceScene(sc, origin3, planeNormal, rightDir, upDir);
-        // Re-project lines so Y = elevation relative to alignment (0 = alignment elevation)
-        const shifted = lines.map(l => ({
-          ...l,
-          // x1/x2 are already right-offset; y1/y2 are already world elevation offset from origin3
-        }));
-        useAlignmentStore.getState().setCrossSectionResult(shifted);
+        useAlignmentStore.getState().setCrossSectionResult(lines);
       }, 0);
     };
 
