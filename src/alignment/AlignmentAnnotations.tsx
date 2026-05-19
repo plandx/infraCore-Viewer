@@ -1,4 +1,4 @@
-import { MapPin, Crosshair, Tag, Trash2 } from "lucide-react";
+import { MapPin, Crosshair, Trash2 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAlignmentStore } from "./alignmentStore";
 
@@ -9,21 +9,16 @@ function formatStation(sta: number): string {
 }
 
 export function AlignmentAnnotations() {
-  const files                = useAlignmentStore(s => s.files);
-  const stationLabelVisible  = useAlignmentStore(s => s.stationLabelVisible);
-  const stationLabelInterval = useAlignmentStore(s => s.stationLabelInterval);
-  const labelToolActive      = useAlignmentStore(s => s.labelToolActive);
-  const offsetToolActive     = useAlignmentStore(s => s.offsetToolActive);
-  const placedLabels         = useAlignmentStore(s => s.placedLabels);
-  const offsetMeasurements   = useAlignmentStore(s => s.offsetMeasurements);
+  const files               = useAlignmentStore(s => s.files);
+  const labelToolActive     = useAlignmentStore(s => s.labelToolActive);
+  const offsetToolActive    = useAlignmentStore(s => s.offsetToolActive);
+  const placedLabels        = useAlignmentStore(s => s.placedLabels);
+  const offsetMeasurements  = useAlignmentStore(s => s.offsetMeasurements);
 
-  const toggleStationLabels    = useAlignmentStore(s => s.toggleStationLabels);
-  const setStationLabelInterval = useAlignmentStore(s => s.setStationLabelInterval);
-  const toggleLabelTool        = useAlignmentStore(s => s.toggleLabelTool);
-  const toggleOffsetTool       = useAlignmentStore(s => s.toggleOffsetTool);
-  const removePlacedLabel      = useAlignmentStore(s => s.removePlacedLabel);
+  const toggleLabelTool         = useAlignmentStore(s => s.toggleLabelTool);
+  const removePlacedLabel       = useAlignmentStore(s => s.removePlacedLabel);
   const removeOffsetMeasurement = useAlignmentStore(s => s.removeOffsetMeasurement);
-  const clearAllAnnotations    = useAlignmentStore(s => s.clearAllAnnotations);
+  const clearAllAnnotations     = useAlignmentStore(s => s.clearAllAnnotations);
 
   if (files.length === 0) return null;
 
@@ -44,36 +39,6 @@ export function AlignmentAnnotations() {
             <Trash2 size={10} />
             Alle löschen
           </button>
-        )}
-      </div>
-
-      {/* ── Stationierungsintervalle ─────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <button
-          onClick={toggleStationLabels}
-          className={cn(
-            "flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors",
-            stationLabelVisible
-              ? "bg-sky-600 text-white"
-              : "bg-muted text-muted-foreground hover:bg-muted/80"
-          )}
-        >
-          <Tag size={11} />
-          Stationierung beschriften
-        </button>
-        {stationLabelVisible && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground shrink-0">Intervall:</span>
-            <select
-              value={stationLabelInterval}
-              onChange={e => setStationLabelInterval(Number(e.target.value))}
-              className="flex-1 bg-muted border border-border text-foreground text-xs rounded px-1 py-0.5"
-            >
-              {[10, 25, 50, 100, 250, 500, 1000].map(v => (
-                <option key={v} value={v}>{v} m</option>
-              ))}
-            </select>
-          </div>
         )}
       </div>
 
@@ -132,62 +97,52 @@ export function AlignmentAnnotations() {
         )}
       </div>
 
-      {/* ── Absetzmass messen ────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <button
-          onClick={toggleOffsetTool}
-          className={cn(
-            "flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors",
-            offsetToolActive
-              ? "bg-green-600 text-white"
-              : "bg-muted text-muted-foreground hover:bg-muted/80"
+      {/* ── Absetzmass — Ergebnisliste ───────────────────────────────── */}
+      {(offsetToolActive || offsetMeasurements.length > 0) && (
+        <div className="flex flex-col gap-1.5">
+          {offsetToolActive && (
+            <p className="text-[10px] text-green-400 italic px-0.5 flex items-center gap-1">
+              <Crosshair size={10} />
+              Auf Modell klicken — misst Station und Querabstand zur Achse
+            </p>
           )}
-        >
-          <Crosshair size={11} />
-          Absetzmass messen
-        </button>
-        {offsetToolActive && (
-          <p className="text-[10px] text-green-400 italic px-0.5">
-            Auf Modell klicken — misst Station und Querabstand zur Achse
-          </p>
-        )}
-
-        {offsetMeasurements.length > 0 && (
-          <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-            {offsetMeasurements.map(m => (
-              <div
-                key={m.id}
-                className="flex items-start gap-1.5 bg-muted/40 rounded px-1.5 py-1.5 text-[10px] border border-border/50"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="font-mono font-semibold text-green-400 mb-0.5">
-                    {formatStation(m.station)}
-                  </div>
-                  <div className="text-muted-foreground text-[9px] truncate mb-0.5">
-                    {m.alignmentName}
-                  </div>
-                  <div className="font-mono text-[9px] leading-snug">
-                    <span className={m.offset >= 0 ? "text-blue-400" : "text-orange-400"}>
-                      {m.offset >= 0 ? "R" : "L"}&nbsp;{Math.abs(m.offset).toFixed(3)} m
-                    </span><br />
-                    <span className="text-muted-foreground">V </span>
-                    <span className={(m.clickWorldY - m.footWorldY) >= 0 ? "text-sky-400" : "text-amber-400"}>
-                      {(m.clickWorldY - m.footWorldY) >= 0 ? "+" : ""}{(m.clickWorldY - m.footWorldY).toFixed(3)} m
-                    </span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => removeOffsetMeasurement(m.id)}
-                  className="text-muted-foreground hover:text-red-400 shrink-0 mt-0.5 transition-colors"
-                  aria-label="Messung entfernen"
+          {offsetMeasurements.length > 0 && (
+            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+              {offsetMeasurements.map(m => (
+                <div
+                  key={m.id}
+                  className="flex items-start gap-1.5 bg-muted/40 rounded px-1.5 py-1.5 text-[10px] border border-border/50"
                 >
-                  <Trash2 size={10} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono font-semibold text-green-400 mb-0.5">
+                      {formatStation(m.station)}
+                    </div>
+                    <div className="text-muted-foreground text-[9px] truncate mb-0.5">
+                      {m.alignmentName}
+                    </div>
+                    <div className="font-mono text-[9px] leading-snug">
+                      <span className={m.offset >= 0 ? "text-blue-400" : "text-orange-400"}>
+                        {m.offset >= 0 ? "R" : "L"}&nbsp;{Math.abs(m.offset).toFixed(3)} m
+                      </span><br />
+                      <span className="text-muted-foreground">V </span>
+                      <span className={(m.clickWorldY - m.footWorldY) >= 0 ? "text-sky-400" : "text-amber-400"}>
+                        {(m.clickWorldY - m.footWorldY) >= 0 ? "+" : ""}{(m.clickWorldY - m.footWorldY).toFixed(3)} m
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => removeOffsetMeasurement(m.id)}
+                    className="text-muted-foreground hover:text-red-400 shrink-0 mt-0.5 transition-colors"
+                    aria-label="Messung entfernen"
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

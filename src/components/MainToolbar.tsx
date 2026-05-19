@@ -5,7 +5,7 @@ import {
   Download, Info, Database, Camera, FileDown,
   Box, ChevronDown, LayoutGrid, Rotate3D,
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
-  Target, Layers, RotateCcw, Navigation2, TrendingUp,
+  Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -63,6 +63,13 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
   const toggleAlignmentPanel = useAlignmentStore((s) => s.togglePanel);
   const alignmentFiles       = useAlignmentStore((s) => s.files);
   const toggleVisible        = useAlignmentStore((s) => s.toggleVisible);
+  const stationLabelVisible   = useAlignmentStore((s) => s.stationLabelVisible);
+  const stationLabelInterval  = useAlignmentStore((s) => s.stationLabelInterval);
+  const offsetToolActive      = useAlignmentStore((s) => s.offsetToolActive);
+  const toggleStationLabels   = useAlignmentStore((s) => s.toggleStationLabels);
+  const setStationLabelInterval = useAlignmentStore((s) => s.setStationLabelInterval);
+  const toggleOffsetTool      = useAlignmentStore((s) => s.toggleOffsetTool);
+
   // All alignments visible when every loaded alignment is in visibleIds
   const allAlignmentsVisible = alignmentFiles.length > 0 &&
     alignmentFiles.every(f => f.alignments.every(a => alignmentVisibleIds.has(a.id)));
@@ -75,11 +82,12 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
     }
   };
 
-  const [exportOpen, setExportOpen] = useState(false);
-  const [ifcExporting, setIfcExporting] = useState(false);
-  const [viewOpen, setViewOpen]     = useState(false);
-  const [infoOpen, setInfoOpen]     = useState(false);
-  const [windowOpen, setWindowOpen] = useState(false);
+  const [exportOpen, setExportOpen]         = useState(false);
+  const [ifcExporting, setIfcExporting]     = useState(false);
+  const [viewOpen, setViewOpen]             = useState(false);
+  const [infoOpen, setInfoOpen]             = useState(false);
+  const [windowOpen, setWindowOpen]         = useState(false);
+  const [labelIntervalOpen, setLabelIntervalOpen] = useState(false);
 
   // ── IFC export ────────────────────────────────────────────────────────────
   const handleIFCExport = useCallback(async () => {
@@ -431,6 +439,68 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
             title="Längenschnitt (P)"
           >
             <TrendingUp size={14} />
+          </button>
+        )}
+        {/* Achsenbeschriftung: toggle + interval dropdown */}
+        {alignmentFileCount > 0 && (
+          <div className="relative flex items-center">
+            <button
+              onClick={toggleStationLabels}
+              className={cn(
+                "toolbar-button flex items-center gap-1 px-2 py-1 text-xs rounded-r-none border-r-0",
+                stationLabelVisible && "active text-primary",
+              )}
+              title="Stationierung beschriften"
+            >
+              <Tag size={13} />
+              <span className="text-[11px]">Beschriftung</span>
+              {stationLabelVisible && (
+                <span className="text-[9px] bg-primary/20 text-primary px-1 rounded font-mono">
+                  {stationLabelInterval} m
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setLabelIntervalOpen(v => !v)}
+              className={cn(
+                "toolbar-button px-0.5 py-1 rounded-l-none",
+                stationLabelVisible && "active text-primary",
+              )}
+              title="Stationsintervall wählen"
+            >
+              <ChevronDown size={10} />
+            </button>
+            {labelIntervalOpen && (
+              <DropdownMenu onClose={() => setLabelIntervalOpen(false)}>
+                <div className="p-1 text-[10px] text-muted-foreground px-2 py-1 uppercase tracking-wide">
+                  Stationsintervall
+                </div>
+                {[10, 25, 50, 100, 250, 500, 1000].map(v => (
+                  <DropdownItem
+                    key={v}
+                    onClick={() => { setStationLabelInterval(v); setLabelIntervalOpen(false); }}
+                  >
+                    <span className={cn(
+                      "flex items-center gap-2 font-mono",
+                      stationLabelInterval === v && "text-primary font-semibold",
+                    )}>
+                      {stationLabelInterval === v ? "✓" : <span className="w-3" />}
+                      {v} m
+                    </span>
+                  </DropdownItem>
+                ))}
+              </DropdownMenu>
+            )}
+          </div>
+        )}
+        {/* Absetzmass */}
+        {alignmentFileCount > 0 && (
+          <button
+            onClick={toggleOffsetTool}
+            className={cn("toolbar-button p-1", offsetToolActive && "active text-primary")}
+            title="Absetzmass messen"
+          >
+            <Crosshair size={14} />
           </button>
         )}
 
