@@ -439,6 +439,20 @@ function MainApp() {
 
     const unsub = useModelStore.subscribe((s, prev) => {
       if (s.models !== prev.models) sendElements();
+      // Forward 3D element selection to billing window
+      if (s.selectedElement !== prev.selectedElement && s.selectedElement) {
+        const el = s.selectedElement;
+        const model = s.models.get(el.modelId);
+        if (model) {
+          for (const els of Object.values(model.elementsByType)) {
+            const found = (els as Array<{ expressId: number; guid?: string }>).find(e => e.expressId === el.expressId);
+            if (found?.guid) {
+              bc?.postMessage({ t: "selectEntry", key: found.guid } satisfies import("./billing/types").BillingMsg);
+              break;
+            }
+          }
+        }
+      }
     });
 
     return () => { bc?.close(); unsub(); };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Plus, Trash2, Pencil, Check, X, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { BillingEntry } from "./types";
@@ -257,15 +257,17 @@ function SummaryBar({ items }: { items: QuantityItem[] }) {
 export function QuantitySetPanel({ entry, onAddItem, onUpdateItem, onRemoveItem }: Props) {
   const [showAddForm, setShowAddForm] = useState(false);
   const items = entry.quantitySet?.items ?? [];
-  const derived = computeDerivedQuantities(items);
-  const allItems = [...items, ...derived];
 
-  const bySource = {
+  const derived = useMemo(() => computeDerivedQuantities(items), [items]);
+  // allItems is used only for downstream logic — keep reference stable
+  const allItems = useMemo(() => [...items, ...derived], [items, derived]);
+
+  const bySource = useMemo(() => ({
     ifc:      items.filter(i => i.source === "ifc"),
     geometry: items.filter(i => i.source === "geometry"),
     measured: items.filter(i => i.source === "measured"),
     manual:   items.filter(i => i.source === "manual"),
-  };
+  }), [items]);
 
   const totalCount = items.length;
 

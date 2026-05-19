@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Trash2, Plus, FileDown, FileUp, BarChart2, X, ExternalLink,
   ScanEye, Calculator, Ruler, Cpu, Hash, ChevronRight,
@@ -76,29 +76,39 @@ function ElementList({ elements, entries, selectedKey, onSelect }: {
   const [onlyTracked, setOnlyTracked] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("model");
 
-  const types = [...new Set(elements.map(e => e.ifcType))].sort();
+  const types = useMemo(
+    () => [...new Set(elements.map(e => e.ifcType))].sort(),
+    [elements]
+  );
 
-  const filtered = elements.filter(el => {
+  const trackedCount = useMemo(
+    () => elements.reduce((n, el) => n + (entries[el.key] ? 1 : 0), 0),
+    [elements, entries]
+  );
+
+  const filtered = useMemo(() => {
     const s = search.toLowerCase();
-    const matchSearch = !s || el.name.toLowerCase().includes(s) || el.ifcType.toLowerCase().includes(s);
-    const matchType = !filterType || el.ifcType === filterType;
-    const matchTracked = !onlyTracked || !!entries[el.key];
-    return matchSearch && matchType && matchTracked;
-  });
+    return elements.filter(el => {
+      const matchSearch = !s || el.name.toLowerCase().includes(s) || el.ifcType.toLowerCase().includes(s);
+      const matchType = !filterType || el.ifcType === filterType;
+      const matchTracked = !onlyTracked || !!entries[el.key];
+      return matchSearch && matchType && matchTracked;
+    });
+  }, [elements, entries, search, filterType, onlyTracked]);
 
-  const sorted = [...filtered].sort((a, b) => {
-    if (sortMode === "model") return 0;
-    const dateA = entries[a.key]?.createdAt ?? "";
-    const dateB = entries[b.key]?.createdAt ?? "";
-    if (!dateA && !dateB) return 0;
-    if (!dateA) return 1;
-    if (!dateB) return -1;
-    return sortMode === "date-asc"
-      ? dateA.localeCompare(dateB)
-      : dateB.localeCompare(dateA);
-  });
-
-  const trackedCount = elements.filter(el => !!entries[el.key]).length;
+  const sorted = useMemo(() => {
+    if (sortMode === "model") return filtered;
+    return [...filtered].sort((a, b) => {
+      const dateA = entries[a.key]?.createdAt ?? "";
+      const dateB = entries[b.key]?.createdAt ?? "";
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+      return sortMode === "date-asc"
+        ? dateA.localeCompare(dateB)
+        : dateB.localeCompare(dateA);
+    });
+  }, [filtered, sortMode, entries]);
 
   const nextSortMode = (): SortMode => {
     if (sortMode === "model") return "date-desc";
