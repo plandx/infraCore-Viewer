@@ -3,6 +3,7 @@ import { X, ZoomIn } from "lucide-react";
 import { useAlignmentStore } from "./alignmentStore";
 import { useModelStore } from "../store/modelStore";
 import { evaluateProfile } from "./landXmlParser";
+import { openCrossSectionWindow } from "../utils/windowSync";
 import type { Alignment } from "./types";
 
 function fmtSta(sta: number): string {
@@ -190,6 +191,7 @@ export function ProfileViewer() {
         const first = profiles.find(p => p.visible);
         if (first && sta >= domain.sMin && sta <= domain.sMax) {
           openCrossSection(first.a.id, sta);
+          openCrossSectionWindow();
         }
       }
     }

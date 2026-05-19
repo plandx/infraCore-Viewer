@@ -72,6 +72,33 @@ export function serializeState(store: {
 
 // ── Window-open helpers ───────────────────────────────────────────────────────
 
+export const CROSS_SECTION_CHANNEL = "infracore-cross-section";
+
+export type XSSyncLine = { x1: number; y1: number; x2: number; y2: number; color: string };
+
+export interface XSSyncState {
+  station: number | null;
+  alignmentId: number | null;
+  alignmentName: string;
+  staStart: number;
+  staEnd: number;
+  mode: "vertical" | "normal";
+  lines: XSSyncLine[];
+  computing: boolean;
+}
+
+export type XSMsg =
+  | { t: "state"; s: XSSyncState }
+  | { t: "req" }
+  | { t: "setStation"; alignmentId: number; station: number }
+  | { t: "nextStation"; delta: number }
+  | { t: "setMode"; mode: "vertical" | "normal" };
+
+export function openCrossSectionWindow() {
+  const url = `${window.location.pathname}?cross-section`;
+  window.open(url, "infracore-cross-section", "width=960,height=720,resizable=yes");
+}
+
 export type PanelType = "hierarchy" | "properties" | "lists" | "smartviews" | "sql" | "qto" | "basket";
 
 export const PANEL_META: Record<PanelType, { label: string; w: number; h: number }> = {

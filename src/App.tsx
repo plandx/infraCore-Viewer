@@ -22,26 +22,28 @@ import { BatchPanel } from "./batch/BatchPanel";
 
 import { AlignmentPanel } from "./alignment/AlignmentPanel";
 import { ProfileViewer } from "./alignment/ProfileViewer";
-import { CrossSectionViewer } from "./alignment/CrossSectionViewer";
+import { CrossSectionWindow } from "./alignment/CrossSectionWindow";
 import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifcLoader";
-import { SYNC_CHANNEL, serializeState, openSecondaryWindow } from "./utils/windowSync";
-import type { SyncMsg } from "./utils/windowSync";
+import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, serializeState, openSecondaryWindow } from "./utils/windowSync";
+import type { SyncMsg, XSMsg } from "./utils/windowSync";
 import type { IFCModelEntry } from "./types/ifc";
 
-// ── detect secondary window ───────────────────────────────────────────────────
+// ── detect secondary / cross-section windows ─────────────────────────────────
 
 const _params = new URLSearchParams(window.location.search);
 const IS_SECONDARY = _params.has("secondary");
 const SECONDARY_PANEL = _params.get("panel") ?? "hierarchy";
+const IS_CROSS_SECTION = _params.has("cross-section");
 
 // ── root export (secondary windows skip the full app) ─────────────────────────
 
 export default function App() {
   useEffect(() => { document.documentElement.classList.add("dark"); }, []);
   if (IS_SECONDARY) return <SecondaryWindow panel={SECONDARY_PANEL} />;
+  if (IS_CROSS_SECTION) return <CrossSectionWindow />;
   return <MainApp />;
 }
 
@@ -102,6 +104,66 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
       unsub();
       if (timer) clearTimeout(timer);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
+// ── cross-section window sync hook ───────────────────────────────────────────
+
+function useCrossSectionSync() {
+  useEffect(() => {
+    let ch: BroadcastChannel;
+    try { ch = new BroadcastChannel(CROSS_SECTION_CHANNEL); } catch { return; }
+
+    const broadcast = () => {
+      const store = useAlignmentStore.getState();
+      const alignment = store.files.flatMap(f => f.alignments)
+        .find(a => a.id === store.crossSectionAlignmentId);
+      ch.postMessage({
+        t: "state", s: {
+          station: store.crossSectionStation,
+          alignmentId: store.crossSectionAlignmentId,
+          alignmentName: alignment?.displayName ?? "",
+          staStart: alignment?.staStart ?? 0,
+          staEnd: alignment?.staEnd ?? 0,
+          mode: store.crossSectionMode,
+          lines: store.crossSectionLines,
+          computing: store.crossSectionComputing,
+        },
+      } satisfies XSMsg);
+    };
+
+    ch.onmessage = (e: MessageEvent<XSMsg>) => {
+      const store = useAlignmentStore.getState();
+      const msg = e.data;
+      if (msg.t === "req") {
+        broadcast();
+      } else if (msg.t === "setStation") {
+        store.setCrossSectionStation(msg.alignmentId, msg.station);
+      } else if (msg.t === "nextStation") {
+        if (store.crossSectionStation != null && store.crossSectionAlignmentId != null) {
+          const al = store.files.flatMap(f => f.alignments)
+            .find(a => a.id === store.crossSectionAlignmentId);
+          if (al) {
+            const newSta = Math.max(al.staStart, Math.min(al.staEnd, store.crossSectionStation + msg.delta));
+            store.setCrossSectionStation(store.crossSectionAlignmentId, newSta);
+          }
+        }
+      } else if (msg.t === "setMode") {
+        store.setCrossSectionMode(msg.mode);
+      }
+    };
+
+    const unsub = useAlignmentStore.subscribe((state, prev) => {
+      if (
+        state.crossSectionLines     !== prev.crossSectionLines     ||
+        state.crossSectionStation   !== prev.crossSectionStation   ||
+        state.crossSectionMode      !== prev.crossSectionMode      ||
+        state.crossSectionComputing !== prev.crossSectionComputing
+      ) broadcast();
+    });
+
+    return () => { ch.close(); unsub(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }
@@ -314,6 +376,7 @@ function MainApp() {
   }, [setSelected]);
 
   useMainWindowSync(handleElementClick);
+  useCrossSectionSync();
 
   // Billing window element-list provider
   useEffect(() => {
@@ -534,8 +597,6 @@ function MainApp() {
       </div>
 
       <StatusBar />
-
-      <CrossSectionViewer />
 
       {basketEditorOpen && (
         <BasketEditor onClose={() => setBasketEditorOpen(false)} />
