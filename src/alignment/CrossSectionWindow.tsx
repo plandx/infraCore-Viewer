@@ -43,11 +43,10 @@ function computeSnap(
   segs: Array<{ x1: number; y1: number; x2: number; y2: number }>,
   scale: number,
 ): SnapInfo | null {
-  const T = 14 / scale; // 14 px → world units
+  const T = 14 / scale;
   let best: SnapInfo | null = null;
   let bestD = Infinity;
 
-  // Vertex snap has priority
   for (const l of segs) {
     for (const [px, py] of [[l.x1, l.y1], [l.x2, l.y2]] as [number, number][]) {
       const d = Math.hypot(wx - px, wy - py);
@@ -56,7 +55,6 @@ function computeSnap(
   }
   if (best) return best;
 
-  // Edge snap (foot of perpendicular, clamped to segment)
   for (const l of segs) {
     const dx = l.x2 - l.x1, dy = l.y2 - l.y1;
     const len2 = dx * dx + dy * dy;
@@ -72,17 +70,12 @@ function computeSnap(
 // ── Object label layout ───────────────────────────────────────────────────────
 
 type ObjLabelPos = {
-  key: string;
-  text: string;
-  color: string;
-  /** Centroid in SVG pixels (leader line anchor) */
+  key: string; text: string; color: string;
   cx: number; cy: number;
-  /** Label box top-left in SVG pixels */
   lx: number; ly: number;
   bw: number; bh: number;
 };
 
-/** Push overlapping label boxes apart; mutates in place. */
 function deOverlapLabels(labels: ObjLabelPos[]): void {
   const PAD = 3;
   for (let iter = 0; iter < 60; iter++) {
@@ -94,9 +87,8 @@ function deOverlapLabels(labels: ObjLabelPos[]): void {
         const overY = (a.bh + PAD) - Math.abs((b.ly + b.bh / 2) - (a.ly + a.bh / 2));
         if (overX > 0 && overY > 0) {
           const pushY = overY / 2 + 0.5;
-          const aCy = a.ly + a.bh / 2, bCy = b.ly + b.bh / 2;
-          if (bCy >= aCy) { a.ly -= pushY; b.ly += pushY; }
-          else             { a.ly += pushY; b.ly -= pushY; }
+          if ((b.ly + b.bh / 2) >= (a.ly + a.bh / 2)) { a.ly -= pushY; b.ly += pushY; }
+          else                                           { a.ly += pushY; b.ly -= pushY; }
           moved = true;
         }
       }
@@ -105,52 +97,37 @@ function deOverlapLabels(labels: ObjLabelPos[]): void {
   }
 }
 
-/**
- * Given a label for which the preferred prop key, object labels list, and
- * coordinate transforms are known, compute ObjLabelPos[] ready for SVG rendering.
- */
 function buildLabelPositions(
   objectLabels: XSSyncObjectLabel[],
   lines: Array<{ x1: number; y1: number; x2: number; y2: number; color: string; objectKey?: string }>,
   propKey: string,
-  xs: (x: number) => number,
-  ys: (y: number) => number,
+  vxMin: number, vyMin: number, visW: number, visH: number, chartW: number, chartH: number,
 ): ObjLabelPos[] {
-  // Group segments by objectKey
-  const groups = new Map<string, { segs: typeof lines; color: string }>();
+  const _xs = (x: number) => M.left + (x - vxMin) / visW * chartW;
+  const _ys = (y: number) => M.top  + (1 - (y - vyMin) / visH) * chartH;
+
+  const groups = new Map<string, { sumX: number; sumY: number; n: number; color: string }>();
   for (const l of lines) {
     if (!l.objectKey) continue;
-    let g = groups.get(l.objectKey);
-    if (!g) { g = { segs: [], color: l.color }; groups.set(l.objectKey, g); }
-    g.segs.push(l);
+    const g = groups.get(l.objectKey);
+    const mx = (l.x1 + l.x2) / 2, my = (l.y1 + l.y2) / 2;
+    if (g) { g.sumX += mx; g.sumY += my; g.n++; }
+    else   groups.set(l.objectKey, { sumX: mx, sumY: my, n: 1, color: l.color });
   }
 
-  const BH = 15; // box height px
+  const BH = 15;
   const positions: ObjLabelPos[] = [];
 
   for (const lbl of objectLabels) {
     const g = groups.get(lbl.key);
-    if (!g || g.segs.length === 0) continue;
-
+    if (!g) continue;
     const text = propKey === "name" ? lbl.name
       : propKey === "type" ? lbl.type
       : (lbl.props[propKey] ?? lbl.name);
     if (!text) continue;
-
-    // Centroid = average of segment midpoints (in world space)
-    let wx = 0, wy = 0;
-    for (const s of g.segs) { wx += (s.x1 + s.x2) / 2; wy += (s.y1 + s.y2) / 2; }
-    wx /= g.segs.length; wy /= g.segs.length;
-
-    const cx = xs(wx), cy = ys(wy);
+    const cx = _xs(g.sumX / g.n), cy = _ys(g.sumY / g.n);
     const bw = Math.max(40, text.length * 6 + 10);
-
-    positions.push({
-      key: lbl.key, text, color: g.color,
-      cx, cy,
-      lx: cx - bw / 2, ly: cy - 28,
-      bw, bh: BH,
-    });
+    positions.push({ key: lbl.key, text, color: g.color, cx, cy, lx: cx - bw / 2, ly: cy - 28, bw, bh: BH });
   }
 
   deOverlapLabels(positions);
@@ -195,6 +172,8 @@ export function CrossSectionWindow() {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef       = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 900, h: 580 });
+  // Cached SVG bounding rect — invalidated on resize so we don't call getBCR on every mousemove
+  const svgRectRef = useRef<DOMRect | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -202,6 +181,7 @@ export function CrossSectionWindow() {
     const ro = new ResizeObserver(([e]) => {
       const { width, height } = e.contentRect;
       setSize({ w: Math.max(120, width), h: Math.max(80, height) });
+      svgRectRef.current = null; // invalidate on resize
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -224,9 +204,8 @@ export function CrossSectionWindow() {
   }, [lines]);
 
   // ── Equal-scale zoom / pan ────────────────────────────────────────────────
-  // A single zoom factor + pan center keeps X and Y at the same px/m scale.
   const [zoomFactor, setZoomFactor] = useState(1.0);
-  const [viewCenter, setViewCenter] = useState<[number, number] | null>(null); // data-space center
+  const [viewCenter, setViewCenter] = useState<[number, number] | null>(null);
 
   useEffect(() => { setZoomFactor(1.0); setViewCenter(null); },
     [domain.xMin, domain.xMax, domain.yMin, domain.yMax]);
@@ -234,7 +213,6 @@ export function CrossSectionWindow() {
   const chartW = Math.max(1, size.w - M.left - M.right);
   const chartH = Math.max(1, size.h - M.top - M.bottom);
 
-  // Base scale (px/m) that fits the full domain
   const baseScale = Math.min(
     chartW / ((domain.xMax - domain.xMin) || 1),
     chartH / ((domain.yMax - domain.yMin) || 1),
@@ -251,17 +229,23 @@ export function CrossSectionWindow() {
   const vyMin = cy - visH / 2;
   const vyMax = cy + visH / 2;
 
-  // Equal-scale coordinate transforms
+  // Coordinate transforms (used in render only — hot-path uses refs below)
   const xs = (x: number) => M.left  + (x - vxMin) / visW * chartW;
   const ys = (y: number) => M.top   + (1 - (y - vyMin) / visH) * chartH;
 
-  // Refs for non-passive wheel handler
-  const zoomRef      = useRef(1.0);
-  const centerRef    = useRef<[number, number] | null>(null);
-  const domainRef    = useRef(domain);
-  useEffect(() => { zoomRef.current = zoomFactor; }, [zoomFactor]);
+  // ── Viewport refs (for event handlers / rAF callbacks — no stale closures) ─
+  const vpRef = useRef({ vxMin, vyMin, vyMax, visW, visH, chartW, chartH, scale });
+  vpRef.current = { vxMin, vyMin, vyMax, visW, visH, chartW, chartH, scale };
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+
+  // ── Wheel zoom ────────────────────────────────────────────────────────────
+  const zoomRef   = useRef(1.0);
+  const centerRef = useRef<[number, number] | null>(null);
+  const domainRef = useRef(domain);
+  useEffect(() => { zoomRef.current   = zoomFactor; }, [zoomFactor]);
   useEffect(() => { centerRef.current = viewCenter; }, [viewCenter]);
-  useEffect(() => { domainRef.current = domain; }, [domain]);
+  useEffect(() => { domainRef.current = domain; },     [domain]);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -277,22 +261,16 @@ export function CrossSectionWindow() {
       const sc    = bs * curZ;
       const curCx = centerRef.current ? centerRef.current[0] : (dom.xMin + dom.xMax) / 2;
       const curCy = centerRef.current ? centerRef.current[1] : (dom.yMin + dom.yMax) / 2;
-      const curVW = cw / sc;
-      const curVH = ch / sc;
-
-      // Mouse position in data space
+      const curVW = cw / sc, curVH = ch / sc;
       const mx    = Math.max(0, Math.min(cw, e.clientX - rect.left - M.left));
       const my    = Math.max(0, Math.min(ch, e.clientY - rect.top  - M.top));
       const mxD   = curCx - curVW / 2 + mx / sc;
       const myD   = curCy + curVH / 2 - my / sc;
-
       const f     = e.deltaY > 0 ? 1 / 1.25 : 1.25;
       const newZ  = Math.max(0.1, Math.min(200, curZ * f));
       const newSc = bs * newZ;
-      const newVW = cw / newSc;
-      const newVH = ch / newSc;
-
-      // Keep mouse data-position fixed
+      const newVW = cw / newSc, newVH = ch / newSc;
+      svgRectRef.current = null; // viewport changed
       setZoomFactor(newZ);
       setViewCenter([mxD - mx / newSc + newVW / 2, myD + my / newSc - newVH / 2]);
     };
@@ -321,13 +299,64 @@ export function CrossSectionWindow() {
   // ── Snap mode ────────────────────────────────────────────────────────────
   const [snapActive, setSnapActive] = useState(false);
   const [snapDisplay, setSnapDisplay] = useState<SnapInfo | null>(null);
-  const snapRef      = useRef<SnapInfo | null>(null);
+  const snapRef       = useRef<SnapInfo | null>(null);
   const snapActiveRef = useRef(false);
   useEffect(() => { snapActiveRef.current = snapActive; }, [snapActive]);
 
-  const svgToWorld = (svgX: number, svgY: number): [number, number] => [
-    vxMin + (svgX - M.left) / chartW * visW,
-    vyMax - (svgY - M.top)  / chartH * visH,
+  // ── rAF throttle for mousemove ────────────────────────────────────────────
+  // Mousemove fires at 200+ Hz; we cap state updates to ~60 Hz via rAF.
+  // This alone cuts renders by ~3-4x. Combined with path pre-computation it's huge.
+  const rafIdRef        = useRef<number | null>(null);
+  const pendingPosRef   = useRef<{ svgX: number; svgY: number } | null>(null);
+
+  // ── Ticks ─────────────────────────────────────────────────────────────────
+  const xTicks = useMemo(() => computeTicks(vxMin, vxMax, Math.max(3, Math.floor(chartW / 70))), [vxMin, vxMax, chartW]);
+  const yTicks = useMemo(() => computeTicks(vyMin, vyMax, Math.max(3, Math.floor(chartH / 45))), [vyMin, vyMax, chartH]);
+
+  // ── Pre-computed SVG paths (key perf optimisation) ─────────────────────────
+  // Groups all line segments by color into a single <path> per color group.
+  // Replaces potentially thousands of individual <line> SVG elements with ~10 <path> elements.
+  const svgPaths = useMemo(() => {
+    const byColor = new Map<string, string>();
+    for (const l of lines) {
+      const x1s = (M.left + (l.x1 - vxMin) / visW * chartW).toFixed(1);
+      const y1s = (M.top  + (1 - (l.y1 - vyMin) / visH) * chartH).toFixed(1);
+      const x2s = (M.left + (l.x2 - vxMin) / visW * chartW).toFixed(1);
+      const y2s = (M.top  + (1 - (l.y2 - vyMin) / visH) * chartH).toFixed(1);
+      byColor.set(l.color, (byColor.get(l.color) ?? "") + `M${x1s},${y1s}L${x2s},${y2s}`);
+    }
+    return [...byColor.entries()];
+  }, [lines, vxMin, vyMin, visW, visH, chartW, chartH]);
+
+  const svgPolyPaths = useMemo(() => polygons.map(poly => ({
+    color: poly.color,
+    d: poly.points.map(([x, y], j) =>
+      `${j === 0 ? "M" : "L"}${(M.left + (x - vxMin) / visW * chartW).toFixed(1)},${(M.top + (1 - (y - vyMin) / visH) * chartH).toFixed(1)}`
+    ).join("") + "Z",
+  })), [polygons, vxMin, vyMin, visW, visH, chartW, chartH]);
+
+  const isZoomed = zoomFactor !== 1.0 || viewCenter !== null;
+  const effW = (snapActive && snapDisplay) ? snapDisplay.pt : mouseWorld;
+
+  // ── Object labels ─────────────────────────────────────────────────────────
+  const objectLabels = state?.objectLabels ?? [];
+
+  const availablePropKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const lbl of objectLabels) for (const k of Object.keys(lbl.props)) keys.add(k);
+    return ["name", "type", ...Array.from(keys).sort()];
+  }, [objectLabels]);
+
+  // Deps use numbers, not function references — memo actually works correctly
+  const objLabelPositions = useMemo(() => {
+    if (!objLabelsVisible || objectLabels.length === 0) return [];
+    return buildLabelPositions(objectLabels, lines, objLabelProp, vxMin, vyMin, visW, visH, chartW, chartH);
+  }, [objLabelsVisible, objectLabels, lines, objLabelProp, vxMin, vyMin, visW, visH, chartW, chartH]);
+
+  // ── Event handlers ────────────────────────────────────────────────────────
+  const svgToWorldFromVp = (svgX: number, svgY: number, vp: typeof vpRef.current): [number, number] => [
+    vp.vxMin + (svgX - M.left) / vp.chartW * vp.visW,
+    vp.vyMax - (svgY - M.top)  / vp.chartH * vp.visH,
   ];
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -337,34 +366,57 @@ export function CrossSectionWindow() {
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const raw = svgToWorld(e.clientX - rect.left, e.clientY - rect.top);
-    setMouseWorld(raw);
+    // Cache bounding rect — one layout query until next resize/zoom
+    if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
+    const rect = svgRectRef.current;
+    const svgX = e.clientX - rect.left;
+    const svgY = e.clientY - rect.top;
 
+    // Drag panning: update immediately for smooth feel
     if (dragRef.current) {
       const dx = e.clientX - dragRef.current.mx;
       const dy = e.clientY - dragRef.current.my;
+      svgRectRef.current = null; // viewport shifts on pan
       setViewCenter([
         dragRef.current.cx - dx / dragRef.current.sc,
         dragRef.current.cy + dy / dragRef.current.sc,
       ]);
-      if (snapRef.current) { snapRef.current = null; setSnapDisplay(null); }
-    } else if (snapActiveRef.current) {
-      const s = computeSnap(raw[0], raw[1], lines, scale);
-      snapRef.current = s;
-      setSnapDisplay(s);
-    } else if (snapRef.current) {
-      snapRef.current = null;
-      setSnapDisplay(null);
+      return;
+    }
+
+    // All other updates (readout, snap) throttled to rAF (~60 Hz)
+    pendingPosRef.current = { svgX, svgY };
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        const p = pendingPosRef.current;
+        if (!p) return;
+        const vp = vpRef.current;
+        const raw = svgToWorldFromVp(p.svgX, p.svgY, vp);
+
+        setMouseWorld(raw);
+
+        if (snapActiveRef.current) {
+          const s = computeSnap(raw[0], raw[1], linesRef.current, vp.scale);
+          // Only trigger state update if snap result changed
+          const prev = snapRef.current;
+          if (s?.pt[0] !== prev?.pt[0] || s?.pt[1] !== prev?.pt[1] || s?.type !== prev?.type) {
+            snapRef.current = s;
+            setSnapDisplay(s);
+          }
+        } else if (snapRef.current) {
+          snapRef.current = null;
+          setSnapDisplay(null);
+        }
+      });
     }
   };
 
   const handleMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
     if (e.button === 0) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const raw = svgToWorld(e.clientX - rect.left, e.clientY - rect.top);
-      const w: [number, number] = snapActiveRef.current && snapRef.current
-        ? snapRef.current.pt : raw;
+      if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
+      const raw = svgToWorldFromVp(e.clientX - svgRectRef.current.left, e.clientY - svgRectRef.current.top, vpRef.current);
+      const w: [number, number] = snapActiveRef.current && snapRef.current ? snapRef.current.pt : raw;
 
       if (measActive) {
         if (pending == null) setPending(w);
@@ -377,30 +429,14 @@ export function CrossSectionWindow() {
     setPanning(false);
   };
 
-  const xTicks = useMemo(() => computeTicks(vxMin, vxMax, Math.max(3, Math.floor(chartW / 70))), [vxMin, vxMax, chartW]);
-  const yTicks = useMemo(() => computeTicks(vyMin, vyMax, Math.max(3, Math.floor(chartH / 45))), [vyMin, vyMax, chartH]);
-
-  const isZoomed = zoomFactor !== 1.0 || viewCenter !== null;
-
-  // Effective world position: snap point when snap is active, else raw mouse
-  const effW = (snapActive && snapDisplay) ? snapDisplay.pt : mouseWorld;
-
-  // ── Object labels ─────────────────────────────────────────────────────────
-  const objectLabels = state?.objectLabels ?? [];
-
-  const availablePropKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const lbl of objectLabels) {
-      for (const k of Object.keys(lbl.props)) keys.add(k);
-    }
-    return ["name", "type", ...Array.from(keys).sort()];
-  }, [objectLabels]);
-
-  const objLabelPositions = useMemo(() => {
-    if (!objLabelsVisible || objectLabels.length === 0) return [];
-    return buildLabelPositions(objectLabels, lines, objLabelProp, xs, ys);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [objLabelsVisible, objectLabels, lines, objLabelProp, xs, ys, vxMin, vxMax, vyMin, vyMax, size]);
+  const handleMouseLeave = () => {
+    if (rafIdRef.current !== null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; }
+    dragRef.current = null;
+    setPanning(false);
+    setMouseWorld(null);
+    snapRef.current = null;
+    setSnapDisplay(null);
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -568,9 +604,7 @@ export function CrossSectionWindow() {
             title="Beschriftungsattribut"
           >
             {availablePropKeys.map(k => (
-              <option key={k} value={k}>
-                {k === "name" ? "Name" : k === "type" ? "Typ" : k}
-              </option>
+              <option key={k} value={k}>{k === "name" ? "Name" : k === "type" ? "Typ" : k}</option>
             ))}
           </select>
         )}
@@ -587,7 +621,6 @@ export function CrossSectionWindow() {
 
         {state?.computing && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
 
-        {/* Mouse position readout (shows snap position when snap is active) */}
         {effW != null && (
           <span className={cn("ml-auto text-[10px] font-mono",
             snapActive && snapDisplay ? "text-amber-400" : "text-muted-foreground")}>
@@ -604,7 +637,6 @@ export function CrossSectionWindow() {
 
       {/* ── Chart + measurements sidebar ─────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
-        {/* SVG chart */}
         <div ref={containerRef} className="flex-1 min-w-0 min-h-0 relative">
           <svg ref={svgRef}
             width="100%" height="100%"
@@ -613,7 +645,7 @@ export function CrossSectionWindow() {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onMouseLeave={() => { dragRef.current = null; setPanning(false); setMouseWorld(null); snapRef.current = null; setSnapDisplay(null); }}
+            onMouseLeave={handleMouseLeave}
             style={{ cursor: (measActive || ptLabelMode) ? "crosshair" : panning ? "grabbing" : "grab", display: "block" }}
           >
             <defs>
@@ -636,27 +668,21 @@ export function CrossSectionWindow() {
             ))}
 
             <g clipPath="url(#xs-clip)">
-              {/* Alignment axis (dashed vertical) */}
+              {/* Alignment axis */}
               <line x1={xs(0)} y1={M.top} x2={xs(0)} y2={M.top + chartH}
                 stroke="var(--color-muted-foreground)" strokeWidth={1} strokeDasharray="6,4" opacity={0.5} />
 
-              {/* Hatched polygon fills for cut faces */}
-              {polygons.map((poly, i) => {
-                const d = poly.points.map(([x, y], j) =>
-                  `${j === 0 ? "M" : "L"}${xs(x).toFixed(1)},${ys(y).toFixed(1)}`
-                ).join(" ") + " Z";
-                return (
-                  <g key={i} style={{ color: poly.color }}>
-                    <path d={d} fill={poly.color} fillOpacity={0.18} stroke="none" />
-                    <path d={d} fill="url(#xs-hatch)" stroke="none" opacity={0.6} />
-                  </g>
-                );
-              })}
+              {/* Hatched polygon fills — pre-computed path strings */}
+              {svgPolyPaths.map((p, i) => (
+                <g key={i} style={{ color: p.color }}>
+                  <path d={p.d} fill={p.color} fillOpacity={0.18} stroke="none" />
+                  <path d={p.d} fill="url(#xs-hatch)" stroke="none" opacity={0.6} />
+                </g>
+              ))}
 
-              {/* Section lines */}
-              {lines.map((l, i) => (
-                <line key={i} x1={xs(l.x1)} y1={ys(l.y1)} x2={xs(l.x2)} y2={ys(l.y2)}
-                  stroke={l.color} strokeWidth={1.5} />
+              {/* Section lines — one <path> per color instead of one <line> per segment */}
+              {svgPaths.map(([color, d]) => (
+                <path key={color} d={d} stroke={color} strokeWidth={1.5} fill="none" />
               ))}
 
               {/* Alignment origin crosshair */}
@@ -681,9 +707,7 @@ export function CrossSectionWindow() {
                     <rect x={mx - 30} y={my - 9} width={60} height={15} rx={3}
                       fill="var(--color-popover)" stroke="var(--color-border)" strokeWidth={1} opacity={0.95} />
                     <text x={mx} y={my + 3} textAnchor="middle" fontSize={10}
-                      fill="#fbbf24" fontFamily="monospace" fontWeight="bold">
-                      {d.toFixed(3)} m
-                    </text>
+                      fill="#fbbf24" fontFamily="monospace" fontWeight="bold">{d.toFixed(3)} m</text>
                   </g>
                 );
               })}
@@ -715,28 +739,22 @@ export function CrossSectionWindow() {
                 const xLbl = lbl.x === 0 ? "0.00 m"
                   : `${lbl.x > 0 ? "R" : "L"} ${Math.abs(lbl.x).toFixed(2)} m`;
                 const yLbl = `${lbl.y >= 0 ? "+" : ""}${lbl.y.toFixed(2)} m`;
-                // midpoints for text labels
                 const mhx = (s0x + sx) / 2, mvy = (s0y + sy) / 2;
-                // text offsets depending on quadrant
-                const xTxtDy = sy < s0y ? -5 : 12; // above line if point above axis
-                const yTxtDx = sx > s0x ? 5 : -5;  // right of line if point right of axis
+                const xTxtDy = sy < s0y ? -5 : 12;
+                const yTxtDx = sx > s0x ? 5 : -5;
                 const yAnchor = sx > s0x ? "start" : "end";
                 return (
                   <g key={lbl.id}>
-                    {/* Horizontal dimension line: axis → point, at point's y level */}
                     {lbl.x !== 0 && (
                       <line x1={s0x} y1={sy} x2={sx} y2={sy}
                         stroke="#a78bfa" strokeWidth={0.9} strokeDasharray="4,2" opacity={0.75} />
                     )}
-                    {/* Vertical dimension line: axis level → point, at point's x */}
                     {lbl.y !== 0 && (
                       <line x1={sx} y1={s0y} x2={sx} y2={sy}
                         stroke="#a78bfa" strokeWidth={0.9} strokeDasharray="4,2" opacity={0.75} />
                     )}
-                    {/* Tick at axis intersections */}
                     {lbl.x !== 0 && <line x1={s0x - 3} y1={sy} x2={s0x + 3} y2={sy} stroke="#a78bfa" strokeWidth={1.2} />}
                     {lbl.y !== 0 && <line x1={sx} y1={s0y - 3} x2={sx} y2={s0y + 3} stroke="#a78bfa" strokeWidth={1.2} />}
-                    {/* X label (horizontal offset) */}
                     {lbl.x !== 0 && (
                       <>
                         <rect x={mhx - 26} y={sy + xTxtDy - 9} width={52} height={11} rx={2}
@@ -745,7 +763,6 @@ export function CrossSectionWindow() {
                           fill="#a78bfa" fontFamily="monospace" fontWeight="bold">{xLbl}</text>
                       </>
                     )}
-                    {/* Y label (vertical offset) */}
                     {lbl.y !== 0 && (
                       <>
                         <rect x={sx + yTxtDx - (yAnchor === "start" ? 0 : 52)} y={mvy - 9} width={52} height={11} rx={2}
@@ -754,7 +771,6 @@ export function CrossSectionWindow() {
                           fill="#a78bfa" fontFamily="monospace" fontWeight="bold">{yLbl}</text>
                       </>
                     )}
-                    {/* Point dot */}
                     <circle cx={sx} cy={sy} r={3} fill="#a78bfa" />
                   </g>
                 );
@@ -767,7 +783,7 @@ export function CrossSectionWindow() {
               )}
             </g>
 
-            {/* Snap indicator — rendered above clip group so always visible */}
+            {/* Snap indicator — above clip group */}
             {snapActive && snapDisplay && (() => {
               const sx = xs(snapDisplay.pt[0]), sy = ys(snapDisplay.pt[1]);
               return snapDisplay.type === "vertex" ? (
@@ -787,36 +803,21 @@ export function CrossSectionWindow() {
 
             {/* Object labels with leader lines */}
             {objLabelPositions.map(lbl => {
-              // Clamp leader line anchor to chart area edges so the line stays visible
               const clampedCx = Math.max(M.left, Math.min(M.left + chartW, lbl.cx));
               const clampedCy = Math.max(M.top,  Math.min(M.top + chartH,  lbl.cy));
-              // Label box center
               const boxCx = lbl.lx + lbl.bw / 2;
               const boxCy = lbl.ly + lbl.bh / 2;
-              // Leader line: from centroid to nearest edge of box
               const edgeX = boxCx + (clampedCx < boxCx ? -lbl.bw / 2 : lbl.bw / 2);
-              const edgeY = boxCy;
               return (
                 <g key={lbl.key}>
-                  {/* Leader line */}
-                  <line
-                    x1={clampedCx} y1={clampedCy} x2={edgeX} y2={edgeY}
-                    stroke={lbl.color} strokeWidth={0.8} strokeDasharray="3,2" opacity={0.65}
-                  />
-                  {/* Dot at centroid */}
+                  <line x1={clampedCx} y1={clampedCy} x2={edgeX} y2={boxCy}
+                    stroke={lbl.color} strokeWidth={0.8} strokeDasharray="3,2" opacity={0.65} />
                   <circle cx={clampedCx} cy={clampedCy} r={2.5} fill={lbl.color} opacity={0.8} />
-                  {/* Label box */}
-                  <rect
-                    x={lbl.lx} y={lbl.ly} width={lbl.bw} height={lbl.bh} rx={3}
-                    fill="var(--color-popover)" stroke={lbl.color} strokeWidth={1} opacity={0.95}
-                  />
-                  <text
-                    x={lbl.lx + lbl.bw / 2} y={lbl.ly + lbl.bh - 4}
+                  <rect x={lbl.lx} y={lbl.ly} width={lbl.bw} height={lbl.bh} rx={3}
+                    fill="var(--color-popover)" stroke={lbl.color} strokeWidth={1} opacity={0.95} />
+                  <text x={lbl.lx + lbl.bw / 2} y={lbl.ly + lbl.bh - 4}
                     textAnchor="middle" fontSize={9}
-                    fill={lbl.color} fontFamily="sans-serif" fontWeight="600"
-                  >
-                    {lbl.text}
-                  </text>
+                    fill={lbl.color} fontFamily="sans-serif" fontWeight="600">{lbl.text}</text>
                 </g>
               );
             })}
@@ -854,7 +855,6 @@ export function CrossSectionWindow() {
               fill="var(--color-muted-foreground)">↑ Δh [m]</text>
           </svg>
 
-          {/* Overlay messages */}
           {state?.computing && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
               <div className="bg-card/90 rounded-lg px-4 py-3 flex items-center gap-2 text-sm text-muted-foreground shadow-lg">
