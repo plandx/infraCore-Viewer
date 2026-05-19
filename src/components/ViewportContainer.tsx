@@ -1702,49 +1702,70 @@ export function ViewportContainer({ onElementClick }: Props) {
       const alignment = allAligns.find(a => a.id === crossSectionAlignmentId) ?? allAligns[0];
       if (!alignment) return;
 
-      const pt = sampleAtDisplayStation(alignment, crossSectionStation);
-      if (!pt) return;
+      // Helper: interpolate on the exact drawn polyline (same approach as the hover sphere)
+      const interpOnPolyline = (cache: { pts: Array<{ x: number; y: number; z: number | null; sta: number }> }, sta: number) => {
+        const { pts } = cache;
+        if (!pts.length) return null;
+        let lo = 0, hi = pts.length - 1;
+        while (lo < hi - 1) { const mid = (lo + hi) >> 1; if (pts[mid].sta <= sta) lo = mid; else hi = mid; }
+        const a = pts[lo], b = pts[hi];
+        const t = b.sta > a.sta ? Math.max(0, Math.min(1, (sta - a.sta) / (b.sta - a.sta))) : 0;
+        return {
+          x: a.x + (b.x - a.x) * t,
+          y: a.y + (b.y - a.y) * t,
+          z: (a.z !== null && b.z !== null) ? a.z + (b.z - a.z) * t : null,
+        };
+      };
 
-      const wx = pt.x - ox;
-      const wz = -(pt.y - oy);
+      const cache = alignPolylineRef.current.get(alignment.id);
 
-      // Compute horizontal tangent numerically from two nearby samples.
-      // This avoids relying on tangentRad convention and works for all segment types.
-      const dS = Math.min(2.0, (alignment.staEnd - alignment.staStart) * 0.005 + 0.1);
-      const ptA = sampleAtDisplayStation(alignment, Math.max(alignment.staStart, crossSectionStation - dS));
-      const ptB = sampleAtDisplayStation(alignment, Math.min(alignment.staEnd,   crossSectionStation + dS));
-      if (!ptA || !ptB) return;
+      // Get section origin — prefer polyline cache, fall back to analytical
+      let wx: number, wy: number, wz: number;
+      if (cache) {
+        const ip = interpOnPolyline(cache, crossSectionStation);
+        if (!ip) return;
+        wx = ip.x - ox; wz = -(ip.y - oy); wy = (ip.z ?? oz) - oz;
+      } else {
+        const pt = sampleAtDisplayStation(alignment, crossSectionStation);
+        if (!pt) return;
+        wx = pt.x - ox; wz = -(pt.y - oy); wy = (pt.z ?? oz) - oz;
+      }
 
-      // Three.js direction: X = ΔEasting, Z = -ΔNorthing
-      const dxH = ptB.x - ptA.x;
-      const dzH = -(ptB.y - ptA.y);
+      // Tangent from two bracketing polyline points (or analytical fallback)
+      let dxH: number, dzH: number;
+      if (cache) {
+        const dS = Math.min(2.0, (alignment.staEnd - alignment.staStart) * 0.005 + 0.1);
+        const ipA = interpOnPolyline(cache, Math.max(alignment.staStart, crossSectionStation - dS));
+        const ipB = interpOnPolyline(cache, Math.min(alignment.staEnd,   crossSectionStation + dS));
+        if (!ipA || !ipB) return;
+        dxH = ipB.x - ipA.x; dzH = -(ipB.y - ipA.y);
+      } else {
+        const dS = Math.min(2.0, (alignment.staEnd - alignment.staStart) * 0.005 + 0.1);
+        const ptA = sampleAtDisplayStation(alignment, Math.max(alignment.staStart, crossSectionStation - dS));
+        const ptB = sampleAtDisplayStation(alignment, Math.min(alignment.staEnd,   crossSectionStation + dS));
+        if (!ptA || !ptB) return;
+        dxH = ptB.x - ptA.x; dzH = -(ptB.y - ptA.y);
+      }
       const hLen = Math.sqrt(dxH * dxH + dzH * dzH);
       if (hLen < 1e-9) return;
 
       const tangentDir = new THREE.Vector3(dxH / hLen, 0, dzH / hLen);
-      // rightDir = tangentDir × worldUp = (-tz, 0, tx)
-      const rightDir = new THREE.Vector3(-tangentDir.z, 0, tangentDir.x);
+      const rightDir   = new THREE.Vector3(-tangentDir.z, 0, tangentDir.x);
 
       let planeNormal: THREE.Vector3;
       let upDir: THREE.Vector3;
 
       if (crossSectionMode === "normal") {
-        // True normal section: include grade from profile in the 3D tangent
         const delta = 1.0;
         const e1 = evaluateProfile(alignment.profileGeom, crossSectionStation + delta);
         const e0 = evaluateProfile(alignment.profileGeom, crossSectionStation - delta);
         const grade = (e1 !== null && e0 !== null) ? (e1 - e0) / (2 * delta) : 0;
         planeNormal = new THREE.Vector3(dxH / hLen, grade, dzH / hLen).normalize();
-        // "Up" in the tilted section plane: rightDir × planeNormal
         upDir = new THREE.Vector3().crossVectors(rightDir, planeNormal).normalize();
       } else {
-        // Vertikal: plane is vertical, normal = horizontal tangent
         planeNormal = tangentDir.clone();
         upDir = new THREE.Vector3(0, 1, 0);
       }
-
-      // World Y of alignment at this station
-      const wy = (pt.z ?? oz) - oz;
       const origin3 = new THREE.Vector3(wx, wy, wz);
 
       // Update indicator plane (orient its face normal = planeNormal)
