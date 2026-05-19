@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type ActiveTool = "select" | "measure" | "section" | "fly";
+export type ActiveTool = "select" | "measure" | "section" | "fly" | "drone" | "face-section";
 export type BasketMode = "highlight" | "ghost" | "isolate";
 
 /** A single property override: edited value + optional IFC type code override */
@@ -215,7 +215,42 @@ export interface ViewerSettings {
   theme: "light" | "dark";
   showSpaces: boolean;
   orthographic: boolean;
+  fontSize: "sm" | "md" | "lg";
 }
+
+export interface KeyBindings {
+  fitAll: string;
+  select: string;
+  measure: string;
+  section: string;
+  faceSectionTool: string;
+  sqlPanel: string;
+  listPanel: string;
+  smartViews: string;
+  qtoPanel: string;
+  profilePanel: string;
+  flyMode: string;
+  hideSelected: string;
+  showAll: string;
+  droneMode: string;
+}
+
+export const DEFAULT_KEYBINDINGS: KeyBindings = {
+  fitAll: "f",
+  select: "s",
+  measure: "m",
+  section: "c",
+  faceSectionTool: "x",
+  sqlPanel: "q",
+  listPanel: "l",
+  smartViews: "v",
+  qtoPanel: "t",
+  profilePanel: "p",
+  flyMode: "n",
+  hideSelected: "delete",
+  showAll: "shift+a",
+  droneMode: "b",
+};
 
 // ── Quantity Take-Off Lists ───────────────────────────────────────────────────
 

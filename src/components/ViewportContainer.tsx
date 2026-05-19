@@ -1865,12 +1865,55 @@ export function ViewportContainer({ onElementClick }: Props) {
       }, 0);
     };
 
+    const computeFaceSection = () => {
+      const st = useAlignmentStore.getState();
+      if (!st.faceCrossSectionActive || !st.faceCrossSectionOrigin || !st.faceCrossSectionNormal) return;
+      const [ox, oy, oz] = st.faceCrossSectionOrigin;
+      const [nx, ny, nz] = st.faceCrossSectionNormal;
+      const normalVec = new THREE.Vector3(nx, ny, nz).normalize();
+      const offset    = st.faceCrossSectionOffset;
+      const originVec = new THREE.Vector3(ox + nx * offset, oy + ny * offset, oz + nz * offset);
+
+      // Build right/up vectors from normal
+      const up0    = Math.abs(normalVec.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+      const right  = new THREE.Vector3().crossVectors(normalVec, up0).normalize();
+      const upVec  = new THREE.Vector3().crossVectors(right, normalVec).normalize();
+
+      const indicator = sectionIndicatorRef.current;
+      if (indicator) {
+        indicator.position.copy(originVec);
+        indicator.lookAt(originVec.clone().add(normalVec));
+        indicator.visible = true;
+        needsRenderRef.current = true;
+      }
+
+      const basisSnap = {
+        origin: [originVec.x, originVec.y, originVec.z] as [number,number,number],
+        right:  [right.x,     right.y,     right.z    ] as [number,number,number],
+        up:     [upVec.x,     upVec.y,     upVec.z    ] as [number,number,number],
+        normal: [normalVec.x, normalVec.y, normalVec.z] as [number,number,number],
+      };
+
+      setTimeout(() => {
+        const sc = sceneRef.current;
+        if (!sc) return;
+        const lines = sliceScene(sc, originVec, normalVec, right, upVec);
+        useAlignmentStore.getState().setCrossSectionResult(lines, basisSnap);
+      }, 0);
+    };
+
     const unsub = useAlignmentStore.subscribe((state, prev) => {
       if (state.crossSectionStation !== prev.crossSectionStation ||
           state.crossSectionAlignmentId !== prev.crossSectionAlignmentId ||
           state.crossSectionMode !== prev.crossSectionMode ||
           state.crossSectionComputing !== prev.crossSectionComputing) {
-        if (state.crossSectionComputing) computeSection();
+        if (state.crossSectionComputing && !state.faceCrossSectionActive) computeSection();
+      }
+      if (state.faceCrossSectionActive &&
+          (state.faceCrossSectionOffset !== prev.faceCrossSectionOffset ||
+           state.faceCrossSectionOrigin !== prev.faceCrossSectionOrigin ||
+           (state.crossSectionComputing && !prev.crossSectionComputing))) {
+        computeFaceSection();
       }
       if (!state.crossSectionOpen && prev.crossSectionOpen) {
         const indicator = sectionIndicatorRef.current;
@@ -1886,6 +1929,10 @@ export function ViewportContainer({ onElementClick }: Props) {
           grp.clear();
           needsRenderRef.current = true;
         }
+      }
+      if (!state.faceCrossSectionActive && prev.faceCrossSectionActive) {
+        const indicator = sectionIndicatorRef.current;
+        if (indicator) { indicator.visible = false; needsRenderRef.current = true; }
       }
     });
     return () => unsub();
@@ -1965,7 +2012,9 @@ export function ViewportContainer({ onElementClick }: Props) {
     const unsub = useAlignmentStore.subscribe((state, prev) => {
       if (state.crossSectionPolygons !== prev.crossSectionPolygons ||
           state.showSectionSurface   !== prev.showSectionSurface   ||
-          state.crossSectionOpen     !== prev.crossSectionOpen) {
+          state.crossSectionOpen     !== prev.crossSectionOpen     ||
+          state.crossSectionBasis    !== prev.crossSectionBasis    ||
+          state.crossSectionLines    !== prev.crossSectionLines) {
         rebuildSurface();
       }
     });
@@ -2337,6 +2386,21 @@ export function ViewportContainer({ onElementClick }: Props) {
       return;
     }
 
+    // Face cross-section tool: click on any face → create cross-section at that face
+    if (activeTool === "face-section") {
+      if (clickSuppressedRef.current) return;
+      if (hit?.faceNormal) {
+        const N = hit.faceNormal.clone().normalize();
+        const P = hit.point;
+        useAlignmentStore.getState().openFaceCrossSection(
+          [P.x, P.y, P.z],
+          [N.x, N.y, N.z],
+        );
+        useModelStore.getState().setActiveTool("select");
+      }
+      return;
+    }
+
     if (!hit) return;
 
     // Select tool: store update triggers the highlight useEffect
@@ -2634,12 +2698,48 @@ export function ViewportContainer({ onElementClick }: Props) {
     };
   }, [activeTool]);
 
+  // ── Drone mode bridge (DroneOverlay controls camera via custom events) ─────
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount) return;
+
+    const onEnter = () => {
+      const controls = controlsRef.current;
+      if (controls) controls.enabled = false;
+    };
+    const onExit = () => {
+      const controls = controlsRef.current;
+      if (controls) controls.enabled = true;
+      needsRenderRef.current = true;
+    };
+    const onMoved = () => { needsRenderRef.current = true; };
+    const onGetState = (e: Event) => {
+      const detail = (e as CustomEvent).detail as Record<string, unknown>;
+      detail.camera = cameraRef.current ?? undefined;
+      detail.scene  = sceneRef.current ?? undefined;
+    };
+
+    mount.addEventListener("drone:enter",    onEnter);
+    mount.addEventListener("drone:exit",     onExit);
+    mount.addEventListener("drone:moved",    onMoved);
+    mount.addEventListener("drone:getState", onGetState);
+
+    return () => {
+      mount.removeEventListener("drone:enter",    onEnter);
+      mount.removeEventListener("drone:exit",     onExit);
+      mount.removeEventListener("drone:moved",    onMoved);
+      mount.removeEventListener("drone:getState", onGetState);
+    };
+  }, []);
+
   // Cursor style per tool
   const labelToolActive  = useAlignmentStore(s => s.labelToolActive);
   const offsetToolActive = useAlignmentStore(s => s.offsetToolActive);
-  const cursor = activeTool === "fly"     ? "none"
-               : activeTool === "measure" ? "crosshair"
-               : activeTool === "section" ? "crosshair"
+  const cursor = activeTool === "fly"          ? "none"
+               : activeTool === "drone"         ? "none"
+               : activeTool === "measure"       ? "crosshair"
+               : activeTool === "section"       ? "crosshair"
+               : activeTool === "face-section"  ? "crosshair"
                : labelToolActive || offsetToolActive ? "crosshair"
                : "default";
 
@@ -2658,6 +2758,17 @@ export function ViewportContainer({ onElementClick }: Props) {
         data-viewport="main"
       />
 
+      {/* Fly mode crosshair */}
+      {activeTool === "fly" && (
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+          <div className="relative w-6 h-6 opacity-80">
+            <div className="absolute top-1/2 left-0 right-0 h-px bg-white -translate-y-1/2" />
+            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white -translate-x-1/2" />
+            <div className="absolute inset-0 border border-white rounded-sm opacity-40" style={{ inset: "6px" }} />
+          </div>
+        </div>
+      )}
+
       {/* Fly mode hint */}
       {activeTool === "fly" && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
@@ -2673,6 +2784,15 @@ export function ViewportContainer({ onElementClick }: Props) {
             Maus Umsehen
             <span className="mx-2 opacity-40">·</span>
             <span className="font-mono">Esc</span> Beenden
+          </div>
+        </div>
+      )}
+
+      {/* Face cross-section hint */}
+      {activeTool === "face-section" && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div className="bg-card/90 backdrop-blur border border-border rounded-full px-4 py-1.5 text-xs text-foreground">
+            Fläche anklicken für Querschnitt · <span className="font-mono">Esc</span> Abbrechen
           </div>
         </div>
       )}

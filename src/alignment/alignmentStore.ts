@@ -78,6 +78,12 @@ interface AlignmentStore {
   showSectionSurface: boolean;
   crossSectionObjectLabels: XSSyncObjectLabel[];
 
+  // Face cross-section (independent of alignment station)
+  faceCrossSectionActive: boolean;
+  faceCrossSectionOrigin: [number,number,number] | null;
+  faceCrossSectionNormal: [number,number,number] | null;
+  faceCrossSectionOffset: number;  // offset along normal in metres
+
   // Annotation state
   stationLabelVisible: boolean;
   stationLabelInterval: number;
@@ -104,6 +110,11 @@ interface AlignmentStore {
   setCrossSectionResult(lines: SectionLine[], basis?: AlignmentStore["crossSectionBasis"]): void;
   setCrossSectionObjectLabels(labels: XSSyncObjectLabel[]): void;
   setShowSectionSurface(v: boolean): void;
+
+  // Face cross-section actions
+  openFaceCrossSection(origin: [number,number,number], normal: [number,number,number]): void;
+  closeFaceCrossSection(): void;
+  setFaceCrossSectionOffset(offset: number): void;
 
   // Annotation actions
   toggleStationLabels(): void;
@@ -139,6 +150,10 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   crossSectionComputing: false,
   showSectionSurface: false,
   crossSectionObjectLabels: [],
+  faceCrossSectionActive: false,
+  faceCrossSectionOrigin: null,
+  faceCrossSectionNormal: null,
+  faceCrossSectionOffset: 0,
 
   stationLabelVisible: false,
   stationLabelInterval: 100,
@@ -243,6 +258,35 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   setCrossSectionResult: (lines, basis) => set({ crossSectionLines: lines, crossSectionPolygons: buildSectionPolygons(lines), crossSectionBasis: basis ?? null, crossSectionComputing: false }),
   setCrossSectionObjectLabels: (labels) => set({ crossSectionObjectLabels: labels }),
   setShowSectionSurface: (v) => set({ showSectionSurface: v }),
+
+  openFaceCrossSection: (origin, normal) => set({
+    faceCrossSectionActive: true,
+    faceCrossSectionOrigin: origin,
+    faceCrossSectionNormal: normal,
+    faceCrossSectionOffset: 0,
+    crossSectionComputing: true,
+    crossSectionLines: [],
+    crossSectionPolygons: [],
+    crossSectionBasis: null,
+    crossSectionObjectLabels: [],
+  }),
+  closeFaceCrossSection: () => set({
+    faceCrossSectionActive: false,
+    faceCrossSectionOrigin: null,
+    faceCrossSectionNormal: null,
+    faceCrossSectionOffset: 0,
+    crossSectionLines: [],
+    crossSectionPolygons: [],
+    crossSectionBasis: null,
+    crossSectionComputing: false,
+  }),
+  setFaceCrossSectionOffset: (offset) => set({
+    faceCrossSectionOffset: offset,
+    crossSectionComputing: true,
+    crossSectionLines: [],
+    crossSectionPolygons: [],
+    crossSectionBasis: null,
+  }),
 
   toggleStationLabels: () => set(state => ({ stationLabelVisible: !state.stationLabelVisible })),
   setStationLabelInterval: (n) => set({ stationLabelInterval: n }),

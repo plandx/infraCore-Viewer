@@ -2,8 +2,9 @@ import { create } from "zustand";
 import * as THREE from "three";
 import type {
   IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement,
-  ColorGroup, ColorGroupEntry, SmartView, SmartTier, FlatElementProps, SyncState, BasketMode, PropOverride, QTOList, SectionPlane,
+  ColorGroup, ColorGroupEntry, SmartView, SmartTier, FlatElementProps, SyncState, BasketMode, PropOverride, QTOList, SectionPlane, KeyBindings,
 } from "../types/ifc";
+import { DEFAULT_KEYBINDINGS } from "../types/ifc";
 import { evaluateTier, PALETTE } from "../utils/smartViewUtils";
 import { loadAllElementProperties } from "../utils/ifcLoader";
 
@@ -108,6 +109,18 @@ interface ModelStore {
   removeSectionPlane: (id: string) => void;
   clearSectionPlanes: () => void;
 
+  // Keyboard shortcut customization
+  keyBindings: KeyBindings;
+  setKeyBindings: (kb: KeyBindings) => void;
+
+  // Settings panel open state
+  settingsPanelOpen: boolean;
+  setSettingsPanelOpen: (open: boolean) => void;
+
+  // Collision detection panel
+  collisionPanelOpen: boolean;
+  setCollisionPanelOpen: (open: boolean) => void;
+
   /** Apply a serialised state snapshot from the main window (secondary windows only). */
   applyRemoteState: (state: SyncState) => void;
 }
@@ -160,7 +173,16 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     theme: "dark",
     showSpaces: false,
     orthographic: false,
+    fontSize: "md",
   },
+  keyBindings: (() => {
+    try {
+      const raw = localStorage.getItem("infracore-keybindings");
+      return raw ? { ...DEFAULT_KEYBINDINGS, ...JSON.parse(raw) } : DEFAULT_KEYBINDINGS;
+    } catch { return DEFAULT_KEYBINDINGS; }
+  })(),
+  settingsPanelOpen: false,
+  collisionPanelOpen: false,
 
   addModel: (model) =>
     set((state) => {
@@ -188,7 +210,13 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   setWorldOrigin: (origin) => set({ worldOrigin: origin }),
   setSelected: (element) => set({ selectedElement: element }),
   updateSettings: (patch) =>
-    set((state) => ({ settings: { ...state.settings, ...patch } })),
+    set((state) => {
+      const next = { ...state.settings, ...patch };
+      if (patch.fontSize) {
+        document.documentElement.setAttribute("data-font-size", next.fontSize);
+      }
+      return { settings: next };
+    }),
   setActiveTool: (tool) => set({ activeTool: tool }),
 
   hideElement: (modelId, expressId) =>
@@ -574,6 +602,13 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     set((state) => ({ sectionPlanes: state.sectionPlanes.filter((p) => p.id !== id) })),
 
   clearSectionPlanes: () => set({ sectionPlanes: [] }),
+
+  setKeyBindings: (kb) => {
+    try { localStorage.setItem("infracore-keybindings", JSON.stringify(kb)); } catch {}
+    set({ keyBindings: kb });
+  },
+  setSettingsPanelOpen: (open) => set({ settingsPanelOpen: open }),
+  setCollisionPanelOpen: (open) => set({ collisionPanelOpen: open }),
 
   // ── Remote state sync (secondary windows) ──────────────────────────────────
 

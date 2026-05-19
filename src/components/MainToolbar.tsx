@@ -6,6 +6,7 @@ import {
   Box, ChevronDown, LayoutGrid, Rotate3D,
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
   Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
+  Settings, AlertTriangle, Gamepad2,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -42,6 +43,8 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
   const activeTool        = useModelStore((s) => s.activeTool);
   const updateSettings    = useModelStore((s) => s.updateSettings);
   const setActiveTool     = useModelStore((s) => s.setActiveTool);
+  const setSettingsPanelOpen  = useModelStore((s) => s.setSettingsPanelOpen);
+  const setCollisionPanelOpen = useModelStore((s) => s.setCollisionPanelOpen);
   const setSqlPanelOpen      = useModelStore((s) => s.setSqlPanelOpen);
   const sqlPanelOpen         = useModelStore((s) => s.sqlPanelOpen);
   const setProfilePanelOpen  = useModelStore((s) => s.setProfilePanelOpen);
@@ -376,6 +379,13 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         >
           <Navigation2 size={16} />
         </button>
+        <button
+          className={cn("toolbar-button text-[10px] font-bold px-1.5", activeTool === "face-section" && "active text-primary")}
+          title="Flächen-Querschnitt · Auf eine Fläche klicken für Querschnitt senkrecht zur Fläche"
+          onClick={() => setActiveTool(activeTool === "face-section" ? "select" : "face-section")}
+        >
+          QS
+        </button>
 
         <div className="w-px h-5 bg-border mx-1" />
 
@@ -586,6 +596,27 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           <Layers size={15} />
         </button>
 
+        <div className="w-px h-5 bg-border mx-1" />
+
+        {/* ── Tools: Drone + Collision ── */}
+        <button
+          className={cn("toolbar-button flex items-center gap-1 px-2 py-1 text-xs", activeTool === "drone" && "active text-primary")}
+          title="Drohnen-Kamera [B]"
+          onClick={() => setActiveTool(activeTool === "drone" ? "select" : "drone")}
+        >
+          <Gamepad2 size={14} />
+          <span className="text-[11px]">Drone</span>
+        </button>
+        <button
+          className="toolbar-button flex items-center gap-1 px-2 py-1 text-xs"
+          title="Kollisionsprüfung (Solibri-Style)"
+          onClick={() => setCollisionPanelOpen(true)}
+          disabled={models.size === 0}
+        >
+          <AlertTriangle size={14} />
+          <span className="text-[11px]">Kollision</span>
+        </button>
+
         {/* ── Spacer ── */}
         <div className="flex-1" />
 
@@ -692,6 +723,15 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         </button>
 
         <div className="w-px h-5 bg-border mx-1" />
+
+        {/* Settings */}
+        <button
+          className="toolbar-button"
+          onClick={() => setSettingsPanelOpen(true)}
+          title="Einstellungen (Schriftgröße, Tastenkürzel, …)"
+        >
+          <Settings size={16} />
+        </button>
 
         {/* Theme */}
         <button className="toolbar-button" onClick={toggleTheme} title="Hell/Dunkel">

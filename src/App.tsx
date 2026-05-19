@@ -19,10 +19,14 @@ import { BasketEditor } from "./components/BasketEditor";
 import { ModelInfoPanel } from "./components/ModelInfoPanel";
 import { useBillingStore } from "./billing/billingStore";
 import { BatchPanel } from "./batch/BatchPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { CollisionPanel } from "./components/CollisionPanel";
+import { DroneOverlay } from "./components/DroneOverlay";
 
 import { AlignmentPanel } from "./alignment/AlignmentPanel";
 import { ProfileViewer } from "./alignment/ProfileViewer";
 import { CrossSectionWindow } from "./alignment/CrossSectionWindow";
+import { FaceCrossSectionPanel } from "./alignment/FaceCrossSectionPanel";
 import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
@@ -41,7 +45,12 @@ const IS_CROSS_SECTION = _params.has("cross-section");
 // ── root export (secondary windows skip the full app) ─────────────────────────
 
 export default function App() {
-  useEffect(() => { document.documentElement.classList.add("dark"); }, []);
+  useEffect(() => {
+    document.documentElement.classList.add("dark");
+    // Apply saved font size on startup
+    const fs = useModelStore.getState().settings.fontSize ?? "md";
+    document.documentElement.setAttribute("data-font-size", fs);
+  }, []);
   if (IS_SECONDARY) return <SecondaryWindow panel={SECONDARY_PANEL} />;
   if (IS_CROSS_SECTION) return <CrossSectionWindow />;
   return <MainApp />;
@@ -193,6 +202,9 @@ function MainApp() {
     smartViewsPanelOpen, setSmartViewsPanelOpen,
     qtoPanelOpen, setQTOPanelOpen,
     profilePanelOpen, setProfilePanelOpen,
+    settingsPanelOpen,
+    collisionPanelOpen, setCollisionPanelOpen,
+    keyBindings,
   } = useModelStore();
 
   const alignmentPanelOpen = useAlignmentStore(s => s.panelOpen);
@@ -200,10 +212,14 @@ function MainApp() {
   const activeLoads = loadStates.size;
   const hasModels = models.size > 0;
 
-  // Apply theme
+  // Apply theme + fontSize
   useEffect(() => {
     document.documentElement.classList.toggle("dark", settings.theme === "dark");
   }, [settings.theme]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-font-size", settings.fontSize ?? "md");
+  }, [settings.fontSize]);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   // H-chord state: pressing H arms a 1-second window for H+H / H+I / H+R
@@ -227,103 +243,90 @@ function MainApp() {
         return;
       }
 
+      // In fly/drone mode all shortcuts except Escape are handled by ViewportContainer's WASD handler
+      if (activeTool === "fly" || activeTool === "drone") return;
+
       if (isInput) return; // don't intercept typing in inputs
 
-      switch (e.key.toLowerCase()) {
-        case "f":
-          e.preventDefault();
-          window.dispatchEvent(new Event("viewer:fitAll"));
-          break;
-        case "s":
+      const key = e.key.toLowerCase();
+      const withShift = e.shiftKey ? `shift+${key}` : key;
+
+      const kb = useModelStore.getState().keyBindings;
+
+      if (withShift === kb.fitAll || key === kb.fitAll) {
+        e.preventDefault();
+        window.dispatchEvent(new Event("viewer:fitAll"));
+        return;
+      }
+      if (key === kb.select) { setActiveTool("select"); return; }
+      if (key === kb.measure) {
+        if (activeTool === "measure") {
+          window.dispatchEvent(new Event("viewer:clearMeasure"));
+          clearMeasurements();
           setActiveTool("select");
-          break;
-        case "m":
-          if (activeTool === "measure") {
-            window.dispatchEvent(new Event("viewer:clearMeasure"));
-            clearMeasurements();
-            setActiveTool("select");
-          } else {
-            setActiveTool("measure");
-          }
-          break;
-        case "c": {
-          const st = useModelStore.getState();
-          if (st.activeTool === "section" || st.sectionPlanes.length > 0) {
-            st.clearSectionPlanes();
-            setActiveTool("select");
-          } else {
-            setActiveTool("section");
-          }
-          break;
+        } else setActiveTool("measure");
+        return;
+      }
+      if (key === kb.section) {
+        const st = useModelStore.getState();
+        if (st.activeTool === "section" || st.sectionPlanes.length > 0) {
+          st.clearSectionPlanes(); setActiveTool("select");
+        } else setActiveTool("section");
+        return;
+      }
+      if (key === kb.sqlPanel)     { setSqlPanelOpen(!sqlPanelOpen); return; }
+      if (key === kb.listPanel)    { setListPanelOpen(!listPanelOpen); return; }
+      if (key === kb.smartViews)   { setSmartViewsPanelOpen(!smartViewsPanelOpen); return; }
+      if (key === kb.qtoPanel)     { setQTOPanelOpen(!qtoPanelOpen); return; }
+      if (key === kb.profilePanel) { setProfilePanelOpen(!profilePanelOpen); return; }
+      if (key === kb.flyMode) {
+        const cur = useModelStore.getState().activeTool;
+        setActiveTool(cur === "fly" ? "select" : "fly"); return;
+      }
+      if (key === kb.droneMode) {
+        const cur = useModelStore.getState().activeTool;
+        setActiveTool(cur === "drone" ? "select" : "drone"); return;
+      }
+      if (key === kb.faceSectionTool) {
+        setActiveTool(activeTool === "face-section" ? "select" : "face-section"); return;
+      }
+      if (key === "delete" || key === "backspace") {
+        if (selectedElement) hideElement(selectedElement.modelId, selectedElement.expressId);
+        return;
+      }
+      if (withShift === kb.showAll || (e.shiftKey && key === "a")) { showAll(); return; }
+
+      // H-chord (hide / isolate / reset)
+      if (key === "h") {
+        if (hChordArmedRef.current) {
+          hChordArmedRef.current = false;
+          if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
+          if (selectedElement) hideElement(selectedElement.modelId, selectedElement.expressId);
+        } else {
+          hChordArmedRef.current = true;
+          if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
+          hChordTimerRef.current = setTimeout(() => { hChordArmedRef.current = false; }, 1000);
         }
-        case "q":
-          setSqlPanelOpen(!sqlPanelOpen);
-          break;
-        case "l":
-          setListPanelOpen(!listPanelOpen);
-          break;
-        case "v":
-          setSmartViewsPanelOpen(!smartViewsPanelOpen);
-          break;
-        case "t":
-          setQTOPanelOpen(!qtoPanelOpen);
-          break;
-        case "p":
-          setProfilePanelOpen(!profilePanelOpen);
-          break;
-        case "n":
-          setActiveTool(activeTool === "fly" ? "select" : "fly");
-          break;
-        case "delete":
-        case "backspace":
-          if (selectedElement) {
-            hideElement(selectedElement.modelId, selectedElement.expressId);
-          }
-          break;
-        case "h": {
-          if (hChordArmedRef.current) {
-            // H+H → hide
-            hChordArmedRef.current = false;
-            if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
-            if (selectedElement) hideElement(selectedElement.modelId, selectedElement.expressId);
-          } else {
-            // Arm the chord; wait for second key
-            hChordArmedRef.current = true;
-            if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
-            hChordTimerRef.current = setTimeout(() => { hChordArmedRef.current = false; }, 1000);
-          }
-          break;
-        }
-        case "i": {
-          if (hChordArmedRef.current) {
-            // H+I → isolate
-            hChordArmedRef.current = false;
-            if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
-            if (selectedElement) {
-              useModelStore.getState().isolateElement(selectedElement.modelId, selectedElement.expressId);
-            }
-          }
-          break;
-        }
-        case "r": {
-          if (hChordArmedRef.current) {
-            // H+R → reset (show all)
-            hChordArmedRef.current = false;
-            if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
-            showAll();
-          }
-          break;
-        }
-        case "a":
-          if (e.shiftKey) showAll();
-          break;
+        return;
+      }
+      if (key === "i" && hChordArmedRef.current) {
+        hChordArmedRef.current = false;
+        if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
+        if (selectedElement) useModelStore.getState().isolateElement(selectedElement.modelId, selectedElement.expressId);
+        return;
+      }
+      if (key === "r" && hChordArmedRef.current) {
+        hChordArmedRef.current = false;
+        if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
+        showAll();
+        return;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [activeTool, selectedElement, sqlPanelOpen, listPanelOpen, smartViewsPanelOpen, qtoPanelOpen,
       profilePanelOpen, setActiveTool, setSelected, clearMeasurements, setSqlPanelOpen, setListPanelOpen,
-      setSmartViewsPanelOpen, setQTOPanelOpen, setProfilePanelOpen, hideElement, showAll]);
+      setSmartViewsPanelOpen, setQTOPanelOpen, setProfilePanelOpen, hideElement, showAll, keyBindings]);
 
   // ── File loading ──────────────────────────────────────────────────────────
   const handleFiles = useCallback(async (files: File[]) => {
@@ -565,6 +568,9 @@ function MainApp() {
                   <SelectionBasket onOpenEditor={() => setBasketEditorOpen(true)} />
                 </div>
 
+                {/* Face cross-section controls */}
+                <FaceCrossSectionPanel />
+
                 {!hasModels && activeLoads === 0 && (
                   <LandingOverlay onOpenFiles={handleFiles} loading={false} />
                 )}
@@ -634,6 +640,10 @@ function MainApp() {
       {batchPanelOpen && (
         <BatchPanel onClose={() => setBatchPanelOpen(false)} />
       )}
+
+      {settingsPanelOpen && <SettingsPanel />}
+      {collisionPanelOpen && <CollisionPanel onClose={() => setCollisionPanelOpen(false)} />}
+      {activeTool === "drone" && <DroneOverlay />}
     </div>
   );
 }
