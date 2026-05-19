@@ -77,18 +77,27 @@ type ObjLabelPos = {
 };
 
 function deOverlapLabels(labels: ObjLabelPos[]): void {
-  const PAD = 3;
-  for (let iter = 0; iter < 60; iter++) {
+  const PAD = 4;
+  for (let iter = 0; iter < 80; iter++) {
     let moved = false;
     for (let i = 0; i < labels.length; i++) {
       for (let j = i + 1; j < labels.length; j++) {
         const a = labels[i], b = labels[j];
-        const overX = (a.bw / 2 + b.bw / 2 + PAD) - Math.abs((b.lx + b.bw / 2) - (a.lx + a.bw / 2));
-        const overY = (a.bh + PAD) - Math.abs((b.ly + b.bh / 2) - (a.ly + a.bh / 2));
+        const acx = a.lx + a.bw / 2, acy = a.ly + a.bh / 2;
+        const bcx = b.lx + b.bw / 2, bcy = b.ly + b.bh / 2;
+        const overX = (a.bw / 2 + b.bw / 2 + PAD) - Math.abs(bcx - acx);
+        const overY = (a.bh / 2 + b.bh / 2 + PAD) - Math.abs(bcy - acy);
         if (overX > 0 && overY > 0) {
-          const pushY = overY / 2 + 0.5;
-          if ((b.ly + b.bh / 2) >= (a.ly + a.bh / 2)) { a.ly -= pushY; b.ly += pushY; }
-          else                                           { a.ly += pushY; b.ly -= pushY; }
+          // Push along the axis with less overlap (minimum separation effort)
+          if (overX <= overY) {
+            const push = overX / 2 + 0.5;
+            if (bcx >= acx) { a.lx -= push; b.lx += push; }
+            else            { a.lx += push; b.lx -= push; }
+          } else {
+            const push = overY / 2 + 0.5;
+            if (bcy >= acy) { a.ly -= push; b.ly += push; }
+            else            { a.ly += push; b.ly -= push; }
+          }
           moved = true;
         }
       }
@@ -106,13 +115,23 @@ function buildLabelPositions(
   const _xs = (x: number) => M.left + (x - vxMin) / visW * chartW;
   const _ys = (y: number) => M.top  + (1 - (y - vyMin) / visH) * chartH;
 
-  const groups = new Map<string, { sumX: number; sumY: number; n: number; color: string }>();
+  // Use bounding box center for centroid — midpoint average skews toward long/dense segments
+  const groups = new Map<string, { xMin: number; xMax: number; yMin: number; yMax: number; color: string }>();
   for (const l of lines) {
     if (!l.objectKey) continue;
     const g = groups.get(l.objectKey);
-    const mx = (l.x1 + l.x2) / 2, my = (l.y1 + l.y2) / 2;
-    if (g) { g.sumX += mx; g.sumY += my; g.n++; }
-    else   groups.set(l.objectKey, { sumX: mx, sumY: my, n: 1, color: l.color });
+    if (g) {
+      g.xMin = Math.min(g.xMin, l.x1, l.x2);
+      g.xMax = Math.max(g.xMax, l.x1, l.x2);
+      g.yMin = Math.min(g.yMin, l.y1, l.y2);
+      g.yMax = Math.max(g.yMax, l.y1, l.y2);
+    } else {
+      groups.set(l.objectKey, {
+        xMin: Math.min(l.x1, l.x2), xMax: Math.max(l.x1, l.x2),
+        yMin: Math.min(l.y1, l.y2), yMax: Math.max(l.y1, l.y2),
+        color: l.color,
+      });
+    }
   }
 
   const BH = 15;
@@ -125,9 +144,12 @@ function buildLabelPositions(
       : propKey === "type" ? lbl.type
       : (lbl.props[propKey] ?? lbl.name);
     if (!text) continue;
-    const cx = _xs(g.sumX / g.n), cy = _ys(g.sumY / g.n);
-    const bw = Math.max(40, text.length * 6 + 10);
-    positions.push({ key: lbl.key, text, color: g.color, cx, cy, lx: cx - bw / 2, ly: cy - 28, bw, bh: BH });
+    // Anchor to bounding box center; initial label above top edge of bounding box
+    const cx = _xs((g.xMin + g.xMax) / 2);
+    const cy = _ys((g.yMin + g.yMax) / 2);
+    const topSvg = _ys(g.yMax);
+    const bw = Math.max(40, text.length * 6.5 + 12);
+    positions.push({ key: lbl.key, text, color: g.color, cx, cy, lx: cx - bw / 2, ly: topSvg - BH - 8, bw, bh: BH });
   }
 
   deOverlapLabels(positions);

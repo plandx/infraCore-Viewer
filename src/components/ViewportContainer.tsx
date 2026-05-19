@@ -1755,7 +1755,9 @@ export function ViewportContainer({ onElementClick }: Props) {
         useAlignmentStore.getState().setCrossSectionResult(lines, basisSnap);
 
         // Build per-object label metadata from unique objectKeys in the slice
-        const modelsMap = useModelStore.getState().models;
+        const modelStoreState = useModelStore.getState();
+        const modelsMap = modelStoreState.models;
+        const sharedLoadedProps = modelStoreState.loadedProperties; // Map<modelId, Map<expressId, FlatElementProps>>
         const seen = new Set<string>();
         const objectLabels: import("../utils/windowSync").XSSyncObjectLabel[] = [];
         for (const l of lines) {
@@ -1771,11 +1773,20 @@ export function ViewportContainer({ onElementClick }: Props) {
             const el = (els as Array<{ expressId: number; name: string }>).find(e => e.expressId === expressId);
             if (el) { name = el.name || `#${expressId}`; type = t; break; }
           }
-          const loadedProps = (model.properties as Record<number, Record<string, unknown>>)[expressId];
           const props: Record<string, string> = {};
-          if (loadedProps) {
-            for (const [k, v] of Object.entries(loadedProps)) {
-              if (k === "expressId") continue;
+          // model.properties: per-element props loaded on selection (IFCProperties)
+          const selProps = (model.properties as Record<number, Record<string, unknown>>)[expressId];
+          if (selProps) {
+            for (const [k, v] of Object.entries(selProps)) {
+              if (k === "expressId" || k === "type") continue;
+              if (typeof v === "string" || typeof v === "number") props[k] = String(v);
+            }
+          }
+          // sharedLoadedProps: batch-loaded properties from ListPanel/SmartViews (FlatElementProps)
+          const flatProps = sharedLoadedProps?.get(modelId)?.get(expressId);
+          if (flatProps) {
+            for (const [k, v] of Object.entries(flatProps)) {
+              if (k === "expressId" || k === "type" || k === "name") continue;
               if (typeof v === "string" || typeof v === "number") props[k] = String(v);
             }
           }
