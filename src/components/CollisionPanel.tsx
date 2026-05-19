@@ -1,66 +1,147 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { X, Play, Loader2, AlertTriangle, ChevronDown, ChevronRight, Download } from "lucide-react";
+import { X, Play, Loader2, AlertTriangle, ChevronDown, ChevronRight, Download, Plus, Trash2, Check, Clock, AlertCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import type { IFCModelEntry } from "../types/ifc";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Rule types ─────────────────────────────────────────────────────────────────
 
-export interface CollisionPair {
-  modelIdA: string;
-  expressIdA: number;
-  nameA: string;
-  typeA: string;
-  modelIdB: string;
-  expressIdB: number;
-  nameB: string;
-  typeB: string;
-  overlapVol: number;  // approximate overlap volume (m³)
-  distance: number;    // negative = penetration depth
+type Severity   = "error" | "warning" | "info";
+type CheckType  = "hard-clash" | "clearance" | "duplicate";
+type ClashStatus = "new" | "approved" | "resolved";
+
+interface PropCondition {
+  propName: string;
+  operator: "contains" | "equals" | "startsWith" | "notEmpty";
+  value: string;
 }
 
-interface MatrixCell {
-  typeA: string;
-  typeB: string;
-  count: number;
-  pairs: CollisionPair[];
+interface ComponentFilter {
+  ifcTypes: string[];       // empty = all types
+  conditions: PropCondition[]; // AND-combined
 }
 
-// ── AABB overlap check ─────────────────────────────────────────────────────────
-
-function aabbOverlapVolume(a: THREE.Box3, b: THREE.Box3): number {
-  const minX = Math.max(a.min.x, b.min.x), maxX = Math.min(a.max.x, b.max.x);
-  const minY = Math.max(a.min.y, b.min.y), maxY = Math.min(a.max.y, b.max.y);
-  const minZ = Math.max(a.min.z, b.min.z), maxZ = Math.min(a.max.z, b.max.z);
-  if (maxX < minX || maxY < minY || maxZ < minZ) return 0;
-  return (maxX - minX) * (maxY - minY) * (maxZ - minZ);
+interface ClashRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  severity: Severity;
+  checkType: CheckType;
+  componentA: ComponentFilter;
+  componentB: ComponentFilter;
+  tolerance: number;      // m³ for hard-clash; m for clearance
 }
 
-function aabbPenetration(a: THREE.Box3, b: THREE.Box3): number {
+interface ClashResult {
+  ruleId: string;
+  ruleName: string;
+  severity: Severity;
+  modelIdA: string; expressIdA: number; nameA: string; typeA: string;
+  modelIdB: string; expressIdB: number; nameB: string; typeB: string;
+  overlap: number;  // m³ (hard-clash) or gap (clearance, negative = violation)
+  status: ClashStatus;
+  propsA?: Record<string, string>;
+  propsB?: Record<string, string>;
+}
+
+// ── Default rules ─────────────────────────────────────────────────────────────
+
+const MEP_TYPES   = ["IfcDuctSegment","IfcPipeSegment","IfcCableCarrierSegment","IfcFlowSegment","IfcDistributionFlowElement","IfcDuctFitting","IfcPipeFitting","IfcFlowController","IfcFlowTerminal"];
+const STRUCT_TYPES= ["IfcBeam","IfcColumn","IfcWall","IfcSlab","IfcFoundation","IfcPile","IfcMember"];
+const ARCH_TYPES  = ["IfcWall","IfcSlab","IfcRoof","IfcCurtainWall","IfcStair","IfcRamp"];
+
+const DEFAULT_RULES: ClashRule[] = [
+  {
+    id: "rule-struct-mep",
+    name: "Tragwerk / TGA Kollision",
+    enabled: true,
+    severity: "error",
+    checkType: "hard-clash",
+    tolerance: 0.0005,
+    componentA: { ifcTypes: STRUCT_TYPES, conditions: [] },
+    componentB: { ifcTypes: MEP_TYPES,   conditions: [] },
+  },
+  {
+    id: "rule-arch-struct",
+    name: "Architektur / Tragwerk Kollision",
+    enabled: true,
+    severity: "warning",
+    checkType: "hard-clash",
+    tolerance: 0.001,
+    componentA: { ifcTypes: ARCH_TYPES,   conditions: [] },
+    componentB: { ifcTypes: STRUCT_TYPES, conditions: [] },
+  },
+  {
+    id: "rule-mep-clearance",
+    name: "TGA Mindestabstand (0.3 m)",
+    enabled: true,
+    severity: "warning",
+    checkType: "clearance",
+    tolerance: 0.3,
+    componentA: { ifcTypes: MEP_TYPES, conditions: [] },
+    componentB: { ifcTypes: MEP_TYPES, conditions: [] },
+  },
+  {
+    id: "rule-duplicate",
+    name: "Duplikat-Elemente",
+    enabled: true,
+    severity: "info",
+    checkType: "duplicate",
+    tolerance: 0.01,
+    componentA: { ifcTypes: [], conditions: [] },
+    componentB: { ifcTypes: [], conditions: [] },
+  },
+];
+
+// ── AABB helpers ──────────────────────────────────────────────────────────────
+
+function aabbOverlap(a: THREE.Box3, b: THREE.Box3): number {
   const ox = Math.min(a.max.x, b.max.x) - Math.max(a.min.x, b.min.x);
   const oy = Math.min(a.max.y, b.max.y) - Math.max(a.min.y, b.min.y);
   const oz = Math.min(a.max.z, b.max.z) - Math.max(a.min.z, b.min.z);
   if (ox <= 0 || oy <= 0 || oz <= 0) return 0;
-  return -Math.min(ox, oy, oz);
+  return ox * oy * oz;
 }
 
-// ── Collect element meshes from scene ─────────────────────────────────────────
+function aabbGap(a: THREE.Box3, b: THREE.Box3): number {
+  const gx = Math.max(a.min.x, b.min.x) - Math.min(a.max.x, b.max.x);
+  const gy = Math.max(a.min.y, b.min.y) - Math.min(a.max.y, b.max.y);
+  const gz = Math.max(a.min.z, b.min.z) - Math.min(a.max.z, b.max.z);
+  return Math.max(gx, gy, gz);
+}
 
-function collectElements(models: Map<string, IFCModelEntry>): Array<{
-  modelId: string; expressId: number; name: string; type: string;
+function aabbNearlyEqual(a: THREE.Box3, b: THREE.Box3, tol: number): boolean {
+  return (
+    Math.abs(a.min.x - b.min.x) < tol && Math.abs(a.max.x - b.max.x) < tol &&
+    Math.abs(a.min.y - b.min.y) < tol && Math.abs(a.max.y - b.max.y) < tol &&
+    Math.abs(a.min.z - b.min.z) < tol && Math.abs(a.max.z - b.max.z) < tol
+  );
+}
+
+// ── Element collection ────────────────────────────────────────────────────────
+
+interface ElementRecord {
+  modelId: string;
+  expressId: number;
+  name: string;
+  type: string;
   box: THREE.Box3;
-}> {
-  const result: Array<{ modelId: string; expressId: number; name: string; type: string; box: THREE.Box3 }> = [];
+  props: Record<string, string>;
+}
+
+function collectElements(models: Map<string, IFCModelEntry>): ElementRecord[] {
+  const result: ElementRecord[] = [];
   for (const [modelId, model] of models) {
     if (!model.visible || model.status !== "loaded") continue;
-    // Build index from elementsByType
-    const typeByExpr = new Map<number, string>();
-    const nameByExpr = new Map<number, string>();
+    const typeByExpr  = new Map<number, string>();
+    const nameByExpr  = new Map<number, string>();
+    const propsByExpr = new Map<number, Record<string, string>>();
     for (const [type, els] of Object.entries(model.elementsByType)) {
-      for (const el of els) {
+      for (const el of els as Array<{ expressId: number; name: string; properties?: Record<string, string> }>) {
         typeByExpr.set(el.expressId, type);
         nameByExpr.set(el.expressId, el.name || type);
+        propsByExpr.set(el.expressId, el.properties ?? {});
       }
     }
     model.mesh.traverse(obj => {
@@ -76,141 +157,232 @@ function collectElements(models: Map<string, IFCModelEntry>): Array<{
         name: nameByExpr.get(eid) ?? `Element ${eid}`,
         type: typeByExpr.get(eid) ?? "Unknown",
         box,
+        props: propsByExpr.get(eid) ?? {},
       });
     });
   }
   return result;
 }
 
-// ── Collision detection ────────────────────────────────────────────────────────
+// ── Property filter evaluation ────────────────────────────────────────────────
 
-const MAX_PAIRS = 2000;
+function matchesPropConditions(props: Record<string, string>, conditions: PropCondition[]): boolean {
+  for (const c of conditions) {
+    const val = props[c.propName] ?? "";
+    switch (c.operator) {
+      case "contains":   if (!val.toLowerCase().includes(c.value.toLowerCase())) return false; break;
+      case "equals":     if (val.toLowerCase() !== c.value.toLowerCase()) return false; break;
+      case "startsWith": if (!val.toLowerCase().startsWith(c.value.toLowerCase())) return false; break;
+      case "notEmpty":   if (!val.trim()) return false; break;
+    }
+  }
+  return true;
+}
 
-function runCollisionDetection(
-  models: Map<string, IFCModelEntry>,
-  tolerance: number,
-  sameModelCheck: boolean,
-  ignoreTypes: Set<string>,
+function matchesFilter(el: ElementRecord, filter: ComponentFilter): boolean {
+  if (filter.ifcTypes.length > 0 && !filter.ifcTypes.includes(el.type)) return false;
+  return matchesPropConditions(el.props, filter.conditions);
+}
+
+// ── Detection engine ──────────────────────────────────────────────────────────
+
+const MAX_RESULTS_PER_RULE = 500;
+
+function runRuleBasedDetection(
+  elements: ElementRecord[],
+  rules: ClashRule[],
   onProgress: (pct: number) => void,
-): Promise<CollisionPair[]> {
+): Promise<ClashResult[]> {
   return new Promise(resolve => {
-    const elements = collectElements(models).filter(e => !ignoreTypes.has(e.type));
-    const pairs: CollisionPair[] = [];
-    const n = elements.length;
-    let i = 0;
+    const results: ClashResult[] = [];
+    const enabledRules = rules.filter(r => r.enabled);
+    if (enabledRules.length === 0) { resolve([]); return; }
+
+    // Pre-filter element sets per rule
+    const setsByRule = enabledRules.map(r => ({
+      rule: r,
+      setA: elements.filter(e => matchesFilter(e, r.componentA)),
+      setB: elements.filter(e => matchesFilter(e, r.componentB)),
+    }));
+
+    const totalWork = setsByRule.reduce((acc, { setA }) => acc + setA.length, 0);
+    let done = 0;
+    let ruleIdx = 0;
+    let iA = 0;
 
     const step = () => {
-      const batchEnd = Math.min(i + 50, n);
-      for (; i < batchEnd && pairs.length < MAX_PAIRS; i++) {
-        const a = elements[i];
-        for (let j = i + 1; j < n && pairs.length < MAX_PAIRS; j++) {
-          const b = elements[j];
-          if (!sameModelCheck && a.modelId === b.modelId) continue;
-          const vol = aabbOverlapVolume(a.box, b.box);
-          if (vol <= tolerance) continue;
-          const pen = aabbPenetration(a.box, b.box);
-          pairs.push({
-            modelIdA: a.modelId, expressIdA: a.expressId, nameA: a.name, typeA: a.type,
-            modelIdB: b.modelId, expressIdB: b.expressId, nameB: b.name, typeB: b.type,
-            overlapVol: Math.round(vol * 1000) / 1000,
-            distance: Math.round(pen * 1000) / 1000,
-          });
+      const { rule, setA, setB } = setsByRule[ruleIdx];
+      const batchEnd = Math.min(iA + 30, setA.length);
+
+      for (; iA < batchEnd; iA++) {
+        const a = setA[iA];
+        const ruleResults = results.filter(r => r.ruleId === rule.id);
+        if (ruleResults.length >= MAX_RESULTS_PER_RULE) { iA = setA.length; break; }
+
+        for (const b of setB) {
+          if (a.modelId === b.modelId && a.expressId === b.expressId) continue;
+          // Avoid duplicate A-B / B-A pairs
+          const keyFwd = `${a.modelId}:${a.expressId}|${b.modelId}:${b.expressId}`;
+          const keyRev = `${b.modelId}:${b.expressId}|${a.modelId}:${a.expressId}`;
+          const existing = results.some(r => r.ruleId === rule.id && (
+            (`${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}` === keyFwd) ||
+            (`${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}` === keyRev)
+          ));
+          if (existing) continue;
+
+          let triggered = false;
+          let measure = 0;
+
+          if (rule.checkType === "hard-clash") {
+            const vol = aabbOverlap(a.box, b.box);
+            if (vol > rule.tolerance) { triggered = true; measure = vol; }
+          } else if (rule.checkType === "clearance") {
+            const gap = aabbGap(a.box, b.box);
+            if (gap < rule.tolerance && gap > -0.001) { triggered = true; measure = gap; }
+          } else if (rule.checkType === "duplicate") {
+            if (aabbNearlyEqual(a.box, b.box, rule.tolerance)) { triggered = true; measure = 0; }
+          }
+
+          if (triggered) {
+            results.push({
+              ruleId: rule.id, ruleName: rule.name, severity: rule.severity,
+              modelIdA: a.modelId, expressIdA: a.expressId, nameA: a.name, typeA: a.type,
+              modelIdB: b.modelId, expressIdB: b.expressId, nameB: b.name, typeB: b.type,
+              overlap: Math.round(measure * 10000) / 10000,
+              status: "new",
+              propsA: a.props, propsB: b.props,
+            });
+          }
         }
       }
-      onProgress(Math.round((i / n) * 100));
-      if (i < n && pairs.length < MAX_PAIRS) {
+
+      done += (batchEnd - Math.max(0, iA - (batchEnd - iA)));
+      onProgress(Math.min(99, Math.round((done / totalWork) * 100)));
+
+      if (iA >= setA.length) {
+        ruleIdx++;
+        iA = 0;
+      }
+
+      if (ruleIdx < setsByRule.length && results.length < enabledRules.length * MAX_RESULTS_PER_RULE) {
         setTimeout(step, 0);
       } else {
-        resolve(pairs);
+        onProgress(100);
+        resolve(results);
       }
     };
     setTimeout(step, 0);
   });
 }
 
-// ── CollisionPanel component ───────────────────────────────────────────────────
+// ── CollisionPanel component ──────────────────────────────────────────────────
 
-interface Props {
-  onClose(): void;
-}
+interface Props { onClose(): void; }
 
 export function CollisionPanel({ onClose }: Props) {
-  const models   = useModelStore(s => s.models);
+  const models      = useModelStore(s => s.models);
   const setSelected = useModelStore(s => s.setSelected);
 
-  const [running,      setRunning]      = useState(false);
-  const [progress,     setProgress]     = useState(0);
-  const [pairs,        setPairs]        = useState<CollisionPair[]>([]);
-  const [hasRun,       setHasRun]       = useState(false);
-  const [tolerance,    setTolerance]    = useState(0.001);
-  const [sameModel,    setSameModel]    = useState(true);
-  const [selectedCell, setSelectedCell] = useState<MatrixCell | null>(null);
-  const [expandedPair, setExpandedPair] = useState<string | null>(null);
-
-  const IGNORE_DEFAULTS = new Set(["IFCSPACE", "IFCOPENINGELEMENT"]);
-  const [ignoreTypes, setIgnoreTypes] = useState<Set<string>>(new Set(IGNORE_DEFAULTS));
+  const [rules, setRules]          = useState<ClashRule[]>(DEFAULT_RULES);
+  const [running, setRunning]      = useState(false);
+  const [progress, setProgress]    = useState(0);
+  const [results, setResults]      = useState<ClashResult[]>([]);
+  const [hasRun, setHasRun]        = useState(false);
+  const [activeRule, setActiveRule]= useState<string | null>(null);
+  const [expandedId, setExpandedId]= useState<string | null>(null);
+  const [editRule, setEditRule]    = useState<ClashRule | null>(null);
+  const statusRef = useRef<Map<string, ClashStatus>>(new Map());
 
   const run = useCallback(async () => {
     setRunning(true);
     setHasRun(false);
-    setPairs([]);
-    setSelectedCell(null);
-    const result = await runCollisionDetection(models, tolerance, sameModel, ignoreTypes, setProgress);
-    setPairs(result);
+    setResults([]);
+    setActiveRule(null);
+    const elements = collectElements(models);
+    const raw = await runRuleBasedDetection(elements, rules, setProgress);
+    // Restore persisted statuses
+    const merged = raw.map(r => {
+      const key = `${r.ruleId}|${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}`;
+      return { ...r, status: statusRef.current.get(key) ?? r.status };
+    });
+    setResults(merged);
     setRunning(false);
     setHasRun(true);
-  }, [models, tolerance, sameModel, ignoreTypes]);
+  }, [models, rules]);
 
-  // Build matrix: type A × type B
-  const matrix = useMemo((): MatrixCell[] => {
-    const map = new Map<string, MatrixCell>();
-    for (const pair of pairs) {
-      const key = [pair.typeA, pair.typeB].sort().join("||");
-      let cell = map.get(key);
-      if (!cell) {
-        cell = { typeA: pair.typeA, typeB: pair.typeB, count: 0, pairs: [] };
-        map.set(key, cell);
-      }
-      cell.count++;
-      cell.pairs.push(pair);
-    }
-    return [...map.values()].sort((a, b) => b.count - a.count);
-  }, [pairs]);
+  const setStatus = (result: ClashResult, status: ClashStatus) => {
+    const key = `${result.ruleId}|${result.modelIdA}:${result.expressIdA}|${result.modelIdB}:${result.expressIdB}`;
+    statusRef.current.set(key, status);
+    setResults(prev => prev.map(r =>
+      r.ruleId === result.ruleId && r.modelIdA === result.modelIdA && r.expressIdA === result.expressIdA &&
+      r.modelIdB === result.modelIdB && r.expressIdB === result.expressIdB
+        ? { ...r, status } : r
+    ));
+  };
 
   const allTypes = useMemo(() => {
     const s = new Set<string>();
-    for (const [, model] of models) {
-      for (const t of Object.keys(model.elementsByType)) s.add(t);
-    }
+    for (const [, m] of models) for (const t of Object.keys(m.elementsByType)) s.add(t);
     return [...s].sort();
   }, [models]);
 
+  const filteredResults = useMemo(() =>
+    activeRule ? results.filter(r => r.ruleId === activeRule) : results,
+    [results, activeRule]
+  );
+
+  const ruleStats = useMemo(() => {
+    const map = new Map<string, { total: number; new: number; approved: number; resolved: number }>();
+    for (const r of results) {
+      let s = map.get(r.ruleId);
+      if (!s) { s = { total: 0, new: 0, approved: 0, resolved: 0 }; map.set(r.ruleId, s); }
+      s.total++;
+      s[r.status]++;
+    }
+    return map;
+  }, [results]);
+
   const exportCSV = () => {
     const rows = [
-      ["TypeA","NameA","ModelA","TypeB","NameB","ModelB","Overlap (m³)","Penetration (m)"],
-      ...pairs.map(p => [p.typeA, p.nameA, p.modelIdA, p.typeB, p.nameB, p.modelIdB, p.overlapVol, p.distance]),
+      ["Regel","Typ","Status","TypeA","NameA","TypeB","NameB","Wert","ModelA","ModelB"],
+      ...filteredResults.map(r => [
+        r.ruleName, r.severity, r.status,
+        r.typeA, r.nameA, r.typeB, r.nameB,
+        r.overlap.toFixed(4), r.modelIdA, r.modelIdB,
+      ]),
     ];
-    const csv = rows.map(r => r.join(";")).join("\n");
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = `collisions-${Date.now()}.csv`;
+    a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(";")).join("\n")], { type: "text/csv" }));
+    a.download = `clashes-${Date.now()}.csv`;
     a.click();
   };
 
-  const displayPairs = selectedCell ? selectedCell.pairs : pairs.slice(0, 200);
+  const severityColor = (s: Severity) =>
+    s === "error" ? "text-red-400" : s === "warning" ? "text-amber-400" : "text-blue-400";
+  const severityBg = (s: Severity) =>
+    s === "error" ? "bg-red-400/10 border-red-400/30" : s === "warning" ? "bg-amber-400/10 border-amber-400/30" : "bg-blue-400/10 border-blue-400/30";
+  const statusIcon = (st: ClashStatus) =>
+    st === "approved" ? <Check size={10} className="text-green-400" /> :
+    st === "resolved" ? <Check size={10} className="text-blue-400" /> :
+    <AlertCircle size={10} className="text-amber-400" />;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-xl shadow-2xl w-[800px] max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-card border border-border rounded-xl shadow-2xl w-[920px] max-h-[90vh] flex flex-col overflow-hidden">
+
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={16} className="text-amber-400" />
-            <h2 className="text-sm font-semibold text-foreground">Kollisionsprüfung</h2>
-            {hasRun && <span className="text-xs text-muted-foreground">· {pairs.length} Kollisionen</span>}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle size={15} className="text-amber-400" />
+            <h2 className="text-sm font-semibold">Regelbasierte Kollisionsprüfung</h2>
+            {hasRun && (
+              <span className="text-xs text-muted-foreground">
+                · {results.length} Konflikte · {results.filter(r => r.status === "new").length} offen
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
-            {hasRun && pairs.length > 0 && (
+            {hasRun && results.length > 0 && (
               <button onClick={exportCSV} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors">
                 <Download size={12} /> CSV
               </button>
@@ -222,194 +394,447 @@ export function CollisionPanel({ onClose }: Props) {
         </div>
 
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* Settings sidebar */}
-          <div className="w-56 shrink-0 border-r border-border p-4 flex flex-col gap-4 overflow-y-auto scrollbar-thin">
-            <div>
-              <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground block mb-1.5">
-                Toleranz (m³)
-              </label>
-              <input
-                type="number"
-                step="0.001"
-                min="0"
-                value={tolerance}
-                onChange={e => setTolerance(parseFloat(e.target.value) || 0)}
-                className="w-full px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary font-mono"
-              />
+
+          {/* Left: Rules panel */}
+          <div className="w-64 shrink-0 border-r border-border flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Regeln ({rules.length})</span>
+              <button
+                onClick={() => {
+                  const id = `rule-${Date.now()}`;
+                  setEditRule({
+                    id, name: "Neue Regel", enabled: true, severity: "warning",
+                    checkType: "hard-clash", tolerance: 0.001,
+                    componentA: { ifcTypes: [], conditions: [] },
+                    componentB: { ifcTypes: [], conditions: [] },
+                  });
+                }}
+                className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+              >
+                <Plus size={13} />
+              </button>
             </div>
 
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={sameModel}
-                onChange={e => setSameModel(e.target.checked)}
-                className="rounded"
-              />
-              <span className="text-xs text-foreground">Gleiches Modell prüfen</span>
-            </label>
-
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                Typen ignorieren
-              </p>
-              <div className="flex flex-col gap-1 max-h-48 overflow-y-auto scrollbar-thin">
-                {allTypes.map(t => (
-                  <label key={t} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={ignoreTypes.has(t)}
-                      onChange={e => {
-                        const next = new Set(ignoreTypes);
-                        if (e.target.checked) next.add(t); else next.delete(t);
-                        setIgnoreTypes(next);
-                      }}
-                      className="rounded shrink-0"
-                    />
-                    <span className="text-[10px] text-foreground truncate">{t}</span>
-                  </label>
-                ))}
-              </div>
+            <div className="flex-1 overflow-y-auto scrollbar-thin">
+              {rules.map(rule => {
+                const stats = ruleStats.get(rule.id);
+                return (
+                  <div
+                    key={rule.id}
+                    onClick={() => setActiveRule(activeRule === rule.id ? null : rule.id)}
+                    className={cn(
+                      "px-3 py-2.5 cursor-pointer border-b border-border/50 transition-colors",
+                      activeRule === rule.id ? "bg-muted" : "hover:bg-muted/40"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="flex items-start gap-1.5 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={rule.enabled}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => setRules(prev => prev.map(r => r.id === rule.id ? { ...r, enabled: e.target.checked } : r))}
+                          className="mt-0.5 shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-foreground truncate">{rule.name}</p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className={cn("text-[9px] font-mono", severityColor(rule.severity))}>
+                              {rule.severity.toUpperCase()}
+                            </span>
+                            <span className="text-[9px] text-muted-foreground">·</span>
+                            <span className="text-[9px] text-muted-foreground">
+                              {rule.checkType === "hard-clash" ? "Kollision" : rule.checkType === "clearance" ? `Abstand ${rule.tolerance}m` : "Duplikat"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-1 shrink-0 mt-0.5">
+                        <button
+                          onClick={e => { e.stopPropagation(); setEditRule({ ...rule }); }}
+                          className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                        >
+                          <ChevronRight size={11} />
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); setRules(prev => prev.filter(r => r.id !== rule.id)); }}
+                          className="text-muted-foreground hover:text-red-400 p-0.5 rounded"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    </div>
+                    {stats && (
+                      <div className="flex gap-2 mt-1.5 ml-5">
+                        <span className="text-[9px] text-amber-400">{stats.new} neu</span>
+                        <span className="text-[9px] text-green-400/70">{stats.approved} OK</span>
+                        <span className="text-[9px] text-muted-foreground">{stats.resolved} gel.</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
-            <button
-              onClick={run}
-              disabled={running || models.size === 0}
-              className="flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-50 transition-opacity mt-auto"
-            >
-              {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-              {running ? `${progress}%` : "Prüfung starten"}
-            </button>
+            <div className="p-3 border-t border-border shrink-0">
+              <button
+                onClick={run}
+                disabled={running || models.size === 0}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                {running ? `${progress}%` : "Prüfung starten"}
+              </button>
+              {running && (
+                <div className="mt-2 h-1 bg-border rounded-full overflow-hidden">
+                  <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Main content */}
+          {/* Center: Results */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {!hasRun && !running && (
               <div className="flex-1 flex items-center justify-center text-center text-muted-foreground p-8">
                 <div>
-                  <AlertTriangle size={32} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Starte die Kollisionsprüfung mit dem Button links.</p>
-                  <p className="text-xs mt-1 opacity-60">Analysiert AABB-Überschneidungen aller sichtbaren Elemente.</p>
+                  <AlertTriangle size={28} className="mx-auto mb-3 opacity-25" />
+                  <p className="text-sm font-medium">Regelbasierte Prüfung</p>
+                  <p className="text-xs mt-1 opacity-60 max-w-xs">
+                    Definiere Regeln links und starte die Prüfung. Jede Regel filtert Elemente nach IFC-Typ und Eigenschaften.
+                  </p>
                 </div>
               </div>
             )}
 
             {running && (
               <div className="flex-1 flex items-center justify-center flex-col gap-3">
-                <Loader2 size={24} className="animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Berechne Kollisionen… {progress}%</p>
-                <div className="w-48 h-1 bg-border rounded-full overflow-hidden">
-                  <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
-                </div>
+                <Loader2 size={22} className="animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Analysiere Regelkonflikte… {progress}%</p>
               </div>
             )}
 
             {hasRun && !running && (
-              <div className="flex flex-col min-h-0 overflow-hidden flex-1">
-                {/* Matrix */}
-                <div className="border-b border-border p-3 shrink-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                    Kollisionsmatrix {selectedCell && "· Gefiltert"}
-                    {selectedCell && (
-                      <button onClick={() => setSelectedCell(null)} className="ml-2 text-primary hover:underline">Alle zeigen</button>
+              <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                {/* Summary bar */}
+                <div className="px-4 py-2 border-b border-border shrink-0 flex items-center justify-between">
+                  <div className="flex gap-4">
+                    {(["error","warning","info"] as Severity[]).map(s => {
+                      const cnt = filteredResults.filter(r => r.severity === s).length;
+                      return cnt > 0 ? (
+                        <span key={s} className={cn("text-xs font-medium", severityColor(s))}>
+                          {s === "error" ? "⬤" : s === "warning" ? "⬤" : "⬤"} {cnt} {s === "error" ? "Fehler" : s === "warning" ? "Warnungen" : "Info"}
+                        </span>
+                      ) : null;
+                    })}
+                    {filteredResults.length === 0 && (
+                      <span className="text-xs text-green-400">✓ Keine Konflikte in dieser Auswahl</span>
                     )}
-                  </p>
-                  {matrix.length === 0 ? (
-                    <p className="text-xs text-green-400 flex items-center gap-1.5">
-                      <span>✓</span> Keine Kollisionen gefunden
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto scrollbar-thin">
-                      {matrix.map(cell => {
-                        const isSelected = selectedCell?.typeA === cell.typeA && selectedCell?.typeB === cell.typeB;
-                        return (
-                          <button
-                            key={`${cell.typeA}||${cell.typeB}`}
-                            onClick={() => setSelectedCell(isSelected ? null : cell)}
-                            className={cn(
-                              "flex items-center gap-1 px-2 py-1 rounded text-[10px] border transition-all",
-                              isSelected
-                                ? "border-amber-400 bg-amber-400/10 text-amber-300"
-                                : "border-border text-muted-foreground hover:border-amber-400/50 hover:text-foreground"
-                            )}
-                          >
-                            <span className="opacity-70">{cell.typeA.replace("IFC", "")}</span>
-                            <span className="opacity-40">×</span>
-                            <span className="opacity-70">{cell.typeB.replace("IFC", "")}</span>
-                            <span className={cn(
-                              "font-bold ml-0.5",
-                              cell.count > 10 ? "text-red-400" : cell.count > 3 ? "text-amber-400" : "text-green-400"
-                            )}>
-                              {cell.count}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                  </div>
+                  {activeRule && (
+                    <button onClick={() => setActiveRule(null)} className="text-[10px] text-primary hover:underline">
+                      Alle anzeigen
+                    </button>
                   )}
                 </div>
 
-                {/* Pair list */}
+                {/* Result list */}
                 <div className="flex-1 overflow-y-auto scrollbar-thin">
-                  {displayPairs.map((pair, idx) => {
-                    const key = `${pair.modelIdA}:${pair.expressIdA}:${pair.modelIdB}:${pair.expressIdB}`;
-                    const expanded = expandedPair === key;
+                  {filteredResults.map((r, idx) => {
+                    const key = `${r.ruleId}|${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}`;
+                    const expanded = expandedId === key;
                     return (
-                      <div key={idx} className="border-b border-border/50 last:border-0">
+                      <div key={idx} className={cn("border-b border-border/40 last:border-0", r.status === "resolved" && "opacity-40")}>
                         <button
-                          onClick={() => setExpandedPair(expanded ? null : key)}
-                          className="w-full flex items-center gap-3 px-4 py-2 hover:bg-muted/30 text-left transition-colors"
+                          onClick={() => setExpandedId(expanded ? null : key)}
+                          className={cn(
+                            "w-full flex items-start gap-2 px-3 py-2 hover:bg-muted/25 text-left transition-colors",
+                          )}
                         >
-                          {expanded ? <ChevronDown size={12} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={12} className="shrink-0 text-muted-foreground" />}
-                          <div className="flex-1 min-w-0 grid grid-cols-2 gap-2">
+                          {expanded
+                            ? <ChevronDown size={11} className="shrink-0 mt-0.5 text-muted-foreground" />
+                            : <ChevronRight size={11} className="shrink-0 mt-0.5 text-muted-foreground" />
+                          }
+                          <div className={cn("shrink-0 w-1 self-stretch rounded-full mt-0.5", r.severity === "error" ? "bg-red-400" : r.severity === "warning" ? "bg-amber-400" : "bg-blue-400")} />
+                          <div className="flex-1 min-w-0 grid grid-cols-2 gap-x-3">
                             <div className="min-w-0">
-                              <span className="text-[9px] text-amber-400 font-mono">{pair.typeA.replace("IFC","")}</span>
-                              <p className="text-xs text-foreground truncate">{pair.nameA}</p>
+                              <span className="text-[9px] text-muted-foreground font-mono">{r.typeA.replace("Ifc","")}</span>
+                              <p className="text-xs text-foreground truncate leading-snug">{r.nameA}</p>
                             </div>
                             <div className="min-w-0">
-                              <span className="text-[9px] text-blue-400 font-mono">{pair.typeB.replace("IFC","")}</span>
-                              <p className="text-xs text-foreground truncate">{pair.nameB}</p>
+                              <span className="text-[9px] text-muted-foreground font-mono">{r.typeB.replace("Ifc","")}</span>
+                              <p className="text-xs text-foreground truncate leading-snug">{r.nameB}</p>
                             </div>
                           </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-[10px] text-red-400 font-mono">{pair.overlapVol} m³</p>
-                            <p className="text-[9px] text-muted-foreground">{pair.distance} m</p>
+                          <div className="shrink-0 flex flex-col items-end gap-0.5">
+                            <span className="text-[9px] text-muted-foreground font-mono">
+                              {r.overlap > 0 ? `${r.overlap.toFixed(4)} m³` : "clearance"}
+                            </span>
+                            <span className="flex items-center gap-1">{statusIcon(r.status)}</span>
                           </div>
                         </button>
+
                         {expanded && (
-                          <div className="px-8 pb-2 text-[10px] text-muted-foreground flex gap-4">
-                            <button
-                              onClick={() => setSelected({ modelId: pair.modelIdA, expressId: pair.expressIdA, properties: {}, psets: [] })}
-                              className="hover:text-primary transition-colors"
-                            >
-                              → A auswählen
-                            </button>
-                            <button
-                              onClick={() => setSelected({ modelId: pair.modelIdB, expressId: pair.expressIdB, properties: {}, psets: [] })}
-                              className="hover:text-primary transition-colors"
-                            >
-                              → B auswählen
-                            </button>
-                            <span>Überlapp: {pair.overlapVol} m³</span>
-                            <span>Penetration: {Math.abs(pair.distance)} m</span>
+                          <div className="px-6 pb-2.5 pt-1 flex flex-col gap-2">
+                            <div className={cn("text-[10px] px-2 py-1 rounded border w-fit", severityBg(r.severity))}>
+                              <span className={severityColor(r.severity)}>{r.ruleName}</span>
+                            </div>
+                            {/* Props */}
+                            {(r.propsA && Object.keys(r.propsA).length > 0) && (
+                              <div className="grid grid-cols-2 gap-2">
+                                <PropTable title="Element A" props={r.propsA} />
+                                <PropTable title="Element B" props={r.propsB ?? {}} />
+                              </div>
+                            )}
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <button
+                                onClick={() => setSelected({ modelId: r.modelIdA, expressId: r.expressIdA, properties: {}, psets: [] })}
+                                className="text-[10px] text-primary hover:underline"
+                              >→ A auswählen</button>
+                              <button
+                                onClick={() => setSelected({ modelId: r.modelIdB, expressId: r.expressIdB, properties: {}, psets: [] })}
+                                className="text-[10px] text-primary hover:underline"
+                              >→ B auswählen</button>
+                              <span className="text-muted-foreground text-[9px] mx-1">Status:</span>
+                              {(["new","approved","resolved"] as ClashStatus[]).map(s => (
+                                <button
+                                  key={s}
+                                  onClick={() => setStatus(r, s)}
+                                  className={cn(
+                                    "text-[9px] px-1.5 py-0.5 rounded border transition-colors",
+                                    r.status === s
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border text-muted-foreground hover:border-primary/50"
+                                  )}
+                                >
+                                  {s === "new" ? "Neu" : s === "approved" ? "Akzeptiert" : "Gelöst"}
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
                     );
                   })}
-                  {pairs.length >= MAX_PAIRS && (
-                    <p className="text-[10px] text-amber-400/70 text-center py-2 px-4">
-                      Ausgabe auf {MAX_PAIRS} Kollisionen begrenzt. Erhöhe die Toleranz oder reduziere die Elemente.
-                    </p>
-                  )}
                 </div>
               </div>
             )}
           </div>
+
+          {/* Right: Rule editor */}
+          {editRule && (
+            <RuleEditor
+              rule={editRule}
+              allTypes={allTypes}
+              onSave={r => {
+                setRules(prev => {
+                  const idx = prev.findIndex(x => x.id === r.id);
+                  return idx >= 0 ? prev.map(x => x.id === r.id ? r : x) : [...prev, r];
+                });
+                setEditRule(null);
+              }}
+              onClose={() => setEditRule(null)}
+            />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-const MAX_PAIRS_EXPORT = MAX_PAIRS;
-export { MAX_PAIRS_EXPORT as MAX_COLLISION_PAIRS };
+// ── PropTable ─────────────────────────────────────────────────────────────────
+
+function PropTable({ title, props }: { title: string; props: Record<string, string> }) {
+  const entries = Object.entries(props).slice(0, 8);
+  if (entries.length === 0) return null;
+  return (
+    <div className="text-[9px]">
+      <p className="text-muted-foreground font-semibold mb-0.5">{title}</p>
+      {entries.map(([k, v]) => (
+        <div key={k} className="flex gap-1">
+          <span className="text-muted-foreground shrink-0 truncate" style={{ maxWidth: 90 }}>{k}:</span>
+          <span className="text-foreground truncate">{v}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── RuleEditor ────────────────────────────────────────────────────────────────
+
+function RuleEditor({ rule, allTypes, onSave, onClose }: {
+  rule: ClashRule;
+  allTypes: string[];
+  onSave(r: ClashRule): void;
+  onClose(): void;
+}) {
+  const [draft, setDraft] = useState<ClashRule>({ ...rule,
+    componentA: { ...rule.componentA, ifcTypes: [...rule.componentA.ifcTypes], conditions: rule.componentA.conditions.map(c => ({ ...c })) },
+    componentB: { ...rule.componentB, ifcTypes: [...rule.componentB.ifcTypes], conditions: rule.componentB.conditions.map(c => ({ ...c })) },
+  });
+
+  const toggleType = (side: "A" | "B", t: string) => {
+    const key = side === "A" ? "componentA" : "componentB";
+    setDraft(prev => {
+      const types = prev[key].ifcTypes;
+      return { ...prev, [key]: { ...prev[key], ifcTypes: types.includes(t) ? types.filter(x => x !== t) : [...types, t] } };
+    });
+  };
+
+  const addCondition = (side: "A" | "B") => {
+    const key = side === "A" ? "componentA" : "componentB";
+    setDraft(prev => ({
+      ...prev,
+      [key]: { ...prev[key], conditions: [...prev[key].conditions, { propName: "", operator: "contains", value: "" }] },
+    }));
+  };
+
+  const updateCondition = (side: "A" | "B", idx: number, patch: Partial<PropCondition>) => {
+    const key = side === "A" ? "componentA" : "componentB";
+    setDraft(prev => ({
+      ...prev,
+      [key]: { ...prev[key], conditions: prev[key].conditions.map((c, i) => i === idx ? { ...c, ...patch } : c) },
+    }));
+  };
+
+  const removeCondition = (side: "A" | "B", idx: number) => {
+    const key = side === "A" ? "componentA" : "componentB";
+    setDraft(prev => ({ ...prev, [key]: { ...prev[key], conditions: prev[key].conditions.filter((_, i) => i !== idx) } }));
+  };
+
+  return (
+    <div className="w-72 shrink-0 border-l border-border flex flex-col overflow-hidden bg-card">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+        <span className="text-xs font-semibold">Regel bearbeiten</span>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-0.5"><X size={13} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 py-3 flex flex-col gap-3">
+        {/* Name */}
+        <FieldRow label="Name">
+          <input value={draft.name} onChange={e => setDraft(p => ({ ...p, name: e.target.value }))}
+            className="w-full px-2 py-1 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+        </FieldRow>
+
+        {/* Severity */}
+        <FieldRow label="Schwere">
+          <select value={draft.severity} onChange={e => setDraft(p => ({ ...p, severity: e.target.value as Severity }))}
+            className="w-full px-2 py-1 text-xs bg-background border border-border rounded">
+            <option value="error">Fehler</option>
+            <option value="warning">Warnung</option>
+            <option value="info">Info</option>
+          </select>
+        </FieldRow>
+
+        {/* Check type */}
+        <FieldRow label="Prüftyp">
+          <select value={draft.checkType} onChange={e => setDraft(p => ({ ...p, checkType: e.target.value as CheckType }))}
+            className="w-full px-2 py-1 text-xs bg-background border border-border rounded">
+            <option value="hard-clash">Harte Kollision</option>
+            <option value="clearance">Mindestabstand</option>
+            <option value="duplicate">Duplikat</option>
+          </select>
+        </FieldRow>
+
+        {/* Tolerance */}
+        <FieldRow label={draft.checkType === "clearance" ? "Mindestabstand (m)" : "Toleranz (m³)"}>
+          <input type="number" step={draft.checkType === "clearance" ? "0.05" : "0.0001"} min="0"
+            value={draft.tolerance}
+            onChange={e => setDraft(p => ({ ...p, tolerance: parseFloat(e.target.value) || 0 }))}
+            className="w-full px-2 py-1 text-xs bg-background border border-border rounded font-mono focus:outline-none focus:ring-1 focus:ring-primary" />
+        </FieldRow>
+
+        {/* Component filters */}
+        {(["A","B"] as const).map(side => (
+          <FilterEditor
+            key={side}
+            title={`Komponente ${side}`}
+            filter={side === "A" ? draft.componentA : draft.componentB}
+            allTypes={allTypes}
+            onToggleType={t => toggleType(side, t)}
+            onAddCondition={() => addCondition(side)}
+            onUpdateCondition={(i, p) => updateCondition(side, i, p)}
+            onRemoveCondition={i => removeCondition(side, i)}
+          />
+        ))}
+      </div>
+      <div className="px-3 py-2.5 border-t border-border shrink-0">
+        <button onClick={() => onSave(draft)}
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium hover:opacity-90 transition-opacity">
+          <Check size={12} /> Speichern
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FilterEditor({ title, filter, allTypes, onToggleType, onAddCondition, onUpdateCondition, onRemoveCondition }: {
+  title: string;
+  filter: ComponentFilter;
+  allTypes: string[];
+  onToggleType(t: string): void;
+  onAddCondition(): void;
+  onUpdateCondition(i: number, p: Partial<PropCondition>): void;
+  onRemoveCondition(i: number): void;
+}) {
+  const [showTypes, setShowTypes] = useState(false);
+  return (
+    <div className="border border-border rounded p-2 flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+        <span className="text-[9px] text-primary/70">{filter.ifcTypes.length === 0 ? "alle Typen" : `${filter.ifcTypes.length} Typen`}</span>
+      </div>
+
+      {/* IFC type picker */}
+      <button onClick={() => setShowTypes(!showTypes)} className="text-[10px] text-primary hover:underline text-left">
+        {showTypes ? "▲" : "▼"} IFC-Typen auswählen
+      </button>
+      {showTypes && (
+        <div className="max-h-28 overflow-y-auto scrollbar-thin flex flex-col gap-0.5">
+          {allTypes.map(t => (
+            <label key={t} className="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" checked={filter.ifcTypes.includes(t)}
+                onChange={() => onToggleType(t)} className="shrink-0" />
+              <span className="text-[9px] text-foreground truncate">{t}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {/* Property conditions */}
+      <div className="flex flex-col gap-1">
+        {filter.conditions.map((c, i) => (
+          <div key={i} className="flex items-center gap-1">
+            <input value={c.propName} placeholder="Eigenschaft" onChange={e => onUpdateCondition(i, { propName: e.target.value })}
+              className="flex-1 px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none" style={{ minWidth: 0 }} />
+            <select value={c.operator} onChange={e => onUpdateCondition(i, { operator: e.target.value as PropCondition["operator"] })}
+              className="px-1 py-0.5 text-[10px] bg-background border border-border rounded" style={{ width: 70 }}>
+              <option value="contains">enthält</option>
+              <option value="equals">gleich</option>
+              <option value="startsWith">beginnt</option>
+              <option value="notEmpty">nicht leer</option>
+            </select>
+            {c.operator !== "notEmpty" && (
+              <input value={c.value} placeholder="Wert" onChange={e => onUpdateCondition(i, { value: e.target.value })}
+                className="w-16 px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none" />
+            )}
+            <button onClick={() => onRemoveCondition(i)} className="text-muted-foreground hover:text-red-400 shrink-0">
+              <X size={10} />
+            </button>
+          </div>
+        ))}
+        <button onClick={onAddCondition} className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary">
+          <Plus size={10} /> Bedingung
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-medium text-muted-foreground">{label}</label>
+      {children}
+    </div>
+  );
+}

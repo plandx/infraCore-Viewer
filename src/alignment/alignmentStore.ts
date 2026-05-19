@@ -259,22 +259,32 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   setCrossSectionObjectLabels: (labels) => set({ crossSectionObjectLabels: labels }),
   setShowSectionSurface: (v) => set({ showSectionSurface: v }),
 
-  openFaceCrossSection: (origin, normal) => set({
-    faceCrossSectionActive: true,
-    faceCrossSectionOrigin: origin,
-    faceCrossSectionNormal: normal,
-    faceCrossSectionOffset: 0,
-    crossSectionComputing: true,
-    crossSectionLines: [],
-    crossSectionPolygons: [],
-    crossSectionBasis: null,
-    crossSectionObjectLabels: [],
-  }),
+  openFaceCrossSection: (origin, normal) => {
+    set({
+      faceCrossSectionActive: true,
+      faceCrossSectionOrigin: origin,
+      faceCrossSectionNormal: normal,
+      faceCrossSectionOffset: 0,
+      crossSectionOpen: true,
+      crossSectionComputing: true,
+      crossSectionLines: [],
+      crossSectionPolygons: [],
+      crossSectionBasis: null,
+      crossSectionObjectLabels: [],
+    });
+    // Open cross-section popup (same as alignment QS) — only if not already open
+    const url = `${window.location.pathname}?cross-section`;
+    const existing = window.open("", "infracore-cross-section");
+    if (!existing || existing.closed || existing.location.href === "about:blank") {
+      window.open(url, "infracore-cross-section", "width=960,height=720,resizable=yes");
+    }
+  },
   closeFaceCrossSection: () => set({
     faceCrossSectionActive: false,
     faceCrossSectionOrigin: null,
     faceCrossSectionNormal: null,
     faceCrossSectionOffset: 0,
+    crossSectionOpen: false,
     crossSectionLines: [],
     crossSectionPolygons: [],
     crossSectionBasis: null,

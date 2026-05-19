@@ -97,6 +97,9 @@ export interface XSSyncState {
   computing: boolean;
   showSectionSurface: boolean;
   objectLabels: XSSyncObjectLabel[];
+  /** Set when using face-based cross-section (no alignment) */
+  isFaceSection?: boolean;
+  faceOffset?: number;
 }
 
 export type XSMsg =
@@ -106,7 +109,8 @@ export type XSMsg =
   | { t: "setStation"; alignmentId: number; station: number }
   | { t: "nextStation"; delta: number }
   | { t: "setMode"; mode: "vertical" | "normal" }
-  | { t: "toggleSectionSurface" };
+  | { t: "toggleSectionSurface" }
+  | { t: "setFaceOffset"; offset: number };
 
 export function openCrossSectionWindow() {
   const url = `${window.location.pathname}?cross-section`;

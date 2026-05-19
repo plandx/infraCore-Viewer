@@ -193,6 +193,14 @@ export function CrossSectionWindow() {
     if (state?.station != null) setStaInput(fmtSta(state.station));
   }, [state?.station]);
 
+  // ── Face cross-section offset ─────────────────────────────────────────────
+  const [faceOffsetInput, setFaceOffsetInput] = useState("0.00");
+  const [faceStep, setFaceStep] = useState(0.5);
+
+  useEffect(() => {
+    setFaceOffsetInput((state?.faceOffset ?? 0).toFixed(2));
+  }, [state?.faceOffset]);
+
   const submitSta = () => {
     const parsed = parseSta(staInput);
     if (parsed != null && state?.alignmentId != null)
@@ -484,7 +492,10 @@ export function CrossSectionWindow() {
         {state?.alignmentName && (
           <span className="text-xs text-muted-foreground">— {state.alignmentName}</span>
         )}
-        {state?.station != null && (
+        {state?.isFaceSection && (
+          <span className="text-xs font-mono text-amber-400 ml-1">Versatz: {(state.faceOffset ?? 0).toFixed(2)} m</span>
+        )}
+        {!state?.isFaceSection && state?.station != null && (
           <span className="text-xs font-mono text-sky-400 ml-1">{fmtSta(state.station)}</span>
         )}
         <div className="flex-1" />
@@ -497,54 +508,94 @@ export function CrossSectionWindow() {
       {/* ── Controls bar ─────────────────────────────────────────────────── */}
       <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/40 flex-wrap">
 
-        {/* Station navigation */}
-        <div className="flex items-center gap-0.5">
-          <button onClick={() => navigate(-step * 10)}
-            className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
-            title={`−${step * 10} m`}>◄◄</button>
-          <button onClick={() => navigate(-step)}
-            className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-            title={`−${step} m`}><ChevronLeft size={13} /></button>
-          <input
-            type="text" value={staInput}
-            onChange={e => setStaInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && submitSta()}
-            onBlur={submitSta}
-            className="w-28 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
-            placeholder="0+000.000"
-          />
-          <button onClick={() => navigate(step)}
-            className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-            title={`+${step} m`}><ChevronRight size={13} /></button>
-          <button onClick={() => navigate(step * 10)}
-            className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
-            title={`+${step * 10} m`}>►►</button>
-        </div>
-
-        {/* Step selector */}
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] text-muted-foreground">Δ</span>
-          <select value={step} onChange={e => setStep(Number(e.target.value))}
-            className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground">
-            {[1, 5, 10, 25, 50, 100].map(s => <option key={s} value={s}>{s} m</option>)}
-          </select>
-        </div>
+        {state?.isFaceSection ? (
+          /* Face cross-section: offset slider instead of station */
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-muted-foreground">Versatz</span>
+            <button
+              onClick={() => send({ t: "setFaceOffset", offset: (state.faceOffset ?? 0) - faceStep })}
+              className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+            ><ChevronLeft size={13} /></button>
+            <input
+              type="number"
+              step={faceStep}
+              value={faceOffsetInput}
+              onChange={e => setFaceOffsetInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  const v = parseFloat(faceOffsetInput.replace(",", "."));
+                  if (!isNaN(v)) send({ t: "setFaceOffset", offset: v });
+                }
+              }}
+              onBlur={() => {
+                const v = parseFloat(faceOffsetInput.replace(",", "."));
+                if (!isNaN(v)) send({ t: "setFaceOffset", offset: v });
+              }}
+              className="w-20 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
+            />
+            <span className="text-[10px] text-muted-foreground">m</span>
+            <button
+              onClick={() => send({ t: "setFaceOffset", offset: (state.faceOffset ?? 0) + faceStep })}
+              className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+            ><ChevronRight size={13} /></button>
+            <select value={faceStep} onChange={e => setFaceStep(Number(e.target.value))}
+              className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground">
+              {[0.01, 0.05, 0.1, 0.25, 0.5, 1.0].map(s => <option key={s} value={s}>{s} m</option>)}
+            </select>
+          </div>
+        ) : (
+          <>
+            {/* Station navigation (alignment mode) */}
+            <div className="flex items-center gap-0.5">
+              <button onClick={() => navigate(-step * 10)}
+                className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
+                title={`−${step * 10} m`}>◄◄</button>
+              <button onClick={() => navigate(-step)}
+                className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+                title={`−${step} m`}><ChevronLeft size={13} /></button>
+              <input
+                type="text" value={staInput}
+                onChange={e => setStaInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submitSta()}
+                onBlur={submitSta}
+                className="w-28 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
+                placeholder="0+000.000"
+              />
+              <button onClick={() => navigate(step)}
+                className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+                title={`+${step} m`}><ChevronRight size={13} /></button>
+              <button onClick={() => navigate(step * 10)}
+                className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
+                title={`+${step * 10} m`}>►►</button>
+            </div>
+            {/* Step selector */}
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground">Δ</span>
+              <select value={step} onChange={e => setStep(Number(e.target.value))}
+                className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground">
+                {[1, 5, 10, 25, 50, 100].map(s => <option key={s} value={s}>{s} m</option>)}
+              </select>
+            </div>
+          </>
+        )}
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
-        {/* Mode */}
-        <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
-          {(["vertical", "normal"] as const).map(m => (
-            <button key={m}
-              onClick={() => send({ t: "setMode", mode: m })}
-              className={cn("px-2 py-0.5 transition-colors",
-                state?.mode === m ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {m === "vertical" ? "Vertikal" : "Normal"}
-            </button>
-          ))}
-        </div>
+        {/* Mode (only for alignment-based cross-section) */}
+        {!state?.isFaceSection && (
+          <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
+            {(["vertical", "normal"] as const).map(m => (
+              <button key={m}
+                onClick={() => send({ t: "setMode", mode: m })}
+                className={cn("px-2 py-0.5 transition-colors",
+                  state?.mode === m ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {m === "vertical" ? "Vertikal" : "Normal"}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="w-px h-5 bg-border mx-0.5" />
 

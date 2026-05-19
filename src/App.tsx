@@ -21,7 +21,7 @@ import { useBillingStore } from "./billing/billingStore";
 import { BatchPanel } from "./batch/BatchPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { CollisionPanel } from "./components/CollisionPanel";
-import { DroneOverlay } from "./components/DroneOverlay";
+import { DronePlay } from "./components/DronePlay";
 
 import { AlignmentPanel } from "./alignment/AlignmentPanel";
 import { ProfileViewer } from "./alignment/ProfileViewer";
@@ -132,7 +132,7 @@ function useCrossSectionSync() {
         t: "state", s: {
           station: store.crossSectionStation,
           alignmentId: store.crossSectionAlignmentId,
-          alignmentName: alignment?.displayName ?? "",
+          alignmentName: alignment?.displayName ?? (store.faceCrossSectionActive ? "Flächen-QS" : ""),
           staStart: alignment?.staStart ?? 0,
           staEnd: alignment?.staEnd ?? 0,
           mode: store.crossSectionMode,
@@ -141,6 +141,8 @@ function useCrossSectionSync() {
           computing: store.crossSectionComputing,
           showSectionSurface: store.showSectionSurface,
           objectLabels: store.crossSectionObjectLabels,
+          isFaceSection: store.faceCrossSectionActive,
+          faceOffset: store.faceCrossSectionOffset,
         },
       } satisfies XSMsg);
     };
@@ -165,8 +167,14 @@ function useCrossSectionSync() {
         store.setCrossSectionMode(msg.mode);
       } else if (msg.t === "toggleSectionSurface") {
         store.setShowSectionSurface(!store.showSectionSurface);
+      } else if (msg.t === "setFaceOffset") {
+        store.setFaceCrossSectionOffset(msg.offset);
       } else if (msg.t === "close") {
-        store.closeCrossSection();
+        if (store.faceCrossSectionActive) {
+          store.closeFaceCrossSection();
+        } else {
+          store.closeCrossSection();
+        }
         store.setShowSectionSurface(false);
       }
     };
@@ -179,7 +187,9 @@ function useCrossSectionSync() {
         state.crossSectionMode          !== prev.crossSectionMode          ||
         state.crossSectionComputing     !== prev.crossSectionComputing     ||
         state.showSectionSurface        !== prev.showSectionSurface        ||
-        state.crossSectionObjectLabels  !== prev.crossSectionObjectLabels
+        state.crossSectionObjectLabels  !== prev.crossSectionObjectLabels  ||
+        state.faceCrossSectionActive    !== prev.faceCrossSectionActive    ||
+        state.faceCrossSectionOffset    !== prev.faceCrossSectionOffset
       ) broadcast();
     });
 
@@ -643,7 +653,7 @@ function MainApp() {
 
       {settingsPanelOpen && <SettingsPanel />}
       {collisionPanelOpen && <CollisionPanel onClose={() => setCollisionPanelOpen(false)} />}
-      {activeTool === "drone" && <DroneOverlay />}
+      {activeTool === "drone" && <DronePlay />}
     </div>
   );
 }
