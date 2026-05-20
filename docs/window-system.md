@@ -33,10 +33,12 @@ Sekundär:   http://localhost:5173/?secondary&panel=hierarchy
                                               panel=qto
                                               panel=basket
 Billing:    http://localhost:5173/?billing
+QS-Viewer:  http://localhost:5173/?cross-section
+Kollision:  http://localhost:5173/?collision
 ```
 
 `main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
-`App.tsx` erkennt `?secondary` und rendert `<SecondaryWindow panel={...}>` statt der vollen App.
+`App.tsx` erkennt (in Reihenfolge) `?collision`, `?secondary`, `?cross-section` und rendert die jeweilige Ansicht.
 
 ---
 
@@ -144,6 +146,47 @@ export const PANEL_META: Record<PanelType, { label: string; w: number; h: number
 ```typescript
 export function openBillingWindow() {
   window.open(`?billing`, "infracore-billing", "width=1100,height=760,resizable=yes");
+}
+```
+
+### Kollisions-Fenster öffnen
+
+```typescript
+export function openCollisionWindow() {
+  window.open(`?collision`, "infracore-collision", "width=1100,height=780,resizable=yes");
+}
+```
+
+`App.tsx` erkennt `?collision` und rendert `<CollisionWindow>`.
+
+---
+
+## Kollisions-Fenster-Protokoll
+
+**Kanal:** `"infracore-collision"` (Konstante `COLLISION_CHANNEL`)
+
+```typescript
+type CollisionMsg =
+  | { t: "state"; s: CollisionSyncState }   // Main → Popup: aktueller Zustand
+  | { t: "req" }                             // Popup → Main: Initialzustand anfordern
+  | { t: "run"; rules: ClashRule[] }         // Popup → Main: Prüfung starten
+  | { t: "setStatus"; key: string; status }  // Popup → Main: Status eines Treffers ändern
+```
+
+### Ablauf
+1. Popup sendet `{ t: "req" }`
+2. Main antwortet mit vollem `CollisionSyncState` (Regeln, Ergebnisse, allTypes)
+3. User startet Prüfung → Popup sendet `{ t: "run"; rules }` → Main läuft Detection, sendet Fortschritt-Updates
+4. User ändert Status → Popup sendet `{ t: "setStatus" }` → Main aktualisiert und broadcastet neuen Zustand
+
+### CollisionSyncState
+```typescript
+interface CollisionSyncState {
+  rules: ClashRule[];
+  results: ClashResult[];
+  running: boolean;
+  progress: number;   // 0..100
+  allTypes: string[]; // alle IFC-Typen aus geladenen Modellen (für Rule-Editor)
 }
 ```
 

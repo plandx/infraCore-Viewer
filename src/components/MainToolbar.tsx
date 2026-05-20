@@ -8,7 +8,7 @@ import {
   Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
   Settings, AlertTriangle, Gamepad2,
 } from "lucide-react";
-import { openSecondaryWindow, openBillingWindow, PANEL_META } from "../utils/windowSync";
+import { openSecondaryWindow, openBillingWindow, openCollisionWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
 import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
 import { cn } from "../lib/utils";
@@ -44,7 +44,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
   const updateSettings    = useModelStore((s) => s.updateSettings);
   const setActiveTool     = useModelStore((s) => s.setActiveTool);
   const setSettingsPanelOpen  = useModelStore((s) => s.setSettingsPanelOpen);
-  const setCollisionPanelOpen = useModelStore((s) => s.setCollisionPanelOpen);
   const setSqlPanelOpen      = useModelStore((s) => s.setSqlPanelOpen);
   const sqlPanelOpen         = useModelStore((s) => s.sqlPanelOpen);
   const setProfilePanelOpen  = useModelStore((s) => s.setProfilePanelOpen);
@@ -610,7 +609,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         <button
           className="toolbar-button flex items-center gap-1 px-2 py-1 text-xs"
           title="Kollisionsprüfung (Solibri-Style)"
-          onClick={() => setCollisionPanelOpen(true)}
+          onClick={() => openCollisionWindow()}
           disabled={models.size === 0}
         >
           <AlertTriangle size={14} />

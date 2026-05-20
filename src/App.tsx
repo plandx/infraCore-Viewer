@@ -21,6 +21,7 @@ import { useBillingStore } from "./billing/billingStore";
 import { BatchPanel } from "./batch/BatchPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { CollisionPanel } from "./components/CollisionPanel";
+import { CollisionWindow } from "./components/CollisionWindow";
 import { DronePlay } from "./components/DronePlay";
 
 import { AlignmentPanel } from "./alignment/AlignmentPanel";
@@ -31,8 +32,9 @@ import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifcLoader";
-import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, serializeState, openSecondaryWindow } from "./utils/windowSync";
-import type { SyncMsg, XSMsg } from "./utils/windowSync";
+import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow } from "./utils/windowSync";
+import type { SyncMsg, XSMsg, CollisionMsg, ClashRule, ClashResult } from "./utils/windowSync";
+import { collectElements, runRuleBasedDetection } from "./utils/collisionUtils";
 import type { IFCModelEntry } from "./types/ifc";
 
 // ── detect secondary / cross-section windows ─────────────────────────────────
@@ -41,6 +43,7 @@ const _params = new URLSearchParams(window.location.search);
 const IS_SECONDARY = _params.has("secondary");
 const SECONDARY_PANEL = _params.get("panel") ?? "hierarchy";
 const IS_CROSS_SECTION = _params.has("cross-section");
+const IS_COLLISION = _params.has("collision");
 
 // ── root export (secondary windows skip the full app) ─────────────────────────
 
@@ -51,6 +54,7 @@ export default function App() {
     const fs = useModelStore.getState().settings.fontSize ?? "md";
     document.documentElement.setAttribute("data-font-size", fs);
   }, []);
+  if (IS_COLLISION) return <CollisionWindow />;
   if (IS_SECONDARY) return <SecondaryWindow panel={SECONDARY_PANEL} />;
   if (IS_CROSS_SECTION) return <CrossSectionWindow />;
   return <MainApp />;
@@ -199,6 +203,54 @@ function useCrossSectionSync() {
 }
 
 interface LoadState { phase: string; progress: number; fileName: string }
+
+// ── collision window sync hook ─────────────────────────────────────────────────
+
+function useCollisionSync() {
+  useEffect(() => {
+    let ch: BroadcastChannel;
+    try { ch = new BroadcastChannel(COLLISION_CHANNEL); } catch { return; }
+
+    const broadcast = (rules: ClashRule[], results: ClashResult[], running: boolean, progress: number) => {
+      const allTypes: string[] = [];
+      const s = new Set<string>();
+      for (const [, m] of useModelStore.getState().models) {
+        for (const t of Object.keys(m.elementsByType)) {
+          if (!s.has(t)) { s.add(t); allTypes.push(t); }
+        }
+      }
+      allTypes.sort();
+      ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes } } satisfies CollisionMsg);
+    };
+
+    let currentRules: ClashRule[] = DEFAULT_CLASH_RULES;
+    let currentResults: ClashResult[] = [];
+
+    ch.onmessage = async (e: MessageEvent<CollisionMsg>) => {
+      const msg = e.data;
+      if (msg.t === "req") {
+        broadcast(currentRules, currentResults, false, 0);
+      } else if (msg.t === "run") {
+        currentRules = msg.rules;
+        broadcast(currentRules, currentResults, true, 0);
+        const elements = collectElements(useModelStore.getState().models);
+        const results = await runRuleBasedDetection(elements, currentRules, (pct: number) => {
+          broadcast(currentRules, currentResults, true, pct);
+        });
+        currentResults = results;
+        broadcast(currentRules, currentResults, false, 100);
+      } else if (msg.t === "setStatus") {
+        currentResults = currentResults.map(r => {
+          const key = `${r.ruleId}|${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}`;
+          return key === msg.key ? { ...r, status: msg.status } : r;
+        });
+        broadcast(currentRules, currentResults, false, 100);
+      }
+    };
+
+    return () => { ch.close(); };
+  }, []);
+}
 
 function MainApp() {
   const [loadStates, setLoadStates]           = useState<Map<string, LoadState>>(new Map());
@@ -405,6 +457,7 @@ function MainApp() {
 
   useMainWindowSync(handleElementClick);
   useCrossSectionSync();
+  useCollisionSync();
 
   // Billing window element-list provider
   useEffect(() => {

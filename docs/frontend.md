@@ -6,25 +6,25 @@
 
 Neue Komponenten in `MainApp`:
 - `<SettingsPanel />` — Modal für Schriftgröße + Tastenkürzel (öffnet wenn `settingsPanelOpen`)
-- `<CollisionPanel />` — Kollisionsprüfungs-Dialog (öffnet wenn `collisionPanelOpen`)
+- `<CollisionPanel />` — Kollisionsprüfungs-Dialog (Legacy-Inline-Panel, bleibt im Render-Tree für Rückwärtskompatibilität)
 - `<DroneOverlay />` — Drohnen-HUD wenn `activeTool === "drone"`
 - `<FaceCrossSectionPanel />` — Flächen-QS-Steuerung (floating, wenn `faceCrossSectionActive`)
 
 Tastenkürzel aus `keyBindings` (Zustand-Store, localStorage-persistent) gelesen; `activeTool === "fly" || "drone"` deaktiviert alle Shortcuts außer Escape.
 
-```typescript
-const IS_SECONDARY = new URLSearchParams(window.location.search).has("secondary");
-const SECONDARY_PANEL = params.get("panel") ?? "hierarchy";
-```
-
-- Sekundär → `<SecondaryWindow panel={SECONDARY_PANEL} />`
-- Main → `<MainApp />`
+URL-Erkennung (in Reihenfolge):
+- `?collision` → `<CollisionWindow />` (Popup-Fenster für Kollisionsprüfung)
+- `?secondary&panel=…` → `<SecondaryWindow panel={…} />`
+- `?cross-section` → `<CrossSectionWindow />`
+- sonst → `<MainApp />`
 
 `MainApp` enthält das 3-spaltige Layout (HierarchyPanel | Viewport | PropertiesPanel) mit react-resizable-panels.
 
 `main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
 
 `MainApp` betreibt einen `BroadcastChannel("infracore-billing")`-Listener: antwortet auf `{ t: "ready" }` mit der aktuellen Elementliste und sendet bei Modellwechsel automatisch `{ t: "elements", list }`.
+
+`MainApp` betreibt außerdem `useCollisionSync()`: einen `BroadcastChannel("infracore-collision")`-Listener, der Prüfungsanfragen vom Kollisions-Popup entgegennimmt, die Detection in Web-Worker-ähnlichen `setTimeout`-Batches läuft und Fortschritt/Ergebnisse zurücksendet.
 
 ---
 
@@ -496,6 +496,23 @@ Wrapper für Sekundär-Fenster. Rendert je nach `panel`-Parameter:
 **Datei:** `src/components/LandingOverlay.tsx`
 
 Drag-and-Drop-Zone + „Datei öffnen"-Button. Verschwindet sobald Modelle geladen sind.
+
+---
+
+## CollisionWindow
+
+**Datei:** `src/components/CollisionWindow.tsx`
+
+Popup-Fenster (`?collision`) für regelbasierte Kollisionsprüfung. Kommuniziert ausschließlich via `BroadcastChannel("infracore-collision")`.
+
+- Auf Mount: sendet `{ t: "req" }` um aktuellen Zustand vom Main-Fenster zu laden
+- Zeigt Regelliste (links), Ergebnisliste (Mitte), Rule-Editor (rechts, optional)
+- "Prüfung starten": sendet `{ t: "run", rules }` → Main führt Detection durch
+- Statusänderungen: sendet `{ t: "setStatus", key, status }` → Main aktualisiert und broadcastet
+- Regel-Edits sind lokal bis zum nächsten "Prüfung starten"
+- Kein Zugriff auf Three.js/Modell-Daten direkt — alles läuft über BroadcastChannel
+
+Props: keine
 
 ---
 
