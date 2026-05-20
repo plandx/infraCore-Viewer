@@ -924,15 +924,23 @@ export function ViewportContainer({ onElementClick }: Props) {
     needsRenderRef.current = true;
   }, [settings.grid, settings.axes]);
 
-  // ── Scene background follows theme ────────────────────────────────────────
+  // ── Scene background + grid color follows theme ───────────────────────────
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
     scene.background = new THREE.Color(
       settings.theme === "light" ? "#e8edf2" : (settings.background ?? "#1a1b26")
     );
+    // Recreate grid with theme-appropriate color so it stays subtle in both modes
+    const old = scene.getObjectByName("__grid");
+    if (old) scene.remove(old);
+    const gridColor = settings.theme === "light" ? 0xc8d0d8 : 0x3b4261;
+    const grid = new THREE.GridHelper(10_000, 100, gridColor, gridColor);
+    grid.name = "__grid";
+    grid.visible = settings.grid ?? true;
+    scene.add(grid);
     needsRenderRef.current = true;
-  }, [settings.theme, settings.background]);
+  }, [settings.theme, settings.background, settings.grid]);
 
   // ── Sync models into scene ────────────────────────────────────────────────
   useEffect(() => {

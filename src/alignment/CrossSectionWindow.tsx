@@ -161,7 +161,6 @@ export function CrossSectionWindow() {
   const chRef = useRef<BroadcastChannel | null>(null);
 
   useEffect(() => {
-    document.documentElement.classList.add("dark");
     document.title = "Querschnitt — infraCore";
     let ch: BroadcastChannel;
     try { ch = new BroadcastChannel(CROSS_SECTION_CHANNEL); } catch { return; }
@@ -187,6 +186,11 @@ export function CrossSectionWindow() {
   }, []);
 
   const send = (msg: XSMsg) => chRef.current?.postMessage(msg);
+
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", state?.theme !== "light");
+  }, [state?.theme]);
 
   // ── Station navigation ────────────────────────────────────────────────────
   const [step, setStep] = useState(10);

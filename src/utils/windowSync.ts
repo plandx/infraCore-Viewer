@@ -100,6 +100,7 @@ export interface XSSyncState {
   /** Set when using face-based cross-section (no alignment) */
   isFaceSection?: boolean;
   faceOffset?: number;
+  theme?: "light" | "dark";
 }
 
 export type XSMsg =
@@ -189,6 +190,7 @@ export interface CollisionSyncState {
   progress: number;
   allTypes: string[];
   loadedPropKeys: string[];
+  theme?: "light" | "dark";
 }
 
 export type CollisionMsg =

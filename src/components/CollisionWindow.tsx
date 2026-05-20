@@ -24,6 +24,7 @@ export function CollisionWindow() {
     progress: 0,
     allTypes: [],
     loadedPropKeys: [],
+    theme: "dark",
   });
   const [activeRule, setActiveRule] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -32,6 +33,10 @@ export function CollisionWindow() {
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
   const [sortBy, setSortBy] = useState<SortBy>("severity");
   const [sortAsc, setSortAsc] = useState(true);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", state.theme !== "light");
+  }, [state.theme]);
 
   useEffect(() => {
     let ch: BroadcastChannel;

@@ -47,10 +47,9 @@ const IS_COLLISION = _params.has("collision");
 
 export default function App() {
   useEffect(() => {
-    document.documentElement.classList.add("dark");
-    // Apply saved font size on startup
-    const fs = useModelStore.getState().settings.fontSize ?? "md";
-    document.documentElement.setAttribute("data-font-size", fs);
+    const { settings } = useModelStore.getState();
+    document.documentElement.classList.toggle("dark", settings.theme !== "light");
+    document.documentElement.setAttribute("data-font-size", settings.fontSize ?? "md");
   }, []);
   if (IS_COLLISION) return <CollisionWindow />;
   if (IS_SECONDARY) return <SecondaryWindow panel={SECONDARY_PANEL} />;
@@ -145,6 +144,7 @@ function useCrossSectionSync() {
           objectLabels: store.crossSectionObjectLabels,
           isFaceSection: store.faceCrossSectionActive,
           faceOffset: store.faceCrossSectionOffset,
+          theme: useModelStore.getState().settings.theme,
         },
       } satisfies XSMsg);
     };
@@ -201,7 +201,11 @@ function useCrossSectionSync() {
       ) broadcast();
     });
 
-    return () => { ch.close(); unsub(); };
+    const unsubModel = useModelStore.subscribe((state, prev) => {
+      if (state.settings.theme !== prev.settings.theme) broadcast();
+    });
+
+    return () => { ch.close(); unsub(); unsubModel(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }
@@ -225,7 +229,7 @@ function useCollisionSync() {
         }
       }
       allTypes.sort();
-      ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes, loadedPropKeys: st.loadedPropKeys } } satisfies CollisionMsg);
+      ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes, loadedPropKeys: st.loadedPropKeys, theme: st.settings.theme } } satisfies CollisionMsg);
     };
 
     let currentRules: ClashRule[] = DEFAULT_CLASH_RULES;
@@ -258,7 +262,12 @@ function useCollisionSync() {
       }
     };
 
-    return () => { ch.close(); };
+    const unsubTheme = useModelStore.subscribe((state, prev) => {
+      if (state.settings.theme !== prev.settings.theme)
+        broadcast(currentRules, currentResults, false, currentResults.length > 0 ? 100 : 0);
+    });
+
+    return () => { ch.close(); unsubTheme(); };
   }, []);
 }
 
