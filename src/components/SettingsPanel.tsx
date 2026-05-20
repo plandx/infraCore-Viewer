@@ -19,7 +19,6 @@ const KEYBINDING_LABELS: Record<keyof KeyBindings, string> = {
   flyMode:         "Fly-Mode",
   hideSelected:    "Ausgewähltes ausblenden",
   showAll:         "Alles einblenden",
-  droneMode:       "Drohnen-Modus",
 };
 
 export function SettingsPanel() {

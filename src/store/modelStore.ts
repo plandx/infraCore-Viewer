@@ -117,10 +117,6 @@ interface ModelStore {
   settingsPanelOpen: boolean;
   setSettingsPanelOpen: (open: boolean) => void;
 
-  // Collision detection panel
-  collisionPanelOpen: boolean;
-  setCollisionPanelOpen: (open: boolean) => void;
-
   /** Apply a serialised state snapshot from the main window (secondary windows only). */
   applyRemoteState: (state: SyncState) => void;
 }
@@ -182,7 +178,6 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     } catch { return DEFAULT_KEYBINDINGS; }
   })(),
   settingsPanelOpen: false,
-  collisionPanelOpen: false,
 
   addModel: (model) =>
     set((state) => {
@@ -608,7 +603,6 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     set({ keyBindings: kb });
   },
   setSettingsPanelOpen: (open) => set({ settingsPanelOpen: open }),
-  setCollisionPanelOpen: (open) => set({ collisionPanelOpen: open }),
 
   // ── Remote state sync (secondary windows) ──────────────────────────────────
 

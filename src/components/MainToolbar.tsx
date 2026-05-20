@@ -6,7 +6,7 @@ import {
   Box, ChevronDown, LayoutGrid, Rotate3D,
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
   Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
-  Settings, AlertTriangle, Gamepad2,
+  Settings, AlertTriangle,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, openCollisionWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -597,15 +597,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
 
         <div className="w-px h-5 bg-border mx-1" />
 
-        {/* ── Tools: Drone + Collision ── */}
-        <button
-          className={cn("toolbar-button flex items-center gap-1 px-2 py-1 text-xs", activeTool === "drone" && "active text-primary")}
-          title="Drohnen-Kamera [B]"
-          onClick={() => setActiveTool(activeTool === "drone" ? "select" : "drone")}
-        >
-          <Gamepad2 size={14} />
-          <span className="text-[11px]">Drone</span>
-        </button>
+        {/* ── Tools: Collision ── */}
         <button
           className="toolbar-button flex items-center gap-1 px-2 py-1 text-xs"
           title="Kollisionsprüfung (Solibri-Style)"

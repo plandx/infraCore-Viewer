@@ -21,7 +21,6 @@ import { useBillingStore } from "./billing/billingStore";
 import { BatchPanel } from "./batch/BatchPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { CollisionWindow } from "./components/CollisionWindow";
-import { DronePlay } from "./components/DronePlay";
 
 import { AlignmentPanel } from "./alignment/AlignmentPanel";
 import { ProfileViewer } from "./alignment/ProfileViewer";
@@ -303,8 +302,8 @@ function MainApp() {
         return;
       }
 
-      // In fly/drone mode all shortcuts except Escape are handled by ViewportContainer's WASD handler
-      if (activeTool === "fly" || activeTool === "drone") return;
+      // In fly mode all shortcuts except Escape are handled by ViewportContainer's WASD handler
+      if (activeTool === "fly") return;
 
       if (isInput) return; // don't intercept typing in inputs
 
@@ -342,10 +341,6 @@ function MainApp() {
       if (key === kb.flyMode) {
         const cur = useModelStore.getState().activeTool;
         setActiveTool(cur === "fly" ? "select" : "fly"); return;
-      }
-      if (key === kb.droneMode) {
-        const cur = useModelStore.getState().activeTool;
-        setActiveTool(cur === "drone" ? "select" : "drone"); return;
       }
       if (key === kb.faceSectionTool) {
         setActiveTool(activeTool === "face-section" ? "select" : "face-section"); return;
@@ -703,7 +698,6 @@ function MainApp() {
       )}
 
       {settingsPanelOpen && <SettingsPanel />}
-      {activeTool === "drone" && <DronePlay />}
     </div>
   );
 }

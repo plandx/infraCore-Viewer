@@ -2735,45 +2735,10 @@ export function ViewportContainer({ onElementClick }: Props) {
     };
   }, [activeTool]);
 
-  // ── Drone mode bridge (DroneOverlay controls camera via custom events) ─────
-  useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
-
-    const onEnter = () => {
-      const controls = controlsRef.current;
-      if (controls) controls.enabled = false;
-    };
-    const onExit = () => {
-      const controls = controlsRef.current;
-      if (controls) controls.enabled = true;
-      needsRenderRef.current = true;
-    };
-    const onMoved = () => { needsRenderRef.current = true; };
-    const onGetState = (e: Event) => {
-      const detail = (e as CustomEvent).detail as Record<string, unknown>;
-      detail.camera = cameraRef.current ?? undefined;
-      detail.scene  = sceneRef.current ?? undefined;
-    };
-
-    mount.addEventListener("drone:enter",    onEnter);
-    mount.addEventListener("drone:exit",     onExit);
-    mount.addEventListener("drone:moved",    onMoved);
-    mount.addEventListener("drone:getState", onGetState);
-
-    return () => {
-      mount.removeEventListener("drone:enter",    onEnter);
-      mount.removeEventListener("drone:exit",     onExit);
-      mount.removeEventListener("drone:moved",    onMoved);
-      mount.removeEventListener("drone:getState", onGetState);
-    };
-  }, []);
-
   // Cursor style per tool
   const labelToolActive  = useAlignmentStore(s => s.labelToolActive);
   const offsetToolActive = useAlignmentStore(s => s.offsetToolActive);
   const cursor = activeTool === "fly"          ? "none"
-               : activeTool === "drone"         ? "none"
                : activeTool === "measure"       ? "crosshair"
                : activeTool === "section"       ? "crosshair"
                : activeTool === "face-section"  ? "crosshair"

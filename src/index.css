@@ -106,20 +106,6 @@
 [data-font-size="md"] { font-size: 14px; }
 [data-font-size="lg"] { font-size: 16px; }
 
-/* ── Drone HUD animations ──────────────────────────────────────────── */
-@keyframes drone-flash {
-  0%   { opacity: 1; }
-  100% { opacity: 0; }
-}
-@keyframes drone-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-@keyframes drone-flash-border {
-  0%, 100% { border-color: rgba(248,113,113,0.6); }
-  50%       { border-color: rgba(248,113,113,0.15); }
-}
-
 /* ── Base ──────────────────────────────────────────────────────────── */
 *, *::before, *::after { border-color: var(--color-border); box-sizing: border-box; }
 

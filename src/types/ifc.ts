@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type ActiveTool = "select" | "measure" | "section" | "fly" | "drone" | "face-section";
+export type ActiveTool = "select" | "measure" | "section" | "fly" | "face-section";
 export type BasketMode = "highlight" | "ghost" | "isolate";
 
 /** A single property override: edited value + optional IFC type code override */
@@ -232,7 +232,6 @@ export interface KeyBindings {
   flyMode: string;
   hideSelected: string;
   showAll: string;
-  droneMode: string;
 }
 
 export const DEFAULT_KEYBINDINGS: KeyBindings = {
@@ -249,7 +248,6 @@ export const DEFAULT_KEYBINDINGS: KeyBindings = {
   flyMode: "n",
   hideSelected: "delete",
   showAll: "shift+a",
-  droneMode: "b",
 };
 
 // ── Quantity Take-Off Lists ───────────────────────────────────────────────────
