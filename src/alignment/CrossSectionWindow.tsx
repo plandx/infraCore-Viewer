@@ -111,11 +111,11 @@ function buildLabelPositions(
   lines: Array<{ x1: number; y1: number; x2: number; y2: number; color: string; objectKey?: string }>,
   propKey: string,
   vxMin: number, vyMin: number, visW: number, visH: number, chartW: number, chartH: number,
+  mode: "leader" | "direct",
 ): ObjLabelPos[] {
   const _xs = (x: number) => M.left + (x - vxMin) / visW * chartW;
   const _ys = (y: number) => M.top  + (1 - (y - vyMin) / visH) * chartH;
 
-  // Use bounding box center for centroid — midpoint average skews toward long/dense segments
   const groups = new Map<string, { xMin: number; xMax: number; yMin: number; yMax: number; color: string }>();
   for (const l of lines) {
     if (!l.objectKey) continue;
@@ -144,12 +144,12 @@ function buildLabelPositions(
       : propKey === "type" ? lbl.type
       : (lbl.props[propKey] ?? lbl.name);
     if (!text) continue;
-    // Anchor to bounding box center; initial label above top edge of bounding box
     const cx = _xs((g.xMin + g.xMax) / 2);
     const cy = _ys((g.yMin + g.yMax) / 2);
-    const topSvg = _ys(g.yMax);
     const bw = Math.max(40, text.length * 6.5 + 12);
-    positions.push({ key: lbl.key, text, color: g.color, cx, cy, lx: cx - bw / 2, ly: topSvg - BH - 8, bw, bh: BH });
+    // leader: float box above bounding box top; direct: center box on object centroid
+    const initLy = mode === "direct" ? cy - BH / 2 : _ys(g.yMax) - BH - 8;
+    positions.push({ key: lbl.key, text, color: g.color, cx, cy, lx: cx - bw / 2, ly: initLy, bw, bh: BH });
   }
 
   deOverlapLabels(positions);
@@ -335,6 +335,7 @@ export function CrossSectionWindow() {
   // ── Object label overlay ─────────────────────────────────────────────────
   const [objLabelsVisible, setObjLabelsVisible] = useState(false);
   const [objLabelProp, setObjLabelProp] = useState("name");
+  const [labelStyle, setLabelStyle] = useState<"leader" | "direct">("leader");
 
   // ── Snap mode ────────────────────────────────────────────────────────────
   const [snapActive, setSnapActive] = useState(false);
@@ -390,8 +391,8 @@ export function CrossSectionWindow() {
   // Deps use numbers, not function references — memo actually works correctly
   const objLabelPositions = useMemo(() => {
     if (!objLabelsVisible || objectLabels.length === 0) return [];
-    return buildLabelPositions(objectLabels, lines, objLabelProp, vxMin, vyMin, visW, visH, chartW, chartH);
-  }, [objLabelsVisible, objectLabels, lines, objLabelProp, vxMin, vyMin, visW, visH, chartW, chartH]);
+    return buildLabelPositions(objectLabels, lines, objLabelProp, vxMin, vyMin, visW, visH, chartW, chartH, labelStyle);
+  }, [objLabelsVisible, objectLabels, lines, objLabelProp, vxMin, vyMin, visW, visH, chartW, chartH, labelStyle]);
 
   // ── Event handlers ────────────────────────────────────────────────────────
   const svgToWorldFromVp = (svgX: number, svgY: number, vp: typeof vpRef.current): [number, number] => [
@@ -691,6 +692,26 @@ export function CrossSectionWindow() {
             ))}
           </select>
         )}
+        {objLabelsVisible && (
+          <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium" title="Beschriftungsstil">
+            <button
+              onClick={() => setLabelStyle("leader")}
+              className={cn("px-2 py-0.5 transition-colors",
+                labelStyle === "leader" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Linie
+            </button>
+            <button
+              onClick={() => setLabelStyle("direct")}
+              className={cn("px-2 py-0.5 transition-colors",
+                labelStyle === "direct" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Direkt
+            </button>
+          </div>
+        )}
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
@@ -884,8 +905,20 @@ export function CrossSectionWindow() {
               );
             })()}
 
-            {/* Object labels with leader lines */}
+            {/* Object labels */}
             {objLabelPositions.map(lbl => {
+              if (labelStyle === "direct") {
+                return (
+                  <g key={lbl.key}>
+                    <rect x={lbl.lx} y={lbl.ly} width={lbl.bw} height={lbl.bh} rx={3}
+                      fill="var(--color-popover)" stroke={lbl.color} strokeWidth={1} opacity={0.92} />
+                    <text x={lbl.lx + lbl.bw / 2} y={lbl.ly + lbl.bh - 4}
+                      textAnchor="middle" fontSize={9}
+                      fill={lbl.color} fontFamily="sans-serif" fontWeight="600">{lbl.text}</text>
+                  </g>
+                );
+              }
+              // leader mode
               const clampedCx = Math.max(M.left, Math.min(M.left + chartW, lbl.cx));
               const clampedCy = Math.max(M.top,  Math.min(M.top + chartH,  lbl.cy));
               const boxCx = lbl.lx + lbl.bw / 2;
