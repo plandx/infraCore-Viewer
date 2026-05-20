@@ -175,8 +175,10 @@ export interface ClashResult {
   ruleId: string;
   ruleName: string;
   severity: Severity;
+  checkType: CheckType;
   modelIdA: string; expressIdA: number; nameA: string; typeA: string;
   modelIdB: string; expressIdB: number; nameB: string; typeB: string;
+  /** For clearance: gap in metres. For hard-clash/duplicate: 0 (exact volume not computed). */
   overlap: number;
   status: ClashStatus;
   propsA?: Record<string, string>;

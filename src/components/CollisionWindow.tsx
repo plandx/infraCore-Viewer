@@ -299,13 +299,6 @@ export function CollisionWindow() {
 
           {hasRun && !state.running && (
             <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              {/* AABB approximation notice */}
-              <div className="px-4 py-1.5 border-b border-border/50 shrink-0 flex items-center gap-1.5 bg-amber-400/5">
-                <AlertTriangle size={10} className="text-amber-400/70 shrink-0" />
-                <span className="text-[10px] text-muted-foreground">
-                  Hüllkörper-Näherung (AABB) — Ergebnisse visuell prüfen. Gebogene Elemente erzeugen größere Boxen als die tatsächliche Geometrie.
-                </span>
-              </div>
               {/* Summary bar */}
               <div className="px-4 py-2 border-b border-border shrink-0 flex items-center justify-between flex-wrap gap-2">
                 <div className="flex gap-4">
@@ -416,8 +409,8 @@ export function CollisionWindow() {
                             </button>
                             <div className="shrink-0 flex items-center gap-1.5">
                               <div className="flex flex-col items-end gap-0.5">
-                                <span className="text-[9px] text-muted-foreground font-mono" title="Hüllkörper-Überschneidung (Näherung)">
-                                  {r.overlap > 0 ? `~${r.overlap.toFixed(4)} m³` : "clearance"}
+                                <span className="text-[9px] text-muted-foreground font-mono">
+                                  {r.checkType === "clearance" ? `${r.overlap.toFixed(3)} m Abst.` : r.checkType === "duplicate" ? "Duplikat" : "Kollision"}
                                 </span>
                                 <span className="flex items-center gap-1">{statusIcon(r.status)}</span>
                               </div>

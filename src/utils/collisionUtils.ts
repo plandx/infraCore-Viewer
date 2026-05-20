@@ -1,71 +1,53 @@
 import * as THREE from "three";
+import { MeshBVH, StaticGeometryGenerator } from "three-mesh-bvh";
 import type { IFCModelEntry } from "../types/ifc";
 import type { ClashRule, ClashResult, PropCondition, ComponentFilter } from "./windowSync";
 export type { ClashRule, ClashResult, PropCondition, ComponentFilter } from "./windowSync";
 export { DEFAULT_CLASH_RULES } from "./windowSync";
 
-// ── AABB helpers ───────────────────────────────────────────────────────────────
-
-function aabbOverlap(a: THREE.Box3, b: THREE.Box3): number {
-  const ox = Math.min(a.max.x, b.max.x) - Math.max(a.min.x, b.min.x);
-  const oy = Math.min(a.max.y, b.max.y) - Math.max(a.min.y, b.min.y);
-  const oz = Math.min(a.max.z, b.max.z) - Math.max(a.min.z, b.min.z);
-  if (ox <= 0 || oy <= 0 || oz <= 0) return 0;
-  return ox * oy * oz;
-}
-
-function aabbGap(a: THREE.Box3, b: THREE.Box3): number {
-  const gx = Math.max(a.min.x, b.min.x) - Math.min(a.max.x, b.max.x);
-  const gy = Math.max(a.min.y, b.min.y) - Math.min(a.max.y, b.max.y);
-  const gz = Math.max(a.min.z, b.min.z) - Math.min(a.max.z, b.max.z);
-  return Math.max(gx, gy, gz);
-}
-
-function aabbNearlyEqual(a: THREE.Box3, b: THREE.Box3, tol: number): boolean {
-  return (
-    Math.abs(a.min.x - b.min.x) < tol && Math.abs(a.max.x - b.max.x) < tol &&
-    Math.abs(a.min.y - b.min.y) < tol && Math.abs(a.max.y - b.max.y) < tol &&
-    Math.abs(a.min.z - b.min.z) < tol && Math.abs(a.max.z - b.max.z) < tol
-  );
-}
-
-function boxVolume(b: THREE.Box3): number {
-  const s = b.getSize(new THREE.Vector3());
-  return s.x * s.y * s.z;
-}
-
-// ── Element collection ─────────────────────────────────────────────────────────
+// ── Element record ─────────────────────────────────────────────────────────────
 
 export interface ElementRecord {
   modelId: string;
   expressId: number;
   name: string;
   type: string;
+  /** World-space merged geometry for precise triangle intersection tests */
+  geometry: THREE.BufferGeometry;
+  /** World-space AABB — used for quick pre-filter before expensive BVH test */
   box: THREE.Box3;
   props: Record<string, string>;
 }
 
-// Tags that mark non-IFC overlay meshes — must not contribute to element AABBs
+// Tags that mark non-IFC overlay meshes
 const OVERLAY_FLAGS = [
   "isHighlight", "isBillingOverlay", "isXSSurface",
   "isSectionVisual", "isSectionCap", "isGeometryInspector",
   "isEdge", "isAlignment",
 ] as const;
 
+// ── Element collection ─────────────────────────────────────────────────────────
+
+/**
+ * Builds one ElementRecord per IFC element by:
+ * 1. Ensuring all world matrices are current
+ * 2. Collecting every sub-mesh that belongs to the element
+ * 3. Using StaticGeometryGenerator to merge them into a single world-space
+ *    BufferGeometry — this preserves the exact shape including rotations,
+ *    openings, and arbitrary placements
+ */
 export function collectElements(models: Map<string, IFCModelEntry>): ElementRecord[] {
   const result: ElementRecord[] = [];
   for (const [modelId, model] of models) {
     if (!model.visible || model.status !== "loaded") continue;
 
-    // Ensure all world matrices are current before computing world-space AABBs.
-    // Without this, recently-shifted models return stale transforms.
+    // Ensure all world matrices are current before reading matrixWorld
     model.mesh.updateWorldMatrix(true, true);
 
-    const typeByExpr  = new Map<number, string>();
-    const nameByExpr  = new Map<number, string>();
-    const propsByExpr = new Map<number, Record<string, string>>();
-    // One merged AABB per IFC element — union of all its sub-mesh geometries.
-    const boxByExpr   = new Map<number, THREE.Box3>();
+    const typeByExpr   = new Map<number, string>();
+    const nameByExpr   = new Map<number, string>();
+    const propsByExpr  = new Map<number, Record<string, string>>();
+    const meshByExpr   = new Map<number, THREE.Mesh[]>();
 
     for (const [type, els] of Object.entries(model.elementsByType)) {
       for (const el of els as Array<{ expressId: number; name: string; properties?: Record<string, string> }>) {
@@ -78,45 +60,74 @@ export function collectElements(models: Map<string, IFCModelEntry>): ElementReco
     model.mesh.traverse(obj => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
-
       const eid = mesh.userData?.expressId as number | undefined;
       if (!eid) return;
-
-      // Skip overlays — their userData flags differ from IFC elements
       if (OVERLAY_FLAGS.some(f => mesh.userData[f])) return;
+      const pos = mesh.geometry?.getAttribute("position");
+      if (!pos || pos.count === 0) return;
 
-      // Compute AABB from this mesh's OWN geometry only (no children).
-      // setFromObject() recurses into children which can inflate the box when
-      // edge-overlays, highlights, or inspector geometry are attached.
-      const posAttr = mesh.geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
-      if (!posAttr || posAttr.count === 0) return;
-
-      const geomBox = new THREE.Box3().setFromBufferAttribute(posAttr);
-      if (geomBox.isEmpty()) return;
-
-      // Transform local-space AABB into world space using the already-updated matrix.
-      geomBox.applyMatrix4(mesh.matrixWorld);
-
-      const existing = boxByExpr.get(eid);
-      if (existing) {
-        existing.union(geomBox);
-      } else {
-        boxByExpr.set(eid, geomBox);
-      }
+      const arr = meshByExpr.get(eid) ?? [];
+      arr.push(mesh);
+      meshByExpr.set(eid, arr);
     });
 
-    for (const [eid, box] of boxByExpr) {
+    for (const [eid, meshes] of meshByExpr) {
+      // Build one world-space geometry per element by transforming each
+      // sub-mesh's vertices into world space and merging them.
+      const worldGeos: THREE.BufferGeometry[] = [];
+      for (const m of meshes) {
+        const g = m.geometry.clone();
+        // Transform vertex positions to world space
+        g.applyMatrix4(m.matrixWorld);
+        // Keep only position + index (normal not needed for intersection)
+        const stripped = new THREE.BufferGeometry();
+        stripped.setAttribute("position", g.getAttribute("position"));
+        if (g.index) stripped.setIndex(g.index);
+        worldGeos.push(stripped);
+      }
+      if (worldGeos.length === 0) continue;
+
+      let merged: THREE.BufferGeometry;
+      if (worldGeos.length === 1) {
+        merged = worldGeos[0];
+      } else {
+        // Merge all sub-geometries into one world-space geometry.
+        // We use StaticGeometryGenerator — pass Meshes with identity matrix
+        // since vertices are already in world space.
+        const dummyMeshes = worldGeos.map(g => {
+          const m = new THREE.Mesh(g);
+          m.matrixAutoUpdate = false;
+          m.matrix.identity();
+          m.matrixWorld.identity();
+          return m;
+        });
+        const gen = new StaticGeometryGenerator(dummyMeshes);
+        gen.useGroups = false;
+        merged = gen.generate();
+        worldGeos.forEach(g => g.dispose());
+      }
+
+      const box = new THREE.Box3().setFromBufferAttribute(
+        merged.getAttribute("position") as THREE.BufferAttribute
+      );
+      if (box.isEmpty()) { merged.dispose(); continue; }
+
       result.push({
-        modelId,
-        expressId: eid,
-        name: nameByExpr.get(eid) ?? `Element ${eid}`,
-        type: typeByExpr.get(eid) ?? "Unknown",
+        modelId, expressId: eid,
+        name:  nameByExpr.get(eid)  ?? `Element ${eid}`,
+        type:  typeByExpr.get(eid)  ?? "Unknown",
+        geometry: merged,
         box,
         props: propsByExpr.get(eid) ?? {},
       });
     }
   }
   return result;
+}
+
+/** Free geometry memory after detection is complete */
+export function disposeElements(elements: ElementRecord[]): void {
+  for (const e of elements) e.geometry.dispose();
 }
 
 // ── Property filter evaluation ─────────────────────────────────────────────────
@@ -139,14 +150,44 @@ export function matchesFilter(el: ElementRecord, filter: ComponentFilter): boole
   return matchesPropConditions(el.props, filter.conditions);
 }
 
+// ── Intersection helpers ───────────────────────────────────────────────────────
+
+/**
+ * True geometry intersection test using BVH triangle-triangle queries.
+ * Geometries are already in world space so the transform passed to
+ * intersectsGeometry is identity.
+ */
+function geometriesIntersect(geoA: THREE.BufferGeometry, geoB: THREE.BufferGeometry): boolean {
+  // Build BVH on A (cheaper than building on both; B is queried against it)
+  if (!(geoA as { boundsTree?: MeshBVH }).boundsTree) {
+    (geoA as { boundsTree?: MeshBVH }).boundsTree = new MeshBVH(geoA, { maxLeafTris: 8 });
+  }
+  const bvh = (geoA as { boundsTree: MeshBVH }).boundsTree;
+  return bvh.intersectsGeometry(geoB, new THREE.Matrix4()); // identity — already world space
+}
+
+/**
+ * AABB gap in metres — negative means overlap.
+ * Used for clearance checks where we want the signed distance between boxes.
+ */
+function aabbSignedGap(a: THREE.Box3, b: THREE.Box3): number {
+  const gx = Math.max(a.min.x, b.min.x) - Math.min(a.max.x, b.max.x);
+  const gy = Math.max(a.min.y, b.min.y) - Math.min(a.max.y, b.max.y);
+  const gz = Math.max(a.min.z, b.min.z) - Math.min(a.max.z, b.max.z);
+  return Math.max(gx, gy, gz);
+}
+
+function aabbNearlyEqual(a: THREE.Box3, b: THREE.Box3, tol: number): boolean {
+  return (
+    Math.abs(a.min.x - b.min.x) < tol && Math.abs(a.max.x - b.max.x) < tol &&
+    Math.abs(a.min.y - b.min.y) < tol && Math.abs(a.max.y - b.max.y) < tol &&
+    Math.abs(a.min.z - b.min.z) < tol && Math.abs(a.max.z - b.max.z) < tol
+  );
+}
+
 // ── Detection engine ───────────────────────────────────────────────────────────
 
 const MAX_RESULTS_PER_RULE = 500;
-
-// Minimum overlap as a fraction of the smaller element's AABB volume.
-// Filters out cases where two large-box elements just barely touch —
-// a strong indicator of AABB approximation noise rather than real intersection.
-const MIN_RELATIVE_OVERLAP = 0.01; // 1 %
 
 export function runRuleBasedDetection(
   elements: ElementRecord[],
@@ -168,13 +209,11 @@ export function runRuleBasedDetection(
     let done = 0;
     let ruleIdx = 0;
     let iA = 0;
-
-    // Deduplicate set by rule-level key to avoid re-checking swapped pairs
     const checkedPairs = new Set<string>();
 
     const step = () => {
       const { rule, setA, setB } = setsByRule[ruleIdx];
-      const batchEnd = Math.min(iA + 30, setA.length);
+      const batchEnd = Math.min(iA + 20, setA.length); // smaller batches — BVH tests are heavier
 
       for (; iA < batchEnd; iA++) {
         const a = setA[iA];
@@ -186,7 +225,7 @@ export function runRuleBasedDetection(
         for (const b of setB) {
           if (a.modelId === b.modelId && a.expressId === b.expressId) continue;
 
-          // Canonical key (smaller id first) avoids checking A↔B and B↔A
+          // Canonical pair key (order-independent)
           const kA = `${a.modelId}:${a.expressId}`;
           const kB = `${b.modelId}:${b.expressId}`;
           const pairKey = `${rule.id}|${kA < kB ? kA + "|" + kB : kB + "|" + kA}`;
@@ -197,30 +236,33 @@ export function runRuleBasedDetection(
           let measure = 0;
 
           if (rule.checkType === "hard-clash") {
-            const vol = aabbOverlap(a.box, b.box);
-            if (vol > rule.tolerance) {
-              // Require overlap to represent at least MIN_RELATIVE_OVERLAP of
-              // the smaller element's box volume.  This suppresses false positives
-              // that arise from AABB over-approximation of curved / complex geometry.
-              const minVol = Math.min(boxVolume(a.box), boxVolume(b.box));
-              if (minVol <= 0 || vol / minVol >= MIN_RELATIVE_OVERLAP) {
-                triggered = true;
-                measure = vol;
-              }
+            // Fast AABB pre-filter — if boxes don't overlap the geometries can't either
+            const overlapX = Math.min(a.box.max.x, b.box.max.x) - Math.max(a.box.min.x, b.box.min.x);
+            const overlapY = Math.min(a.box.max.y, b.box.max.y) - Math.max(a.box.min.y, b.box.min.y);
+            const overlapZ = Math.min(a.box.max.z, b.box.max.z) - Math.max(a.box.min.z, b.box.min.z);
+            if (overlapX > -rule.tolerance && overlapY > -rule.tolerance && overlapZ > -rule.tolerance) {
+              triggered = geometriesIntersect(a.geometry, b.geometry);
             }
           } else if (rule.checkType === "clearance") {
-            const gap = aabbGap(a.box, b.box);
-            if (gap < rule.tolerance && gap > -0.001) { triggered = true; measure = gap; }
+            const gap = aabbSignedGap(a.box, b.box);
+            // Report if elements are close (within tolerance) but not already hard-clashing
+            if (gap >= 0 && gap < rule.tolerance) {
+              triggered = true;
+              measure = gap;
+            }
           } else if (rule.checkType === "duplicate") {
-            if (aabbNearlyEqual(a.box, b.box, rule.tolerance)) { triggered = true; measure = 0; }
+            if (aabbNearlyEqual(a.box, b.box, rule.tolerance)) {
+              triggered = geometriesIntersect(a.geometry, b.geometry);
+            }
           }
 
           if (triggered) {
             results.push({
               ruleId: rule.id, ruleName: rule.name, severity: rule.severity,
+              checkType: rule.checkType,
               modelIdA: a.modelId, expressIdA: a.expressId, nameA: a.name, typeA: a.type,
               modelIdB: b.modelId, expressIdB: b.expressId, nameB: b.name, typeB: b.type,
-              overlap: Math.round(measure * 10000) / 10000,
+              overlap: measure,
               status: "new",
               propsA: a.props, propsB: b.props,
             });
@@ -240,6 +282,13 @@ export function runRuleBasedDetection(
         setTimeout(step, 0);
       } else {
         onProgress(100);
+        // Free BVH memory
+        for (const el of elements) {
+          const g = el.geometry as { boundsTree?: MeshBVH };
+          if (g.boundsTree) {
+            g.boundsTree = undefined;
+          }
+        }
         resolve(results);
       }
     };
