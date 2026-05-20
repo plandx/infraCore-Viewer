@@ -115,6 +115,10 @@
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
+@keyframes drone-flash-border {
+  0%, 100% { border-color: rgba(248,113,113,0.6); }
+  50%       { border-color: rgba(248,113,113,0.15); }
+}
 
 /* ── Base ──────────────────────────────────────────────────────────── */
 *, *::before, *::after { border-color: var(--color-border); box-sizing: border-box; }
