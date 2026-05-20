@@ -209,7 +209,13 @@ export async function loadIFCFile(
 
   const header = extractIFCHeader(api, modelId);
 
-  api.CloseModel(modelId);
+  // Keep the model open in propModelCache so the first element click is instant.
+  // evictPropModelCache() will close it when the model is removed.
+  if (!propModelCache.has(file)) {
+    propModelCache.set(file, { modelId, api });
+  } else {
+    api.CloseModel(modelId);
+  }
   onProgress({ phase: "Fertig", progress: 100 });
 
   const entry: Omit<IFCModelEntry, "id"> = {
@@ -306,55 +312,48 @@ export async function loadBasketProperties(
   file: File,
   expressIds: number[]
 ): Promise<Map<number, { properties: Record<string, unknown>; psets: PropertySet[] }>> {
-  const buffer = await file.arrayBuffer();
-  const data = new Uint8Array(buffer);
-  const api = await getIfcApi();
-  const modelId = api.OpenModel(data, { COORDINATE_TO_ORIGIN: false });
+  const { api, modelId } = await getOrOpenPropModel(file);
   const result = new Map<number, { properties: Record<string, unknown>; psets: PropertySet[] }>();
 
-  try {
-    for (const eid of expressIds) {
-      const props: Record<string, unknown> = {};
-      const psets: PropertySet[] = [];
+  for (const eid of expressIds) {
+    const props: Record<string, unknown> = {};
+    const psets: PropertySet[] = [];
 
-      try {
-        const itemProps = await api.properties.getItemProperties(modelId, eid, false);
-        if (itemProps) {
-          for (const [k, v] of Object.entries(itemProps as Record<string, unknown>)) {
-            if (k === "expressID") continue;
-            const scalar = (v as { value?: unknown } | null)?.value;
-            props[k] = scalar !== undefined ? scalar : v;
+    try {
+      const itemProps = await api.properties.getItemProperties(modelId, eid, false);
+      if (itemProps) {
+        for (const [k, v] of Object.entries(itemProps as Record<string, unknown>)) {
+          if (k === "expressID") continue;
+          const scalar = (v as { value?: unknown } | null)?.value;
+          props[k] = scalar !== undefined ? scalar : v;
+        }
+      }
+    } catch { /* element may have no direct props */ }
+
+    try {
+      const _iPsets = await api.properties.getPropertySets(modelId, eid, true, false);
+      const _tPsets = await api.properties.getPropertySets(modelId, eid, true, true).catch(() => []);
+      const rawPsets = [..._iPsets, ..._tPsets];
+      for (const pset of rawPsets) {
+        if (!pset) continue;
+        const psetName = String(pset?.Name?.value ?? "PropertySet");
+        const psetProps: PropertySet["properties"] = [];
+        const hasProp = pset?.HasProperties;
+        if (Array.isArray(hasProp)) {
+          for (const prop of hasProp) {
+            if (!prop) continue;
+            psetProps.push({
+              name: String(prop?.Name?.value ?? ""),
+              value: prop?.NominalValue?.value ?? prop?.Value?.value ?? null,
+              type: String(prop?.type ?? ""),
+            });
           }
         }
-      } catch { /* element may have no direct props */ }
+        if (psetProps.length > 0) psets.push({ name: psetName, properties: psetProps });
+      }
+    } catch { /* psets optional */ }
 
-      try {
-        const _iPsets = await api.properties.getPropertySets(modelId, eid, true, false);
-        const _tPsets = await api.properties.getPropertySets(modelId, eid, true, true).catch(() => []);
-        const rawPsets = [..._iPsets, ..._tPsets];
-        for (const pset of rawPsets) {
-          if (!pset) continue;
-          const psetName = String(pset?.Name?.value ?? "PropertySet");
-          const psetProps: PropertySet["properties"] = [];
-          const hasProp = pset?.HasProperties;
-          if (Array.isArray(hasProp)) {
-            for (const prop of hasProp) {
-              if (!prop) continue;
-              psetProps.push({
-                name: String(prop?.Name?.value ?? ""),
-                value: prop?.NominalValue?.value ?? prop?.Value?.value ?? null,
-                type: String(prop?.type ?? ""),
-              });
-            }
-          }
-          if (psetProps.length > 0) psets.push({ name: psetName, properties: psetProps });
-        }
-      } catch { /* psets optional */ }
-
-      result.set(eid, { properties: props, psets });
-    }
-  } finally {
-    api.CloseModel(modelId);
+    result.set(eid, { properties: props, psets });
   }
 
   return result;
@@ -415,112 +414,119 @@ function applyPset(
  * Complexity: O(R + P) instead of O(N × R).
  * Typical speedup on large models: 20–50×.
  */
+const YIELD_EVERY = 80;
+const yieldToMain = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
 export async function loadAllElementProperties(
   file: File,
   expressIds: number[],
   onProgress?: (done: number, total: number) => void
 ): Promise<Map<number, FlatElementProps>> {
-  const buffer = await file.arrayBuffer();
-  const data   = new Uint8Array(buffer);
-  const api    = await getIfcApi();
-  const modelId = api.OpenModel(data, { COORDINATE_TO_ORIGIN: false });
-  const result  = new Map<number, FlatElementProps>();
+  const { api, modelId } = await getOrOpenPropModel(file);
+  const result = new Map<number, FlatElementProps>();
 
+  const eidSet = new Set(expressIds);
+
+  // ── 1. Direct item properties — batch load all elements at once ──────────
+  let lines: unknown[];
   try {
-    const eidSet = new Set(expressIds);
-
-    // ── 1. Direct item properties — batch load all elements at once ──────────
-    // GetLines() is one synchronous WASM call for the whole array.
-    let lines: unknown[];
-    try {
-      lines = (api as unknown as { GetLines(m: number, ids: number[], f: boolean, inv: boolean): unknown[] })
-        .GetLines(modelId, expressIds, false, false);
-    } catch {
-      lines = expressIds.map(eid => {
-        try { return api.GetLine(modelId, eid); } catch { return null; }
-      });
-    }
+    lines = (api as unknown as { GetLines(m: number, ids: number[], f: boolean, inv: boolean): unknown[] })
+      .GetLines(modelId, expressIds, false, false);
+  } catch {
+    lines = [];
     for (let i = 0; i < expressIds.length; i++) {
-      const flat: FlatElementProps = {};
-      const line = lines[i] as RawLine | null;
-      if (line) {
-        for (const [k, v] of Object.entries(line)) {
-          if (k !== "expressID" && k !== "type") flat[k] = extractScalar(v);
-        }
-      }
-      result.set(expressIds[i], flat);
+      try { lines.push(api.GetLine(modelId, expressIds[i])); } catch { lines.push(null); }
+      if (i % YIELD_EVERY === 0) await yieldToMain();
     }
-    onProgress?.(Math.round(expressIds.length * 0.2), expressIds.length);
-
-    // ── 2. Instance property sets via IfcRelDefinesByProperties ─────────────
-    // One scan of all relationships → psetId → Set<elementId> index.
-    {
-      const relIds     = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYPROPERTIES);
-      const psetToEids = new Map<number, Set<number>>();
-
-      for (let i = 0; i < relIds.size(); i++) {
-        const rel = api.GetLine(modelId, relIds.get(i)) as RawLine | null;
-        if (!rel) continue;
-        const psetId = (rel.RelatingPropertyDefinition as { value?: number } | null)?.value;
-        if (!psetId) continue;
-        const related = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
-        for (const obj of related) {
-          const eid = obj?.value;
-          if (!eid || !eidSet.has(eid)) continue;
-          if (!psetToEids.has(psetId)) psetToEids.set(psetId, new Set());
-          psetToEids.get(psetId)!.add(eid);
-        }
-      }
-
-      // Load each unique pset once and distribute to all linked elements.
-      for (const [psetId, eids] of psetToEids) {
-        try {
-          const pset = api.GetLine(modelId, psetId, true) as RawLine | null;
-          if (pset) applyPset(pset, eids, result);
-        } catch { /* malformed pset */ }
-      }
-    }
-    onProgress?.(Math.round(expressIds.length * 0.7), expressIds.length);
-
-    // ── 3. Type-level property sets via IfcRelDefinesByType ──────────────────
-    {
-      const relIds = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYTYPE);
-
-      for (let i = 0; i < relIds.size(); i++) {
-        const rel = api.GetLine(modelId, relIds.get(i)) as RawLine | null;
-        if (!rel) continue;
-        const typeId = (rel.RelatingType as { value?: number } | null)?.value;
-        if (!typeId) continue;
-
-        const eids = new Set<number>();
-        const related = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
-        for (const obj of related) {
-          const eid = obj?.value;
-          if (eid && eidSet.has(eid)) eids.add(eid);
-        }
-        if (eids.size === 0) continue;
-
-        // IfcTypeObject.HasPropertySets
-        const typeObj = api.GetLine(modelId, typeId) as RawLine | null;
-        if (!typeObj) continue;
-        const psetRefs = Array.isArray(typeObj.HasPropertySets)
-          ? typeObj.HasPropertySets as { value?: number }[]
-          : [];
-        for (const ref of psetRefs) {
-          const psetId = ref?.value;
-          if (!psetId) continue;
-          try {
-            const pset = api.GetLine(modelId, psetId, true) as RawLine | null;
-            if (pset) applyPset(pset, eids, result);
-          } catch { /* skip */ }
-        }
-      }
-    }
-    onProgress?.(expressIds.length, expressIds.length);
-
-  } finally {
-    api.CloseModel(modelId);
   }
+  for (let i = 0; i < expressIds.length; i++) {
+    const flat: FlatElementProps = {};
+    const line = lines[i] as RawLine | null;
+    if (line) {
+      for (const [k, v] of Object.entries(line)) {
+        if (k !== "expressID" && k !== "type") flat[k] = extractScalar(v);
+      }
+    }
+    result.set(expressIds[i], flat);
+  }
+  onProgress?.(Math.round(expressIds.length * 0.2), expressIds.length);
+  await yieldToMain();
+
+  // ── 2. Instance property sets via IfcRelDefinesByProperties ─────────────
+  {
+    const relIds     = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYPROPERTIES);
+    const psetToEids = new Map<number, Set<number>>();
+    const total      = relIds.size();
+
+    for (let i = 0; i < total; i++) {
+      const rel = api.GetLine(modelId, relIds.get(i)) as RawLine | null;
+      if (rel) {
+        const psetId = (rel.RelatingPropertyDefinition as { value?: number } | null)?.value;
+        if (psetId) {
+          const related = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
+          for (const obj of related) {
+            const eid = obj?.value;
+            if (eid && eidSet.has(eid)) {
+              if (!psetToEids.has(psetId)) psetToEids.set(psetId, new Set());
+              psetToEids.get(psetId)!.add(eid);
+            }
+          }
+        }
+      }
+      if (i % YIELD_EVERY === 0) await yieldToMain();
+    }
+
+    let p = 0;
+    for (const [psetId, eids] of psetToEids) {
+      try {
+        const pset = api.GetLine(modelId, psetId, true) as RawLine | null;
+        if (pset) applyPset(pset, eids, result);
+      } catch { /* malformed pset */ }
+      p++;
+      if (p % YIELD_EVERY === 0) await yieldToMain();
+    }
+  }
+  onProgress?.(Math.round(expressIds.length * 0.7), expressIds.length);
+  await yieldToMain();
+
+  // ── 3. Type-level property sets via IfcRelDefinesByType ──────────────────
+  {
+    const relIds = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYTYPE);
+    const total  = relIds.size();
+
+    for (let i = 0; i < total; i++) {
+      const rel = api.GetLine(modelId, relIds.get(i)) as RawLine | null;
+      if (rel) {
+        const typeId = (rel.RelatingType as { value?: number } | null)?.value;
+        if (typeId) {
+          const eids = new Set<number>();
+          const related = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
+          for (const obj of related) {
+            const eid = obj?.value;
+            if (eid && eidSet.has(eid)) eids.add(eid);
+          }
+          if (eids.size > 0) {
+            const typeObj = api.GetLine(modelId, typeId) as RawLine | null;
+            if (typeObj) {
+              const psetRefs = Array.isArray(typeObj.HasPropertySets)
+                ? typeObj.HasPropertySets as { value?: number }[]
+                : [];
+              for (const ref of psetRefs) {
+                const psetId = ref?.value;
+                if (!psetId) continue;
+                try {
+                  const pset = api.GetLine(modelId, psetId, true) as RawLine | null;
+                  if (pset) applyPset(pset, eids, result);
+                } catch { /* skip */ }
+              }
+            }
+          }
+        }
+      }
+      if (i % YIELD_EVERY === 0) await yieldToMain();
+    }
+  }
+  onProgress?.(expressIds.length, expressIds.length);
 
   return result;
 }

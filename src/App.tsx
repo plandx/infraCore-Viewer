@@ -20,7 +20,6 @@ import { ModelInfoPanel } from "./components/ModelInfoPanel";
 import { useBillingStore } from "./billing/billingStore";
 import { BatchPanel } from "./batch/BatchPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { CollisionPanel } from "./components/CollisionPanel";
 import { CollisionWindow } from "./components/CollisionWindow";
 import { DronePlay } from "./components/DronePlay";
 
@@ -265,7 +264,6 @@ function MainApp() {
     qtoPanelOpen, setQTOPanelOpen,
     profilePanelOpen, setProfilePanelOpen,
     settingsPanelOpen,
-    collisionPanelOpen, setCollisionPanelOpen,
     keyBindings,
   } = useModelStore();
 
@@ -705,7 +703,6 @@ function MainApp() {
       )}
 
       {settingsPanelOpen && <SettingsPanel />}
-      {collisionPanelOpen && <CollisionPanel onClose={() => setCollisionPanelOpen(false)} />}
       {activeTool === "drone" && <DronePlay />}
     </div>
   );
