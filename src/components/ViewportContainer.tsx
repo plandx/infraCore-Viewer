@@ -77,6 +77,7 @@ interface MeasureLabel {
 // Safe as module-level singletons because ViewportContainer mounts only once.
 const _v3  = new THREE.Vector3();
 const _v3b = new THREE.Vector3();
+const _flyFwd = new THREE.Vector3(0, 0, -1); // reused every frame in fly mode
 const _ray = new THREE.Raycaster();
 const _ndc = new THREE.Vector2();
 // Frustum culling pre-allocations
@@ -471,7 +472,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           if (keys.q) camera.translateY(-spd);
           if (keys.e) camera.translateY( spd);
           controls.target.copy(camera.position).addScaledVector(
-            new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), 1
+            _flyFwd.set(0, 0, -1).applyQuaternion(camera.quaternion), 1
           );
           needsRenderRef.current = true;
         }
@@ -1101,12 +1102,49 @@ export function ViewportContainer({ onElementClick }: Props) {
   }, [settings.edges]);
 
   // ── Element-level visibility (hide/isolate) ───────────────────────────────
-  // O(index entries) instead of O(scene): meshIndexRef keys are "modelId:expressId"
+  // O(index entries) for full sync; O(changed) for hide-only incremental updates.
+  const prevHiddenRef = useRef<Set<string>>(hiddenElements);
+  const prevIsoRef    = useRef<Set<string> | null>(isolatedElements);
+  const prevModelsRef = useRef(models);
+  const prevBaskRef   = useRef<{ mode: typeof basketMode; basket: typeof selectionBasket }>({ mode: basketMode, basket: selectionBasket });
+
   useEffect(() => {
     const state = useModelStore.getState();
     const { basketMode: bm, selectionBasket: basket, isolatedElements: iso, hiddenElements: hidden } = state;
     const basketIsolate = bm === "isolate" && basket.size > 0;
 
+    const prevHidden = prevHiddenRef.current;
+    const prevIso    = prevIsoRef.current;
+    const prevModels = prevModelsRef.current;
+    const prevBask   = prevBaskRef.current;
+    prevHiddenRef.current = hidden;
+    prevIsoRef.current    = iso;
+    prevModelsRef.current = models;
+    prevBaskRef.current   = { mode: bm, basket };
+
+    // Fast path: only hiddenElements changed, everything else is stable.
+    // Update only the elements that were added to / removed from the hidden set.
+    const hiddenOnlyChange =
+      iso === prevIso && models === prevModels &&
+      bm === prevBask.mode && basket === prevBask.basket;
+
+    if (hiddenOnlyChange && iso === null && !basketIsolate) {
+      // Diff the two Sets — only update what actually changed
+      const keys = new Set([...hidden, ...prevHidden]);
+      for (const key of keys) {
+        const meshes = meshIndexRef.current.get(key);
+        if (!meshes) continue;
+        const colonIdx = key.indexOf(":");
+        const model = state.models.get(key.slice(0, colonIdx));
+        const vis = model?.visible && !hidden.has(key);
+        for (const m of meshes) m.visible = !!vis;
+      }
+      needsRenderRef.current = true;
+      sectionModuleRef.current?.invalidateCaps();
+      return;
+    }
+
+    // Full sync — needed when isolation/basket/model visibility changes
     meshIndexRef.current.forEach((meshes, key) => {
       const colonIdx = key.indexOf(":");
       const modelId = key.slice(0, colonIdx);
@@ -1221,7 +1259,15 @@ export function ViewportContainer({ onElementClick }: Props) {
     const createdMats: THREE.Material[] = [];
 
     if (basketMode === "highlight") {
-      // Only process basket members — O(basket_size)
+      // Shared outline material (one instance — no per-mesh clone)
+      const outlineLineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthTest: false });
+      // Shared highlight material (one instance for all basket meshes)
+      const hlMat = new THREE.MeshStandardMaterial({
+        color: 0xf59e0b, emissive: new THREE.Color(0xf59e0b),
+        emissiveIntensity: 0.5, roughness: 0.35, metalness: 0.1,
+      });
+      createdMats.push(outlineLineMat, hlMat);
+
       selectionBasket.forEach((key) => {
         const meshes = meshIndexRef.current.get(key);
         if (!meshes) return;
@@ -1230,36 +1276,33 @@ export function ViewportContainer({ onElementClick }: Props) {
             obj.userData._basketEdgesGeo = new THREE.EdgesGeometry(obj.geometry, 15);
           }
           const edgesGeo = obj.userData._basketEdgesGeo as THREE.EdgesGeometry;
-          const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthTest: false });
-          const lines = new THREE.LineSegments(edgesGeo, lineMat);
+          const lines = new THREE.LineSegments(edgesGeo, outlineLineMat);
           lines.userData.isBasketOutline = true;
           lines.renderOrder = 998;
           obj.add(lines);
           basketOutlinesRef.current.push(lines);
 
-          const orig = obj.material as THREE.Material;
-          const hlMat = new THREE.MeshStandardMaterial({
-            color: 0xf59e0b, emissive: new THREE.Color(0xf59e0b),
-            emissiveIntensity: 0.5, roughness: 0.35, metalness: 0.1,
-          });
-          basketMatsRef.current.set(obj, orig);
+          basketMatsRef.current.set(obj, obj.material as THREE.Material);
           obj.material = hlMat;
-          createdMats.push(hlMat);
         }
       });
     } else if (basketMode === "ghost") {
-      // Ghost all non-basket meshes — must visit full index
+      // Ghost all non-basket meshes — share one ghost material per unique color
+      // to avoid O(N_meshes) material allocations when N_colors << N_meshes.
+      const ghostByColor = new Map<number, THREE.MeshLambertMaterial>();
       meshIndexRef.current.forEach((meshes, key) => {
         if (selectionBasket.has(key)) return;
         for (const obj of meshes) {
-          const orig = obj.material as THREE.Material;
-          const ghost = orig.clone() as THREE.MeshLambertMaterial;
-          ghost.transparent = true;
-          ghost.opacity = 0.10;
-          ghost.needsUpdate = true;
+          const orig = obj.material as THREE.MeshLambertMaterial;
+          const color = orig.color?.getHex?.() ?? 0x808080;
+          let ghost = ghostByColor.get(color);
+          if (!ghost) {
+            ghost = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.10 });
+            ghostByColor.set(color, ghost);
+            createdMats.push(ghost);
+          }
           basketMatsRef.current.set(obj, orig);
           obj.material = ghost;
-          createdMats.push(ghost);
         }
       });
     }

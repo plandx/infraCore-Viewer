@@ -22,7 +22,10 @@ export type SyncMsg =
 
 // ── Serialisation ─────────────────────────────────────────────────────────────
 
-/** Produce a structured-clone-safe snapshot of the store's mutable state. */
+/** Produce a structured-clone-safe snapshot of the store's mutable state.
+ * Pass `lite = true` to omit elementsByType and spatialTree — used for
+ * incremental updates when models haven't changed, saving structured-clone
+ * cost on potentially MBs of element data. */
 export function serializeState(store: {
   models: Map<string, {
     id: string; name: string; file: File; visible: boolean; color: string;
@@ -42,15 +45,16 @@ export function serializeState(store: {
   selectionBasket: Set<string>;
   basketMode: unknown;
   sectionPlanes: unknown;
-}): SyncState {
+}, lite = false): SyncState {
   const models: SyncState["models"] = [];
   store.models.forEach((m) => {
     if (m.status === "loaded") {
       models.push({
         id: m.id, name: m.name, file: m.file,
         visible: m.visible, color: m.color, opacity: m.opacity, size: m.size,
-        elementsByType: m.elementsByType as SyncState["models"][0]["elementsByType"],
-        spatialTree: m.spatialTree as SyncState["models"][0]["spatialTree"],
+        // When lite=true, omit heavy fields — applyRemoteState preserves existing
+        elementsByType: lite ? {} : m.elementsByType as SyncState["models"][0]["elementsByType"],
+        spatialTree: lite ? null : m.spatialTree as SyncState["models"][0]["spatialTree"],
       });
     }
   });

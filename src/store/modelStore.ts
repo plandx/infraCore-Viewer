@@ -611,6 +611,9 @@ export const useModelStore = create<ModelStore>((set, get) => ({
       const models = new Map<string, IFCModelEntry>();
       state.models.forEach((sm) => {
         const existing = s.models.get(sm.id);
+        // When the incoming message is a lite update (elementsByType omitted),
+        // preserve the previously loaded heavy data rather than overwriting with {}.
+        const hasElements = Object.keys(sm.elementsByType).length > 0;
         models.set(sm.id, {
           id: sm.id,
           name: sm.name,
@@ -625,8 +628,8 @@ export const useModelStore = create<ModelStore>((set, get) => ({
           loadedAt: new Date(),
           size: sm.size,
           status: existing?.status ?? "loaded",
-          spatialTree: sm.spatialTree,
-          elementsByType: sm.elementsByType,
+          spatialTree: sm.spatialTree ?? existing?.spatialTree ?? null,
+          elementsByType: hasElements ? sm.elementsByType : (existing?.elementsByType ?? {}),
         });
       });
       return {

@@ -66,11 +66,19 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
   useEffect(() => {
     const ch = new BroadcastChannel(SYNC_CHANNEL);
     channelRef.current = ch;
+    // Track loaded model IDs — when they change we must send full state including
+    // elementsByType/spatialTree; otherwise use lite (skips expensive deep-clone).
+    const prevModelsKeyRef = { current: "" };
+
+    const getModelsKey = (st: ReturnType<typeof useModelStore.getState>) =>
+      Array.from(st.models.values()).filter(m => m.status === "loaded").map(m => m.id).sort().join("|");
 
     ch.onmessage = async (e: MessageEvent<SyncMsg>) => {
       const msg = e.data;
       if (msg.t === "req") {
-        ch.postMessage({ t: "state", s: serializeState(useModelStore.getState()) } satisfies SyncMsg);
+        const st = useModelStore.getState();
+        prevModelsKeyRef.current = getModelsKey(st);
+        ch.postMessage({ t: "state", s: serializeState(st) } satisfies SyncMsg);
       } else if (msg.t === "state") {
         // State broadcast from a secondary window — apply it and skip echoing
         applyingRef.current = true;
@@ -93,18 +101,23 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
       }
     };
 
-    // Broadcast state on every store change (debounced); skip echo-induced changes
+    // Broadcast state on every store change (debounced); skip echo-induced changes.
+    // Use lite mode (no elementsByType) when models haven't changed — saves structured-clone
+    // cost on potentially MBs of element data on every selection/hide/show action.
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unsub = useModelStore.subscribe(() => {
       if (applyingRef.current) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        if (channelRef.current) {
-          channelRef.current.postMessage({
-            t: "state",
-            s: serializeState(useModelStore.getState()),
-          } satisfies SyncMsg);
-        }
+        if (!channelRef.current) return;
+        const st = useModelStore.getState();
+        const key = getModelsKey(st);
+        const lite = key === prevModelsKeyRef.current;
+        prevModelsKeyRef.current = key;
+        channelRef.current.postMessage({
+          t: "state",
+          s: serializeState(st, lite),
+        } satisfies SyncMsg);
       }, 80);
     });
 
@@ -221,17 +234,23 @@ function useCollisionSync() {
     let ch: BroadcastChannel;
     try { ch = new BroadcastChannel(COLLISION_CHANNEL); } catch { return; }
 
-    const broadcast = (rules: ClashRule[], results: ClashResult[], running: boolean, progress: number) => {
-      const allTypes: string[] = [];
-      const s = new Set<string>();
-      const st = useModelStore.getState();
-      for (const [, m] of st.models) {
-        for (const t of Object.keys(m.elementsByType)) {
-          if (!s.has(t)) { s.add(t); allTypes.push(t); }
-        }
+    // allTypes is expensive to recompute (iterates all elementsByType) — cache it.
+    let cachedAllTypes: string[] = [];
+    let cachedAllTypesKey = "";
+    const getAllTypes = (st: ReturnType<typeof useModelStore.getState>) => {
+      const key = Array.from(st.models.keys()).sort().join("|");
+      if (key !== cachedAllTypesKey) {
+        const s = new Set<string>();
+        for (const [, m] of st.models) for (const t of Object.keys(m.elementsByType)) s.add(t);
+        cachedAllTypes = Array.from(s).sort();
+        cachedAllTypesKey = key;
       }
-      allTypes.sort();
-      ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes, loadedPropKeys: st.loadedPropKeys, theme: st.settings.theme } } satisfies CollisionMsg);
+      return cachedAllTypes;
+    };
+
+    const broadcast = (rules: ClashRule[], results: ClashResult[], running: boolean, progress: number) => {
+      const st = useModelStore.getState();
+      ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes: getAllTypes(st), loadedPropKeys: st.loadedPropKeys, theme: st.settings.theme } } satisfies CollisionMsg);
     };
 
     let currentRules: ClashRule[] = DEFAULT_CLASH_RULES;
