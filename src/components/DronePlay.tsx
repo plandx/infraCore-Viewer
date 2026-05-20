@@ -52,7 +52,7 @@ interface HudState {
   datalink: number; // 0..4
 }
 
-const LOCK_TIME_MS   = 1600;
+const LOCK_TIME_MS   = 600;
 const LASER_DURATION = 550;
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -117,6 +117,18 @@ export function DronePlay() {
       hitFlashes: [...prev.hitFlashes, { id: flashId, x: target.screenX, y: target.screenY, startTime: performance.now() }],
     }));
 
+    // Immediately hide in scene so it vanishes before the store round-trip
+    const cs = getCamScene();
+    if (cs) {
+      cs.scene.traverse(obj => {
+        if (obj instanceof THREE.Mesh &&
+            obj.userData?.modelId === target.modelId &&
+            obj.userData?.expressId === target.expressId) {
+          obj.visible = false;
+        }
+      });
+      cs.scene.dispatchEvent({ type: "change" } as any);
+    }
     useModelStore.getState().hideElement(target.modelId, target.expressId);
 
     setTimeout(() => {
