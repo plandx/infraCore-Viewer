@@ -29,6 +29,11 @@ function aabbNearlyEqual(a: THREE.Box3, b: THREE.Box3, tol: number): boolean {
   );
 }
 
+function boxVolume(b: THREE.Box3): number {
+  const s = b.getSize(new THREE.Vector3());
+  return s.x * s.y * s.z;
+}
+
 // ── Element collection ─────────────────────────────────────────────────────────
 
 export interface ElementRecord {
@@ -40,13 +45,28 @@ export interface ElementRecord {
   props: Record<string, string>;
 }
 
+// Tags that mark non-IFC overlay meshes — must not contribute to element AABBs
+const OVERLAY_FLAGS = [
+  "isHighlight", "isBillingOverlay", "isXSSurface",
+  "isSectionVisual", "isSectionCap", "isGeometryInspector",
+  "isEdge", "isAlignment",
+] as const;
+
 export function collectElements(models: Map<string, IFCModelEntry>): ElementRecord[] {
   const result: ElementRecord[] = [];
   for (const [modelId, model] of models) {
     if (!model.visible || model.status !== "loaded") continue;
+
+    // Ensure all world matrices are current before computing world-space AABBs.
+    // Without this, recently-shifted models return stale transforms.
+    model.mesh.updateWorldMatrix(true, true);
+
     const typeByExpr  = new Map<number, string>();
     const nameByExpr  = new Map<number, string>();
     const propsByExpr = new Map<number, Record<string, string>>();
+    // One merged AABB per IFC element — union of all its sub-mesh geometries.
+    const boxByExpr   = new Map<number, THREE.Box3>();
+
     for (const [type, els] of Object.entries(model.elementsByType)) {
       for (const el of els as Array<{ expressId: number; name: string; properties?: Record<string, string> }>) {
         typeByExpr.set(el.expressId, type);
@@ -54,13 +74,38 @@ export function collectElements(models: Map<string, IFCModelEntry>): ElementReco
         propsByExpr.set(el.expressId, el.properties ?? {});
       }
     }
+
     model.mesh.traverse(obj => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
+
       const eid = mesh.userData?.expressId as number | undefined;
       if (!eid) return;
-      const box = new THREE.Box3().setFromObject(mesh);
-      if (box.isEmpty()) return;
+
+      // Skip overlays — their userData flags differ from IFC elements
+      if (OVERLAY_FLAGS.some(f => mesh.userData[f])) return;
+
+      // Compute AABB from this mesh's OWN geometry only (no children).
+      // setFromObject() recurses into children which can inflate the box when
+      // edge-overlays, highlights, or inspector geometry are attached.
+      const posAttr = mesh.geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+      if (!posAttr || posAttr.count === 0) return;
+
+      const geomBox = new THREE.Box3().setFromBufferAttribute(posAttr);
+      if (geomBox.isEmpty()) return;
+
+      // Transform local-space AABB into world space using the already-updated matrix.
+      geomBox.applyMatrix4(mesh.matrixWorld);
+
+      const existing = boxByExpr.get(eid);
+      if (existing) {
+        existing.union(geomBox);
+      } else {
+        boxByExpr.set(eid, geomBox);
+      }
+    });
+
+    for (const [eid, box] of boxByExpr) {
       result.push({
         modelId,
         expressId: eid,
@@ -69,7 +114,7 @@ export function collectElements(models: Map<string, IFCModelEntry>): ElementReco
         box,
         props: propsByExpr.get(eid) ?? {},
       });
-    });
+    }
   }
   return result;
 }
@@ -98,6 +143,11 @@ export function matchesFilter(el: ElementRecord, filter: ComponentFilter): boole
 
 const MAX_RESULTS_PER_RULE = 500;
 
+// Minimum overlap as a fraction of the smaller element's AABB volume.
+// Filters out cases where two large-box elements just barely touch —
+// a strong indicator of AABB approximation noise rather than real intersection.
+const MIN_RELATIVE_OVERLAP = 0.01; // 1 %
+
 export function runRuleBasedDetection(
   elements: ElementRecord[],
   rules: ClashRule[],
@@ -119,31 +169,45 @@ export function runRuleBasedDetection(
     let ruleIdx = 0;
     let iA = 0;
 
+    // Deduplicate set by rule-level key to avoid re-checking swapped pairs
+    const checkedPairs = new Set<string>();
+
     const step = () => {
       const { rule, setA, setB } = setsByRule[ruleIdx];
       const batchEnd = Math.min(iA + 30, setA.length);
 
       for (; iA < batchEnd; iA++) {
         const a = setA[iA];
-        const ruleResults = results.filter(r => r.ruleId === rule.id);
-        if (ruleResults.length >= MAX_RESULTS_PER_RULE) { iA = setA.length; break; }
+        if (results.filter(r => r.ruleId === rule.id).length >= MAX_RESULTS_PER_RULE) {
+          iA = setA.length;
+          break;
+        }
 
         for (const b of setB) {
           if (a.modelId === b.modelId && a.expressId === b.expressId) continue;
-          const keyFwd = `${a.modelId}:${a.expressId}|${b.modelId}:${b.expressId}`;
-          const keyRev = `${b.modelId}:${b.expressId}|${a.modelId}:${a.expressId}`;
-          const existing = results.some(r => r.ruleId === rule.id && (
-            (`${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}` === keyFwd) ||
-            (`${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}` === keyRev)
-          ));
-          if (existing) continue;
+
+          // Canonical key (smaller id first) avoids checking A↔B and B↔A
+          const kA = `${a.modelId}:${a.expressId}`;
+          const kB = `${b.modelId}:${b.expressId}`;
+          const pairKey = `${rule.id}|${kA < kB ? kA + "|" + kB : kB + "|" + kA}`;
+          if (checkedPairs.has(pairKey)) continue;
+          checkedPairs.add(pairKey);
 
           let triggered = false;
           let measure = 0;
 
           if (rule.checkType === "hard-clash") {
             const vol = aabbOverlap(a.box, b.box);
-            if (vol > rule.tolerance) { triggered = true; measure = vol; }
+            if (vol > rule.tolerance) {
+              // Require overlap to represent at least MIN_RELATIVE_OVERLAP of
+              // the smaller element's box volume.  This suppresses false positives
+              // that arise from AABB over-approximation of curved / complex geometry.
+              const minVol = Math.min(boxVolume(a.box), boxVolume(b.box));
+              if (minVol <= 0 || vol / minVol >= MIN_RELATIVE_OVERLAP) {
+                triggered = true;
+                measure = vol;
+              }
+            }
           } else if (rule.checkType === "clearance") {
             const gap = aabbGap(a.box, b.box);
             if (gap < rule.tolerance && gap > -0.001) { triggered = true; measure = gap; }
