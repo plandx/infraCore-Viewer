@@ -177,7 +177,10 @@ export function CrossSectionWindow() {
 
     return () => {
       window.removeEventListener("beforeunload", sendClose);
-      sendClose(); // also fire on React unmount (e.g. HMR)
+      // Do NOT call sendClose() here — React StrictMode runs cleanup+remount in
+      // development, which would spuriously close the face-section state in the
+      // main window before the second mount sends {t:"req"}.
+      // beforeunload handles the real window-close case reliably.
       ch.close();
       chRef.current = null;
     };
