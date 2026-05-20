@@ -139,3 +139,111 @@ export function openBillingWindow() {
   const url = `${window.location.pathname}?billing`;
   window.open(url, "infracore-billing", "width=1100,height=760,resizable=yes");
 }
+
+// ── Collision window ──────────────────────────────────────────────────────────
+
+export const COLLISION_CHANNEL = "infracore-collision";
+
+export type ClashStatus = "new" | "approved" | "resolved";
+export type Severity = "error" | "warning" | "info";
+export type CheckType = "hard-clash" | "clearance" | "duplicate";
+
+export interface PropCondition {
+  propName: string;
+  operator: "contains" | "equals" | "startsWith" | "notEmpty";
+  value: string;
+}
+
+export interface ComponentFilter {
+  ifcTypes: string[];
+  conditions: PropCondition[];
+}
+
+export interface ClashRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  severity: Severity;
+  checkType: CheckType;
+  componentA: ComponentFilter;
+  componentB: ComponentFilter;
+  tolerance: number;
+}
+
+export interface ClashResult {
+  ruleId: string;
+  ruleName: string;
+  severity: Severity;
+  modelIdA: string; expressIdA: number; nameA: string; typeA: string;
+  modelIdB: string; expressIdB: number; nameB: string; typeB: string;
+  overlap: number;
+  status: ClashStatus;
+  propsA?: Record<string, string>;
+  propsB?: Record<string, string>;
+}
+
+export interface CollisionSyncState {
+  rules: ClashRule[];
+  results: ClashResult[];
+  running: boolean;
+  progress: number;
+  allTypes: string[];
+}
+
+export type CollisionMsg =
+  | { t: "state"; s: CollisionSyncState }
+  | { t: "req" }
+  | { t: "run"; rules: ClashRule[] }
+  | { t: "setStatus"; key: string; status: ClashStatus };
+
+const MEP_TYPES    = ["IfcDuctSegment","IfcPipeSegment","IfcCableCarrierSegment","IfcFlowSegment","IfcDistributionFlowElement","IfcDuctFitting","IfcPipeFitting","IfcFlowController","IfcFlowTerminal"];
+const STRUCT_TYPES = ["IfcBeam","IfcColumn","IfcWall","IfcSlab","IfcFoundation","IfcPile","IfcMember"];
+const ARCH_TYPES   = ["IfcWall","IfcSlab","IfcRoof","IfcCurtainWall","IfcStair","IfcRamp"];
+
+export const DEFAULT_CLASH_RULES: ClashRule[] = [
+  {
+    id: "rule-struct-mep",
+    name: "Tragwerk / TGA Kollision",
+    enabled: true,
+    severity: "error",
+    checkType: "hard-clash",
+    tolerance: 0.0005,
+    componentA: { ifcTypes: STRUCT_TYPES, conditions: [] },
+    componentB: { ifcTypes: MEP_TYPES,   conditions: [] },
+  },
+  {
+    id: "rule-arch-struct",
+    name: "Architektur / Tragwerk Kollision",
+    enabled: true,
+    severity: "warning",
+    checkType: "hard-clash",
+    tolerance: 0.001,
+    componentA: { ifcTypes: ARCH_TYPES,   conditions: [] },
+    componentB: { ifcTypes: STRUCT_TYPES, conditions: [] },
+  },
+  {
+    id: "rule-mep-clearance",
+    name: "TGA Mindestabstand (0.3 m)",
+    enabled: true,
+    severity: "warning",
+    checkType: "clearance",
+    tolerance: 0.3,
+    componentA: { ifcTypes: MEP_TYPES, conditions: [] },
+    componentB: { ifcTypes: MEP_TYPES, conditions: [] },
+  },
+  {
+    id: "rule-duplicate",
+    name: "Duplikat-Elemente",
+    enabled: true,
+    severity: "info",
+    checkType: "duplicate",
+    tolerance: 0.01,
+    componentA: { ifcTypes: [], conditions: [] },
+    componentB: { ifcTypes: [], conditions: [] },
+  },
+];
+
+export function openCollisionWindow() {
+  const url = `${window.location.pathname}?collision`;
+  window.open(url, "infracore-collision", "width=1100,height=780,resizable=yes");
+}

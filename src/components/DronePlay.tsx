@@ -125,11 +125,18 @@ export function DronePlay() {
             obj.userData?.modelId === target.modelId &&
             obj.userData?.expressId === target.expressId) {
           obj.visible = false;
+          const mat = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mat) {
+            (m as THREE.MeshStandardMaterial).transparent = true;
+            (m as THREE.MeshStandardMaterial).opacity = 0;
+            (m as THREE.MeshStandardMaterial).needsUpdate = true;
+          }
         }
       });
       cs.scene.dispatchEvent({ type: "change" } as any);
     }
     useModelStore.getState().hideElement(target.modelId, target.expressId);
+    document.querySelector<HTMLElement>('[data-viewport="main"]')?.dispatchEvent(new CustomEvent("drone:moved"));
 
     setTimeout(() => {
       setHud(prev => ({

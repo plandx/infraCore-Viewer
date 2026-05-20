@@ -5,6 +5,8 @@ import type { SectionLine, SectionPolygon } from "./crossSectionUtils";
 import { buildSectionPolygons } from "./crossSectionUtils";
 import type { XSSyncObjectLabel } from "../utils/windowSync";
 
+let _xsWin: Window | null = null;
+
 const PALETTE = [
   "#ff7043",
   "#42a5f5",
@@ -272,11 +274,12 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
       crossSectionBasis: null,
       crossSectionObjectLabels: [],
     });
-    // Open cross-section popup (same as alignment QS) — only if not already open
+    // Open cross-section popup (same as alignment QS) — reuse existing window or open a new one
     const url = `${window.location.pathname}?cross-section`;
-    const existing = window.open("", "infracore-cross-section");
-    if (!existing || existing.closed || existing.location.href === "about:blank") {
-      window.open(url, "infracore-cross-section", "width=960,height=720,resizable=yes");
+    if (!_xsWin || _xsWin.closed) {
+      _xsWin = window.open(url, "infracore-cross-section", "width=960,height=720,resizable=yes") ?? null;
+    } else {
+      _xsWin.focus();
     }
   },
   closeFaceCrossSection: () => set({

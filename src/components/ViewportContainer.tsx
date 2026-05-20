@@ -1899,6 +1899,43 @@ export function ViewportContainer({ onElementClick }: Props) {
         if (!sc) return;
         const lines = sliceScene(sc, originVec, normalVec, right, upVec);
         useAlignmentStore.getState().setCrossSectionResult(lines, basisSnap);
+
+        const modelStoreState = useModelStore.getState();
+        const modelsMap = modelStoreState.models;
+        const sharedLoadedProps = modelStoreState.loadedProperties;
+        const seen = new Set<string>();
+        const objectLabels: import("../utils/windowSync").XSSyncObjectLabel[] = [];
+        for (const l of lines) {
+          if (!l.objectKey || seen.has(l.objectKey)) continue;
+          seen.add(l.objectKey);
+          const colonIdx = l.objectKey.lastIndexOf(":");
+          const modelId  = l.objectKey.slice(0, colonIdx);
+          const expressId = parseInt(l.objectKey.slice(colonIdx + 1));
+          const model = modelsMap.get(modelId);
+          if (!model) continue;
+          let name = `#${expressId}`, type = "";
+          for (const [t, els] of Object.entries(model.elementsByType)) {
+            const el = (els as Array<{ expressId: number; name: string }>).find(e => e.expressId === expressId);
+            if (el) { name = el.name || `#${expressId}`; type = t; break; }
+          }
+          const props: Record<string, string> = {};
+          const selProps = (model.properties as Record<number, Record<string, unknown>>)[expressId];
+          if (selProps) {
+            for (const [k, v] of Object.entries(selProps)) {
+              if (k === "expressId" || k === "type") continue;
+              if (typeof v === "string" || typeof v === "number") props[k] = String(v);
+            }
+          }
+          const flatProps = sharedLoadedProps?.get(modelId)?.get(expressId);
+          if (flatProps) {
+            for (const [k, v] of Object.entries(flatProps)) {
+              if (k === "expressId" || k === "type" || k === "name") continue;
+              if (typeof v === "string" || typeof v === "number") props[k] = String(v);
+            }
+          }
+          objectLabels.push({ key: l.objectKey, name, type, props });
+        }
+        useAlignmentStore.getState().setCrossSectionObjectLabels(objectLabels);
       }, 0);
     };
 
