@@ -1896,7 +1896,10 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       setTimeout(() => {
         const sc = sceneRef.current;
-        if (!sc) return;
+        if (!sc) {
+          useAlignmentStore.getState().setCrossSectionResult([], null);
+          return;
+        }
         const lines = sliceScene(sc, originVec, normalVec, right, upVec);
         useAlignmentStore.getState().setCrossSectionResult(lines, basisSnap);
 

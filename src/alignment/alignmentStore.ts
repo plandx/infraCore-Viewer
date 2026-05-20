@@ -117,6 +117,7 @@ interface AlignmentStore {
   openFaceCrossSection(origin: [number,number,number], normal: [number,number,number]): void;
   closeFaceCrossSection(): void;
   setFaceCrossSectionOffset(offset: number): void;
+  retriggerFaceSectionCompute(): void;
 
   // Annotation actions
   toggleStationLabels(): void;
@@ -295,6 +296,15 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   }),
   setFaceCrossSectionOffset: (offset) => set({
     faceCrossSectionOffset: offset,
+    crossSectionComputing: true,
+    crossSectionLines: [],
+    crossSectionPolygons: [],
+    crossSectionBasis: null,
+  }),
+
+  // Re-triggers computeFaceSection in ViewportContainer by toggling crossSectionComputing
+  // Used when the cross-section window loads after the first broadcast was already sent.
+  retriggerFaceSectionCompute: () => set({
     crossSectionComputing: true,
     crossSectionLines: [],
     crossSectionPolygons: [],

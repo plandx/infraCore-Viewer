@@ -154,6 +154,12 @@ function useCrossSectionSync() {
       const msg = e.data;
       if (msg.t === "req") {
         broadcast();
+        // If face section is active but lines haven't arrived yet (window opened after
+        // broadcast was already sent, or computation silently failed), re-trigger.
+        const st = useAlignmentStore.getState();
+        if (st.faceCrossSectionActive && st.crossSectionLines.length === 0 && !st.crossSectionComputing) {
+          st.retriggerFaceSectionCompute();
+        }
       } else if (msg.t === "setStation") {
         store.setCrossSectionStation(msg.alignmentId, msg.station);
       } else if (msg.t === "nextStation") {
