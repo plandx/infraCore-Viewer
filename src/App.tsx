@@ -145,6 +145,7 @@ function useCrossSectionSync() {
           isFaceSection: store.faceCrossSectionActive,
           faceOffset: store.faceCrossSectionOffset,
           theme: useModelStore.getState().settings.theme,
+          elevationOrigin: store.crossSectionBasis?.origin[1],
         },
       } satisfies XSMsg);
     };
@@ -197,7 +198,8 @@ function useCrossSectionSync() {
         state.showSectionSurface        !== prev.showSectionSurface        ||
         state.crossSectionObjectLabels  !== prev.crossSectionObjectLabels  ||
         state.faceCrossSectionActive    !== prev.faceCrossSectionActive    ||
-        state.faceCrossSectionOffset    !== prev.faceCrossSectionOffset
+        state.faceCrossSectionOffset    !== prev.faceCrossSectionOffset    ||
+        state.crossSectionBasis         !== prev.crossSectionBasis
       ) broadcast();
     });
 

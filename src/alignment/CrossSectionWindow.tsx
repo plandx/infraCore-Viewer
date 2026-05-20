@@ -1,5 +1,5 @@
-import { useRef, useState, useEffect, useMemo } from "react";
-import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers, Magnet, MapPin, Tag } from "lucide-react";
+import { useRef, useState, useEffect, useMemo, useCallback } from "react";
+import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers, Magnet, MapPin, Tag, Download, Columns2 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { CROSS_SECTION_CHANNEL } from "../utils/windowSync";
 import type { XSMsg, XSSyncState, XSSyncObjectLabel } from "../utils/windowSync";
@@ -32,11 +32,49 @@ function computeTicks(min: number, max: number, target: number): number[] {
   return ticks;
 }
 
-const M = { top: 12, right: 20, bottom: 40, left: 64 };
+// Left margin for Y-axis labels, right margin for absolute-elevation axis
+const M = { top: 12, right: 72, bottom: 40, left: 64 };
 
 type Meas     = { p1: [number, number]; p2: [number, number] };
 type PtLabel  = { id: string; x: number; y: number };
 type SnapInfo = { pt: [number, number]; type: "vertex" | "edge" };
+type DimAnnotation = { id: string; p1: [number, number]; p2: [number, number]; offset: number };
+
+// ── ISO hatch definitions ─────────────────────────────────────────────────────
+
+const ISO_HATCHES = [
+  { id: "none",       label: "Keine" },
+  { id: "concrete",   label: "Beton" },
+  { id: "steel",      label: "Stahl" },
+  { id: "wood",       label: "Holz" },
+  { id: "insulation", label: "Dämmung" },
+  { id: "earth",      label: "Erdreich" },
+  { id: "sand",       label: "Sand" },
+  { id: "brick",      label: "Mauerwerk" },
+] as const;
+type HatchId = (typeof ISO_HATCHES)[number]["id"];
+
+const DEFAULT_TYPE_HATCH: Record<string, HatchId> = {
+  IfcWall:               "brick",
+  IfcWallStandardCase:   "brick",
+  IfcSlab:               "concrete",
+  IfcFooting:            "concrete",
+  IfcFoundation:         "concrete",
+  IfcPile:               "concrete",
+  IfcBeam:               "steel",
+  IfcBeamStandardCase:   "steel",
+  IfcColumn:             "steel",
+  IfcColumnStandardCase: "steel",
+  IfcMember:             "steel",
+  IfcPlate:              "steel",
+  IfcRoof:               "concrete",
+  IfcCurtainWall:        "concrete",
+  IfcStair:              "concrete",
+  IfcRamp:               "concrete",
+  IfcCovering:           "insulation",
+};
+
+// ── Snap ─────────────────────────────────────────────────────────────────────
 
 function computeSnap(
   wx: number, wy: number,
@@ -88,7 +126,6 @@ function deOverlapLabels(labels: ObjLabelPos[]): void {
         const overX = (a.bw / 2 + b.bw / 2 + PAD) - Math.abs(bcx - acx);
         const overY = (a.bh / 2 + b.bh / 2 + PAD) - Math.abs(bcy - acy);
         if (overX > 0 && overY > 0) {
-          // Push along the axis with less overlap (minimum separation effort)
           if (overX <= overY) {
             const push = overX / 2 + 0.5;
             if (bcx >= acx) { a.lx -= push; b.lx += push; }
@@ -147,13 +184,24 @@ function buildLabelPositions(
     const cx = _xs((g.xMin + g.xMax) / 2);
     const cy = _ys((g.yMin + g.yMax) / 2);
     const bw = Math.max(40, text.length * 6.5 + 12);
-    // leader: float box above bounding box top; direct: center box on object centroid
     const initLy = mode === "direct" ? cy - BH / 2 : _ys(g.yMax) - BH - 8;
     positions.push({ key: lbl.key, text, color: g.color, cx, cy, lx: cx - bw / 2, ly: initLy, bw, bh: BH });
   }
 
   deOverlapLabels(positions);
   return positions;
+}
+
+// ── SVG arrow helper ──────────────────────────────────────────────────────────
+
+function arrowHeadPath(x1: number, y1: number, x2: number, y2: number, size: number): string {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return "";
+  const ux = dx / len, uy = dy / len;
+  const px = -uy * size * 0.4, py = ux * size * 0.4;
+  // Arrow pointing from (x2,y2) back toward (x1,y1), tip at (x2,y2)
+  return `M${(x2 - ux * size + px).toFixed(1)},${(y2 - uy * size + py).toFixed(1)} L${x2.toFixed(1)},${y2.toFixed(1)} L${(x2 - ux * size - px).toFixed(1)},${(y2 - uy * size - py).toFixed(1)}`;
 }
 
 export function CrossSectionWindow() {
@@ -170,16 +218,11 @@ export function CrossSectionWindow() {
     };
     ch.postMessage({ t: "req" } satisfies XSMsg);
 
-    // Notify the main window when this popup closes so it can clear the section
     const sendClose = () => { try { ch.postMessage({ t: "close" } satisfies XSMsg); } catch { /* ignore */ } };
     window.addEventListener("beforeunload", sendClose);
 
     return () => {
       window.removeEventListener("beforeunload", sendClose);
-      // Do NOT call sendClose() here — React StrictMode runs cleanup+remount in
-      // development, which would spuriously close the face-section state in the
-      // main window before the second mount sends {t:"req"}.
-      // beforeunload handles the real window-close case reliably.
       ch.close();
       chRef.current = null;
     };
@@ -219,7 +262,6 @@ export function CrossSectionWindow() {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef       = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 900, h: 580 });
-  // Cached SVG bounding rect — invalidated on resize so we don't call getBCR on every mousemove
   const svgRectRef = useRef<DOMRect | null>(null);
 
   useEffect(() => {
@@ -228,7 +270,7 @@ export function CrossSectionWindow() {
     const ro = new ResizeObserver(([e]) => {
       const { width, height } = e.contentRect;
       setSize({ w: Math.max(120, width), h: Math.max(80, height) });
-      svgRectRef.current = null; // invalidate on resize
+      svgRectRef.current = null;
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -276,11 +318,9 @@ export function CrossSectionWindow() {
   const vyMin = cy - visH / 2;
   const vyMax = cy + visH / 2;
 
-  // Coordinate transforms (used in render only — hot-path uses refs below)
   const xs = (x: number) => M.left  + (x - vxMin) / visW * chartW;
   const ys = (y: number) => M.top   + (1 - (y - vyMin) / visH) * chartH;
 
-  // ── Viewport refs (for event handlers / rAF callbacks — no stale closures) ─
   const vpRef = useRef({ vxMin, vyMin, vyMax, visW, visH, chartW, chartH, scale });
   vpRef.current = { vxMin, vyMin, vyMax, visW, visH, chartW, chartH, scale };
   const linesRef = useRef(lines);
@@ -317,7 +357,7 @@ export function CrossSectionWindow() {
       const newZ  = Math.max(0.1, Math.min(200, curZ * f));
       const newSc = bs * newZ;
       const newVW = cw / newSc, newVH = ch / newSc;
-      svgRectRef.current = null; // viewport changed
+      svgRectRef.current = null;
       setZoomFactor(newZ);
       setViewCenter([mxD - mx / newSc + newVW / 2, myD + my / newSc - newVH / 2]);
     };
@@ -335,6 +375,13 @@ export function CrossSectionWindow() {
   const [pending, setPending] = useState<[number, number] | null>(null);
   const [mouseWorld, setMouseWorld] = useState<[number, number] | null>(null);
 
+  // ── Dimensioning tool (Kote) ──────────────────────────────────────────────
+  const [dimActive, setDimActive] = useState(false);
+  const [dimStep, setDimStep] = useState<"p1" | "p2" | "offset">("p1");
+  const [dimP1, setDimP1] = useState<[number, number] | null>(null);
+  const [dimP2, setDimP2] = useState<[number, number] | null>(null);
+  const [dimensions, setDimensions] = useState<DimAnnotation[]>([]);
+
   // ── Point-label tool ─────────────────────────────────────────────────────
   const [ptLabelMode, setPtLabelMode] = useState(false);
   const [pointLabels, setPointLabels] = useState<PtLabel[]>([]);
@@ -344,6 +391,11 @@ export function CrossSectionWindow() {
   const [objLabelProp, setObjLabelProp] = useState("name");
   const [labelStyle, setLabelStyle] = useState<"leader" | "direct">("leader");
 
+  // ── ISO hatches ───────────────────────────────────────────────────────────
+  const [hatchMode, setHatchMode] = useState<"none" | "auto" | "custom">("none");
+  // custom: user can override per-type hatch
+  const [customHatchMap, setCustomHatchMap] = useState<Record<string, HatchId>>({});
+
   // ── Snap mode ────────────────────────────────────────────────────────────
   const [snapActive, setSnapActive] = useState(false);
   const [snapDisplay, setSnapDisplay] = useState<SnapInfo | null>(null);
@@ -351,9 +403,7 @@ export function CrossSectionWindow() {
   const snapActiveRef = useRef(false);
   useEffect(() => { snapActiveRef.current = snapActive; }, [snapActive]);
 
-  // ── rAF throttle for mousemove ────────────────────────────────────────────
-  // Mousemove fires at 200+ Hz; we cap state updates to ~60 Hz via rAF.
-  // This alone cuts renders by ~3-4x. Combined with path pre-computation it's huge.
+  // ── rAF throttle for mousemove ─────────────────────────────────────────
   const rafIdRef        = useRef<number | null>(null);
   const pendingPosRef   = useRef<{ svgX: number; svgY: number } | null>(null);
 
@@ -361,9 +411,7 @@ export function CrossSectionWindow() {
   const xTicks = useMemo(() => computeTicks(vxMin, vxMax, Math.max(3, Math.floor(chartW / 70))), [vxMin, vxMax, chartW]);
   const yTicks = useMemo(() => computeTicks(vyMin, vyMax, Math.max(3, Math.floor(chartH / 45))), [vyMin, vyMax, chartH]);
 
-  // ── Pre-computed SVG paths (key perf optimisation) ─────────────────────────
-  // Groups all line segments by color into a single <path> per color group.
-  // Replaces potentially thousands of individual <line> SVG elements with ~10 <path> elements.
+  // ── Pre-computed SVG paths ─────────────────────────────────────────────────
   const svgPaths = useMemo(() => {
     const byColor = new Map<string, string>();
     for (const l of lines) {
@@ -378,6 +426,7 @@ export function CrossSectionWindow() {
 
   const svgPolyPaths = useMemo(() => polygons.map(poly => ({
     color: poly.color,
+    objectKey: poly.objectKey,
     d: poly.points.map(([x, y], j) =>
       `${j === 0 ? "M" : "L"}${(M.left + (x - vxMin) / visW * chartW).toFixed(1)},${(M.top + (1 - (y - vyMin) / visH) * chartH).toFixed(1)}`
     ).join("") + "Z",
@@ -395,11 +444,93 @@ export function CrossSectionWindow() {
     return ["name", "type", ...Array.from(keys).sort()];
   }, [objectLabels]);
 
-  // Deps use numbers, not function references — memo actually works correctly
   const objLabelPositions = useMemo(() => {
     if (!objLabelsVisible || objectLabels.length === 0) return [];
     return buildLabelPositions(objectLabels, lines, objLabelProp, vxMin, vyMin, visW, visH, chartW, chartH, labelStyle);
   }, [objLabelsVisible, objectLabels, lines, objLabelProp, vxMin, vyMin, visW, visH, chartW, chartH, labelStyle]);
+
+  // ── Hatch resolution ──────────────────────────────────────────────────────
+  // Build objectKey → hatch pattern id
+  const objectKeyToType = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const lbl of objectLabels) m.set(lbl.key, lbl.type);
+    return m;
+  }, [objectLabels]);
+
+  const resolveHatch = useCallback((objectKey: string | undefined): string => {
+    if (hatchMode === "none" || !objectKey) return "url(#xs-hatch-concrete)";
+    const type = objectKeyToType.get(objectKey) ?? "";
+    if (hatchMode === "custom") {
+      const h = customHatchMap[type] ?? DEFAULT_TYPE_HATCH[type] ?? "concrete";
+      return h === "none" ? "none" : `url(#xs-hatch-${h})`;
+    }
+    // auto
+    const h = DEFAULT_TYPE_HATCH[type] ?? "concrete";
+    return `url(#xs-hatch-${h})`;
+  }, [hatchMode, objectKeyToType, customHatchMap]);
+
+  // All unique types visible in current polygons (for hatch UI)
+  const visibleTypes = useMemo(() => {
+    if (hatchMode !== "custom") return [];
+    const types = new Set<string>();
+    for (const p of polygons) {
+      if (p.objectKey) {
+        const t = objectKeyToType.get(p.objectKey);
+        if (t) types.add(t);
+      }
+    }
+    return Array.from(types).sort();
+  }, [hatchMode, polygons, objectKeyToType]);
+
+  // ── Elevation origin ──────────────────────────────────────────────────────
+  const elevationOrigin = state?.elevationOrigin;
+
+  // ── SVG Export ────────────────────────────────────────────────────────────
+  const handleExport = useCallback(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    // Compute resolved CSS-variable colors from the live document
+    const style = getComputedStyle(document.documentElement);
+    const resolve = (v: string) => {
+      const m = v.match(/var\(([^)]+)\)/);
+      if (!m) return v;
+      return style.getPropertyValue(m[1].trim()).trim() || "#888";
+    };
+
+    const clone = svg.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", String(size.w));
+    clone.setAttribute("height", String(size.h));
+
+    // Walk all elements and resolve var() in stroke/fill/color attributes and inline styles
+    clone.querySelectorAll<SVGElement>("*").forEach(el => {
+      const attrs = ["stroke", "fill", "color"];
+      for (const a of attrs) {
+        const v = el.getAttribute(a);
+        if (v && v.includes("var(")) el.setAttribute(a, resolve(v));
+      }
+      if (el.style.color?.includes("var(")) el.style.color = resolve(el.style.color);
+    });
+
+    // Add white background for standalone viewing
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bg.setAttribute("width", String(size.w));
+    bg.setAttribute("height", String(size.h));
+    bg.setAttribute("fill", state?.theme === "light" ? "#ffffff" : "#1a1b26");
+    clone.insertBefore(bg, clone.firstChild);
+
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(clone);
+    const blob = new Blob([svgStr], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const sta = state?.station != null ? `_${fmtSta(state.station).replace("+", "-")}` : "";
+    a.download = `querschnitt${sta}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [size, state?.theme, state?.station]);
 
   // ── Event handlers ────────────────────────────────────────────────────────
   const svgToWorldFromVp = (svgX: number, svgY: number, vp: typeof vpRef.current): [number, number] => [
@@ -407,24 +538,26 @@ export function CrossSectionWindow() {
     vp.vyMax - (svgY - M.top)  / vp.chartH * vp.visH,
   ];
 
+  const activeToolRef = useRef({ measActive, ptLabelMode, dimActive });
+  activeToolRef.current = { measActive, ptLabelMode, dimActive };
+
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (measActive || ptLabelMode || e.button !== 0) return;
+    const { measActive: ma, ptLabelMode: pt, dimActive: da } = activeToolRef.current;
+    if (ma || pt || da || e.button !== 0) return;
     dragRef.current = { mx: e.clientX, my: e.clientY, cx, cy, sc: scale };
     setPanning(true);
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    // Cache bounding rect — one layout query until next resize/zoom
     if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
     const rect = svgRectRef.current;
     const svgX = e.clientX - rect.left;
     const svgY = e.clientY - rect.top;
 
-    // Drag panning: update immediately for smooth feel
     if (dragRef.current) {
       const dx = e.clientX - dragRef.current.mx;
       const dy = e.clientY - dragRef.current.my;
-      svgRectRef.current = null; // viewport shifts on pan
+      svgRectRef.current = null;
       setViewCenter([
         dragRef.current.cx - dx / dragRef.current.sc,
         dragRef.current.cy + dy / dragRef.current.sc,
@@ -432,7 +565,6 @@ export function CrossSectionWindow() {
       return;
     }
 
-    // All other updates (readout, snap) throttled to rAF (~60 Hz)
     pendingPosRef.current = { svgX, svgY };
     if (rafIdRef.current === null) {
       rafIdRef.current = requestAnimationFrame(() => {
@@ -446,7 +578,6 @@ export function CrossSectionWindow() {
 
         if (snapActiveRef.current) {
           const s = computeSnap(raw[0], raw[1], linesRef.current, vp.scale);
-          // Only trigger state update if snap result changed
           const prev = snapRef.current;
           if (s?.pt[0] !== prev?.pt[0] || s?.pt[1] !== prev?.pt[1] || s?.type !== prev?.type) {
             snapRef.current = s;
@@ -471,6 +602,22 @@ export function CrossSectionWindow() {
         else { setMeasurements(ms => [...ms, { p1: pending, p2: w }]); setPending(null); }
       } else if (ptLabelMode) {
         setPointLabels(ls => [...ls, { id: crypto.randomUUID(), x: w[0], y: w[1] }]);
+      } else if (dimActive) {
+        if (dimStep === "p1") {
+          setDimP1(w); setDimP2(null); setDimStep("p2");
+        } else if (dimStep === "p2") {
+          setDimP2(w); setDimStep("offset");
+        } else if (dimStep === "offset" && dimP1 && dimP2) {
+          // Compute perpendicular offset distance from dimension line
+          const dx = dimP2[0] - dimP1[0], dy = dimP2[1] - dimP1[1];
+          const len = Math.hypot(dx, dy);
+          if (len > 1e-6) {
+            const nx = -dy / len, ny = dx / len; // perpendicular (left-hand normal)
+            const offset = (w[0] - dimP1[0]) * nx + (w[1] - dimP1[1]) * ny;
+            setDimensions(ds => [...ds, { id: crypto.randomUUID(), p1: dimP1, p2: dimP2, offset }]);
+          }
+          setDimP1(null); setDimP2(null); setDimStep("p1");
+        }
       }
     }
     dragRef.current = null;
@@ -485,6 +632,10 @@ export function CrossSectionWindow() {
     snapRef.current = null;
     setSnapDisplay(null);
   };
+
+  // ── Derived cursor ────────────────────────────────────────────────────────
+  const isToolActive = measActive || ptLabelMode || dimActive;
+  const cursorStyle = isToolActive ? "crosshair" : panning ? "grabbing" : "grab";
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -517,7 +668,6 @@ export function CrossSectionWindow() {
       <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/40 flex-wrap">
 
         {state?.isFaceSection ? (
-          /* Face cross-section: offset slider instead of station */
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] text-muted-foreground">Versatz</span>
             <button
@@ -553,7 +703,6 @@ export function CrossSectionWindow() {
           </div>
         ) : (
           <>
-            {/* Station navigation (alignment mode) */}
             <div className="flex items-center gap-0.5">
               <button onClick={() => navigate(-step * 10)}
                 className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
@@ -576,7 +725,6 @@ export function CrossSectionWindow() {
                 className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
                 title={`+${step * 10} m`}>►►</button>
             </div>
-            {/* Step selector */}
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Δ</span>
               <select value={step} onChange={e => setStep(Number(e.target.value))}
@@ -589,7 +737,6 @@ export function CrossSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
-        {/* Mode (only for alignment-based cross-section) */}
         {!state?.isFaceSection && (
           <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
             {(["vertical", "normal"] as const).map(m => (
@@ -607,7 +754,6 @@ export function CrossSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
-        {/* 3D section surface toggle */}
         <button
           onClick={() => send({ t: "toggleSectionSurface" })}
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
@@ -624,7 +770,7 @@ export function CrossSectionWindow() {
 
         {/* Measure */}
         <button
-          onClick={() => { setMeasActive(a => !a); setPending(null); setPtLabelMode(false); }}
+          onClick={() => { setMeasActive(a => !a); setPending(null); setPtLabelMode(false); setDimActive(false); setDimStep("p1"); setDimP1(null); setDimP2(null); }}
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
             measActive ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
           )}
@@ -644,13 +790,42 @@ export function CrossSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
+        {/* Dimensioning tool (Kote) */}
+        <button
+          onClick={() => {
+            setDimActive(a => !a);
+            setMeasActive(false); setPending(null); setPtLabelMode(false);
+            setDimStep("p1"); setDimP1(null); setDimP2(null);
+          }}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            dimActive ? "bg-orange-500 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Bemaßung / Kote absetzen"
+        >
+          <Columns2 size={13} /> Kote
+        </button>
+        {dimActive && (
+          <span className="text-[10px] text-orange-400 italic">
+            {dimStep === "p1" ? "1. Punkt klicken" : dimStep === "p2" ? "2. Punkt klicken" : "Kote absetzen…"}
+          </span>
+        )}
+        {dimensions.length > 0 && (
+          <button onClick={() => { setDimensions([]); }}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-red-400 transition-colors"
+            title="Alle Koten löschen">
+            <Trash2 size={12} />
+          </button>
+        )}
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
         {/* Point-label tool */}
         <button
-          onClick={() => { setPtLabelMode(a => !a); setMeasActive(false); setPending(null); }}
+          onClick={() => { setPtLabelMode(a => !a); setMeasActive(false); setPending(null); setDimActive(false); setDimStep("p1"); setDimP1(null); setDimP2(null); }}
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
             ptLabelMode ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
           )}
-          title="Punkt X/Y beschriften (gemessen vom Achspunkt)"
+          title="Punkt X/Y beschriften"
         >
           <MapPin size={13} /> Punkt
         </button>
@@ -670,14 +845,14 @@ export function CrossSectionWindow() {
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
             snapActive ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
           )}
-          title="Fangmodus: Punkt- und Linienfang"
+          title="Fangmodus"
         >
           <Magnet size={13} /> Fang
         </button>
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
-        {/* Object labels toggle + property selector */}
+        {/* Object labels toggle */}
         <button
           onClick={() => setObjLabelsVisible(a => !a)}
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
@@ -685,7 +860,7 @@ export function CrossSectionWindow() {
           )}
           title="Objekte beschriften"
         >
-          <Tag size={13} /> Objekte
+          <Tag size={13} />
         </button>
         {objLabelsVisible && availablePropKeys.length > 0 && (
           <select
@@ -722,6 +897,31 @@ export function CrossSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
+        {/* ISO hatch mode */}
+        <select
+          value={hatchMode}
+          onChange={e => setHatchMode(e.target.value as typeof hatchMode)}
+          className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground"
+          title="Schraffur-Modus"
+        >
+          <option value="none">Schraffur: Uniform</option>
+          <option value="auto">Schraffur: Auto (Typ)</option>
+          <option value="custom">Schraffur: Anpassen</option>
+        </select>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
+        {/* SVG Export */}
+        <button
+          onClick={handleExport}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          title="Als SVG exportieren"
+        >
+          <Download size={13} /> SVG
+        </button>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
         {isZoomed && (
           <button onClick={() => { setZoomFactor(1.0); setViewCenter(null); }}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground"
@@ -737,6 +937,11 @@ export function CrossSectionWindow() {
             snapActive && snapDisplay ? "text-amber-400" : "text-muted-foreground")}>
             {effW[0] >= 0 ? "R" : "L"}&nbsp;{Math.abs(effW[0]).toFixed(3)} m&nbsp;&nbsp;
             Δh&nbsp;{effW[1] >= 0 ? "+" : ""}{effW[1].toFixed(3)} m
+            {elevationOrigin != null && (
+              <span className="ml-2 text-sky-400/80">
+                {(elevationOrigin + effW[1]).toFixed(3)} m ü.NHN
+              </span>
+            )}
             {snapActive && snapDisplay && (
               <span className="ml-1 text-[9px] opacity-70">
                 {snapDisplay.type === "vertex" ? "●" : "—"}
@@ -746,7 +951,26 @@ export function CrossSectionWindow() {
         )}
       </div>
 
-      {/* ── Chart + measurements sidebar ─────────────────────────────────── */}
+      {/* ── Custom hatch assignment panel ──────────────────────────────────── */}
+      {hatchMode === "custom" && visibleTypes.length > 0 && (
+        <div className="shrink-0 flex items-center gap-3 px-3 py-1 border-b border-border bg-card/20 flex-wrap text-[10px]">
+          <span className="text-muted-foreground font-semibold">Schraffur:</span>
+          {visibleTypes.map(type => (
+            <div key={type} className="flex items-center gap-1">
+              <span className="text-muted-foreground truncate max-w-[100px]" title={type}>{type}</span>
+              <select
+                value={customHatchMap[type] ?? DEFAULT_TYPE_HATCH[type] ?? "concrete"}
+                onChange={e => setCustomHatchMap(m => ({ ...m, [type]: e.target.value as HatchId }))}
+                className="text-[10px] bg-muted border border-border rounded px-1 py-0 text-foreground"
+              >
+                {ISO_HATCHES.map(h => <option key={h.id} value={h.id}>{h.label}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Chart ────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
         <div ref={containerRef} className="flex-1 min-w-0 min-h-0 relative">
           <svg ref={svgRef}
@@ -757,14 +981,49 @@ export function CrossSectionWindow() {
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseLeave}
-            style={{ cursor: (measActive || ptLabelMode) ? "crosshair" : panning ? "grabbing" : "grab", display: "block" }}
+            style={{ cursor: cursorStyle, display: "block" }}
           >
             <defs>
               <clipPath id="xs-clip">
                 <rect x={M.left} y={M.top} width={chartW} height={chartH} />
               </clipPath>
-              <pattern id="xs-hatch" patternUnits="userSpaceOnUse" x="0" y="0" width="8" height="8">
-                <line x1="0" y1="8" x2="8" y2="0" stroke="currentColor" strokeWidth="0.9" opacity="0.4" />
+
+              {/* ── ISO hatch patterns ── */}
+              {/* Beton: diagonal 45° */}
+              <pattern id="xs-hatch-concrete" patternUnits="userSpaceOnUse" x="0" y="0" width="8" height="8">
+                <line x1="0" y1="8" x2="8" y2="0" stroke="currentColor" strokeWidth="0.9" opacity="0.45" />
+              </pattern>
+              {/* Stahl: Kreuzschraffur */}
+              <pattern id="xs-hatch-steel" patternUnits="userSpaceOnUse" x="0" y="0" width="6" height="6">
+                <line x1="0" y1="6" x2="6" y2="0" stroke="currentColor" strokeWidth="0.8" opacity="0.45" />
+                <line x1="0" y1="0" x2="6" y2="6" stroke="currentColor" strokeWidth="0.8" opacity="0.45" />
+              </pattern>
+              {/* Holz: horizontale Linien */}
+              <pattern id="xs-hatch-wood" patternUnits="userSpaceOnUse" x="0" y="0" width="8" height="5">
+                <line x1="0" y1="2.5" x2="8" y2="2.5" stroke="currentColor" strokeWidth="0.8" opacity="0.4" />
+              </pattern>
+              {/* Dämmung: Zickzack */}
+              <pattern id="xs-hatch-insulation" patternUnits="userSpaceOnUse" x="0" y="0" width="12" height="8">
+                <polyline points="0,4 3,1 6,4 9,7 12,4" fill="none" stroke="currentColor" strokeWidth="0.9" opacity="0.4" />
+              </pattern>
+              {/* Erdreich: diagonale mit Punkten */}
+              <pattern id="xs-hatch-earth" patternUnits="userSpaceOnUse" x="0" y="0" width="8" height="8">
+                <line x1="0" y1="8" x2="8" y2="0" stroke="currentColor" strokeWidth="0.8" opacity="0.35" />
+                <circle cx="2" cy="6" r="0.8" fill="currentColor" opacity="0.45" />
+                <circle cx="6" cy="2" r="0.8" fill="currentColor" opacity="0.45" />
+              </pattern>
+              {/* Sand: feine Punkte */}
+              <pattern id="xs-hatch-sand" patternUnits="userSpaceOnUse" x="0" y="0" width="6" height="6">
+                <circle cx="1.5" cy="1.5" r="0.7" fill="currentColor" opacity="0.4" />
+                <circle cx="4.5" cy="4.5" r="0.7" fill="currentColor" opacity="0.4" />
+                <circle cx="1.5" cy="4.5" r="0.4" fill="currentColor" opacity="0.3" />
+              </pattern>
+              {/* Mauerwerk: Ziegelstruktur */}
+              <pattern id="xs-hatch-brick" patternUnits="userSpaceOnUse" x="0" y="0" width="12" height="8">
+                <line x1="0" y1="4" x2="12" y2="4" stroke="currentColor" strokeWidth="0.8" opacity="0.4" />
+                <line x1="6" y1="0" x2="6" y2="4"  stroke="currentColor" strokeWidth="0.8" opacity="0.4" />
+                <line x1="0" y1="4" x2="0" y2="8"  stroke="currentColor" strokeWidth="0.8" opacity="0.4" />
+                <line x1="12" y1="4" x2="12" y2="8" stroke="currentColor" strokeWidth="0.8" opacity="0.4" />
               </pattern>
             </defs>
 
@@ -783,15 +1042,22 @@ export function CrossSectionWindow() {
               <line x1={xs(0)} y1={M.top} x2={xs(0)} y2={M.top + chartH}
                 stroke="var(--color-muted-foreground)" strokeWidth={1} strokeDasharray="6,4" opacity={0.5} />
 
-              {/* Hatched polygon fills — pre-computed path strings */}
-              {svgPolyPaths.map((p, i) => (
-                <g key={i} style={{ color: p.color }}>
-                  <path d={p.d} fill={p.color} fillOpacity={0.18} stroke="none" />
-                  <path d={p.d} fill="url(#xs-hatch)" stroke="none" opacity={0.6} />
-                </g>
-              ))}
+              {/* Hatched polygon fills */}
+              {svgPolyPaths.map((p, i) => {
+                const hatchFill = hatchMode !== "none"
+                  ? resolveHatch(p.objectKey)
+                  : "url(#xs-hatch-concrete)";
+                return (
+                  <g key={i} style={{ color: p.color }}>
+                    <path d={p.d} fill={p.color} fillOpacity={0.18} stroke="none" />
+                    {hatchFill !== "none" && (
+                      <path d={p.d} fill={hatchFill} stroke="none" opacity={0.6} />
+                    )}
+                  </g>
+                );
+              })}
 
-              {/* Section lines — one <path> per color instead of one <line> per segment */}
+              {/* Section lines */}
               {svgPaths.map(([color, d]) => (
                 <path key={color} d={d} stroke={color} strokeWidth={1.5} fill="none" />
               ))}
@@ -843,13 +1109,94 @@ export function CrossSectionWindow() {
                 </>
               )}
 
-              {/* Point labels (X/Y from axis origin) */}
+              {/* Dimension annotations (Koten) */}
+              {dimensions.map(dim => {
+                const dx = dim.p2[0] - dim.p1[0], dy = dim.p2[1] - dim.p1[1];
+                const len = Math.hypot(dx, dy);
+                if (len < 1e-6) return null;
+                const ux = dx / len, uy = dy / len;
+                const nx = -uy, ny = ux; // left-hand perp (same as offset direction)
+                const OVERSHOOT_W = 6 / scale; // extension line overshoot in world units
+                // Dimension line endpoints (offset from measured points)
+                const d1x = dim.p1[0] + nx * dim.offset, d1y = dim.p1[1] + ny * dim.offset;
+                const d2x = dim.p2[0] + nx * dim.offset, d2y = dim.p2[1] + ny * dim.offset;
+                const ARROW_W = 8 / scale;
+                const mid = [(d1x + d2x) / 2, (d1y + d2y) / 2] as [number, number];
+                const dist = len.toFixed(3);
+                const textW = dist.length * 6.5 + 16;
+                return (
+                  <g key={dim.id}>
+                    {/* Extension lines */}
+                    <line
+                      x1={xs(dim.p1[0])} y1={ys(dim.p1[1])}
+                      x2={xs(d1x + nx * OVERSHOOT_W)} y2={ys(d1y + ny * OVERSHOOT_W)}
+                      stroke="#fb923c" strokeWidth={1} />
+                    <line
+                      x1={xs(dim.p2[0])} y1={ys(dim.p2[1])}
+                      x2={xs(d2x + nx * OVERSHOOT_W)} y2={ys(d2y + ny * OVERSHOOT_W)}
+                      stroke="#fb923c" strokeWidth={1} />
+                    {/* Dimension line */}
+                    <line x1={xs(d1x)} y1={ys(d1y)} x2={xs(d2x)} y2={ys(d2y)}
+                      stroke="#fb923c" strokeWidth={1.5} />
+                    {/* Arrowheads */}
+                    <path d={arrowHeadPath(xs(d2x), ys(d2y), xs(d1x), ys(d1y), 8)}
+                      stroke="#fb923c" strokeWidth={1.2} fill="none" />
+                    <path d={arrowHeadPath(xs(d1x), ys(d1y), xs(d2x), ys(d2y), 8)}
+                      stroke="#fb923c" strokeWidth={1.2} fill="none" />
+                    {/* Measured points */}
+                    <circle cx={xs(dim.p1[0])} cy={ys(dim.p1[1])} r={2.5} fill="#fb923c" />
+                    <circle cx={xs(dim.p2[0])} cy={ys(dim.p2[1])} r={2.5} fill="#fb923c" />
+                    {/* Dimension text */}
+                    <rect x={xs(mid[0]) - textW / 2} y={ys(mid[1]) - 8} width={textW} height={14} rx={2}
+                      fill="var(--color-popover)" stroke="#fb923c" strokeWidth={0.8} opacity={0.95} />
+                    <text x={xs(mid[0])} y={ys(mid[1]) + 3} textAnchor="middle" fontSize={10}
+                      fill="#fb923c" fontFamily="monospace" fontWeight="bold">{dist} m</text>
+                  </g>
+                );
+              })}
+
+              {/* Preview for dim tool */}
+              {dimActive && (() => {
+                if (dimStep === "p2" && dimP1 && effW) {
+                  return (
+                    <>
+                      <circle cx={xs(dimP1[0])} cy={ys(dimP1[1])} r={3} fill="#fb923c" />
+                      <line x1={xs(dimP1[0])} y1={ys(dimP1[1])} x2={xs(effW[0])} y2={ys(effW[1])}
+                        stroke="#fb923c" strokeWidth={1} strokeDasharray="3,2" opacity={0.6} />
+                    </>
+                  );
+                }
+                if (dimStep === "offset" && dimP1 && dimP2 && effW) {
+                  const dx = dimP2[0] - dimP1[0], dy = dimP2[1] - dimP1[1];
+                  const len = Math.hypot(dx, dy);
+                  if (len < 1e-6) return null;
+                  const nx = -dy / len, ny = dx / len;
+                  const offset = (effW[0] - dimP1[0]) * nx + (effW[1] - dimP1[1]) * ny;
+                  const d1x = dimP1[0] + nx * offset, d1y = dimP1[1] + ny * offset;
+                  const d2x = dimP2[0] + nx * offset, d2y = dimP2[1] + ny * offset;
+                  return (
+                    <>
+                      <line x1={xs(dimP1[0])} y1={ys(dimP1[1])} x2={xs(d1x)} y2={ys(d1y)}
+                        stroke="#fb923c" strokeWidth={0.8} strokeDasharray="3,2" opacity={0.5} />
+                      <line x1={xs(dimP2[0])} y1={ys(dimP2[1])} x2={xs(d2x)} y2={ys(d2y)}
+                        stroke="#fb923c" strokeWidth={0.8} strokeDasharray="3,2" opacity={0.5} />
+                      <line x1={xs(d1x)} y1={ys(d1y)} x2={xs(d2x)} y2={ys(d2y)}
+                        stroke="#fb923c" strokeWidth={1} strokeDasharray="4,2" opacity={0.7} />
+                    </>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Point labels */}
               {pointLabels.map(lbl => {
                 const sx  = xs(lbl.x), sy  = ys(lbl.y);
                 const s0x = xs(0),     s0y = ys(0);
                 const xLbl = lbl.x === 0 ? "0.00 m"
                   : `${lbl.x > 0 ? "R" : "L"} ${Math.abs(lbl.x).toFixed(2)} m`;
                 const yLbl = `${lbl.y >= 0 ? "+" : ""}${lbl.y.toFixed(2)} m`;
+                const elevLbl = elevationOrigin != null
+                  ? `${(elevationOrigin + lbl.y).toFixed(2)} m` : null;
                 const mhx = (s0x + sx) / 2, mvy = (s0y + sy) / 2;
                 const xTxtDy = sy < s0y ? -5 : 12;
                 const yTxtDx = sx > s0x ? 5 : -5;
@@ -876,10 +1223,20 @@ export function CrossSectionWindow() {
                     )}
                     {lbl.y !== 0 && (
                       <>
+                        {/* Relative Δh */}
                         <rect x={sx + yTxtDx - (yAnchor === "start" ? 0 : 52)} y={mvy - 9} width={52} height={11} rx={2}
                           fill="var(--color-popover)" opacity={0.88} />
                         <text x={sx + yTxtDx} y={mvy} textAnchor={yAnchor} fontSize={9}
                           fill="#a78bfa" fontFamily="monospace" fontWeight="bold">{yLbl}</text>
+                        {/* Absolute elevation */}
+                        {elevLbl && (
+                          <>
+                            <rect x={sx + yTxtDx - (yAnchor === "start" ? 0 : 58)} y={mvy + 4} width={58} height={11} rx={2}
+                              fill="var(--color-popover)" opacity={0.88} />
+                            <text x={sx + yTxtDx} y={mvy + 13} textAnchor={yAnchor} fontSize={9}
+                              fill="#38bdf8" fontFamily="monospace">{elevLbl}</text>
+                          </>
+                        )}
                       </>
                     )}
                     <circle cx={sx} cy={sy} r={3} fill="#a78bfa" />
@@ -887,14 +1244,13 @@ export function CrossSectionWindow() {
                 );
               })}
 
-              {/* Live preview dot when ptLabelMode active */}
               {ptLabelMode && effW != null && (
                 <circle cx={xs(effW[0])} cy={ys(effW[1])} r={3}
                   fill="none" stroke="#a78bfa" strokeWidth={1.2} opacity={0.7} strokeDasharray="2,1" />
               )}
             </g>
 
-            {/* Snap indicator — above clip group */}
+            {/* Snap indicator */}
             {snapActive && snapDisplay && (() => {
               const sx = xs(snapDisplay.pt[0]), sy = ys(snapDisplay.pt[1]);
               return snapDisplay.type === "vertex" ? (
@@ -925,7 +1281,6 @@ export function CrossSectionWindow() {
                   </g>
                 );
               }
-              // leader mode
               const clampedCx = Math.max(M.left, Math.min(M.left + chartW, lbl.cx));
               const clampedCy = Math.max(M.top,  Math.min(M.top + chartH,  lbl.cy));
               const boxCx = lbl.lx + lbl.bw / 2;
@@ -945,7 +1300,7 @@ export function CrossSectionWindow() {
               );
             })}
 
-            {/* X axis */}
+            {/* ── X axis ── */}
             <line x1={M.left} y1={M.top + chartH} x2={M.left + chartW} y2={M.top + chartH}
               stroke="var(--color-border)" strokeWidth={1} />
             {xTicks.map(x => (
@@ -961,7 +1316,7 @@ export function CrossSectionWindow() {
             <text x={M.left} y={M.top + chartH + 30} textAnchor="start" fontSize={10} fill="var(--color-muted-foreground)">← L</text>
             <text x={M.left + chartW} y={M.top + chartH + 30} textAnchor="end"   fontSize={10} fill="var(--color-muted-foreground)">R → [m]</text>
 
-            {/* Y axis */}
+            {/* ── Left Y axis (relative Δh) ── */}
             <line x1={M.left} y1={M.top} x2={M.left} y2={M.top + chartH}
               stroke="var(--color-border)" strokeWidth={1} />
             {yTicks.map(y => (
@@ -976,6 +1331,29 @@ export function CrossSectionWindow() {
             ))}
             <text x={M.left + 4} y={M.top + 8} textAnchor="start" fontSize={10}
               fill="var(--color-muted-foreground)">↑ Δh [m]</text>
+
+            {/* ── Right Y axis (absolute elevation) ── */}
+            {elevationOrigin != null && (
+              <>
+                <line x1={M.left + chartW} y1={M.top} x2={M.left + chartW} y2={M.top + chartH}
+                  stroke="var(--color-border)" strokeWidth={1} />
+                {yTicks.map(y => {
+                  const absElev = elevationOrigin + y;
+                  return (
+                    <g key={y}>
+                      <line x1={M.left + chartW} y1={ys(y)} x2={M.left + chartW + 5} y2={ys(y)}
+                        stroke="#38bdf8" strokeWidth={1} opacity={0.7} />
+                      <text x={M.left + chartW + 8} y={ys(y) + 3} textAnchor="start" fontSize={9}
+                        fill="#38bdf8" fontFamily="monospace" opacity={0.85}>
+                        {absElev.toFixed(1)}
+                      </text>
+                    </g>
+                  );
+                })}
+                <text x={M.left + chartW + 4} y={M.top + 8} textAnchor="start" fontSize={9}
+                  fill="#38bdf8" opacity={0.85}>↑ m ü.NHN</text>
+              </>
+            )}
           </svg>
 
           {state?.computing && (
@@ -998,7 +1376,7 @@ export function CrossSectionWindow() {
           )}
         </div>
 
-        {/* ── Measurements sidebar ────────────────────────────────────────── */}
+        {/* ── Measurements sidebar ── */}
         {measurements.length > 0 && (
           <div className="w-52 shrink-0 border-l border-border overflow-y-auto p-2 flex flex-col gap-1.5 bg-card/20">
             <div className="flex items-center justify-between">

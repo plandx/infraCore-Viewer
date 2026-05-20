@@ -75,7 +75,7 @@ export function serializeState(store: {
 export const CROSS_SECTION_CHANNEL = "infracore-cross-section";
 
 export type XSSyncLine = { x1: number; y1: number; x2: number; y2: number; color: string; objectKey?: string };
-export type XSSyncPolygon = { points: Array<[number, number]>; color: string };
+export type XSSyncPolygon = { points: Array<[number, number]>; color: string; objectKey?: string };
 
 /** Label metadata for one IFC element visible in the current cross-section */
 export interface XSSyncObjectLabel {
@@ -101,6 +101,8 @@ export interface XSSyncState {
   isFaceSection?: boolean;
   faceOffset?: number;
   theme?: "light" | "dark";
+  /** World-Y of the section origin — used for the absolute-elevation right axis */
+  elevationOrigin?: number;
 }
 
 export type XSMsg =

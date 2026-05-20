@@ -11,6 +11,7 @@ export interface SectionLine {
 export interface SectionPolygon {
   points: Array<[number, number]>;
   color: string;
+  objectKey?: string;
 }
 
 function qKey(x: number, y: number, eps: number): string {
@@ -21,15 +22,18 @@ export function buildSectionPolygons(lines: SectionLine[], eps = 1e-3): SectionP
   if (lines.length === 0) return [];
   const results: SectionPolygon[] = [];
 
-  // Group by color
-  const byColor = new Map<string, SectionLine[]>();
+  // Group by (objectKey + color) so each element gets its own polygon set
+  const byKey = new Map<string, SectionLine[]>();
   for (const l of lines) {
-    let g = byColor.get(l.color);
-    if (!g) { g = []; byColor.set(l.color, g); }
+    const k = `${l.objectKey ?? ""}|${l.color}`;
+    let g = byKey.get(k);
+    if (!g) { g = []; byKey.set(k, g); }
     g.push(l);
   }
 
-  for (const [color, group] of byColor) {
+  for (const [, group] of byKey) {
+    const color = group[0].color;
+    const objectKey = group[0].objectKey;
     const used = new Uint8Array(group.length);
 
     // Build adjacency: quantized endpoint key → [(lineIdx, endIdx)]
@@ -83,7 +87,7 @@ export function buildSectionPolygons(lines: SectionLine[], eps = 1e-3): SectionP
         const j = (i + 1) % n;
         area += chain[i][0] * chain[j][1] - chain[j][0] * chain[i][1];
       }
-      if (Math.abs(area) / 2 >= 0.01) results.push({ points: chain, color });
+      if (Math.abs(area) / 2 >= 0.01) results.push({ points: chain, color, objectKey });
     }
   }
 
