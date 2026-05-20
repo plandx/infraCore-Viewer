@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { AlertTriangle, Play, Loader2, ChevronDown, ChevronRight, Download, Plus, Trash2, Check, AlertCircle, X } from "lucide-react";
+import { AlertTriangle, Play, Loader2, ChevronDown, ChevronRight, Download, Plus, Trash2, Check, AlertCircle, X, Focus, ArrowUpDown } from "lucide-react";
 import { cn } from "../lib/utils";
 import {
   COLLISION_CHANNEL,
@@ -9,6 +9,12 @@ import type {
   CollisionMsg, CollisionSyncState, ClashRule, ClashResult, ClashStatus, Severity, PropCondition, ComponentFilter,
 } from "../utils/windowSync";
 
+type GroupBy = "none" | "rule" | "severity" | "typePair" | "status";
+type SortBy = "severity" | "rule" | "nameA" | "overlap" | "status";
+
+const SEVERITY_ORDER: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
+const STATUS_ORDER: Record<ClashStatus, number> = { new: 0, approved: 1, resolved: 2 };
+
 export function CollisionWindow() {
   const chRef = useRef<BroadcastChannel | null>(null);
   const [state, setState] = useState<CollisionSyncState>({
@@ -17,11 +23,15 @@ export function CollisionWindow() {
     running: false,
     progress: 0,
     allTypes: [],
+    loadedPropKeys: [],
   });
   const [activeRule, setActiveRule] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editRule, setEditRule] = useState<ClashRule | null>(null);
   const [localRules, setLocalRules] = useState<ClashRule[]>(DEFAULT_CLASH_RULES);
+  const [groupBy, setGroupBy] = useState<GroupBy>("none");
+  const [sortBy, setSortBy] = useState<SortBy>("severity");
+  const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
     let ch: BroadcastChannel;
@@ -50,10 +60,50 @@ export function CollisionWindow() {
     chRef.current?.postMessage({ t: "setStatus", key, status } satisfies CollisionMsg);
   }, []);
 
-  const filteredResults = useMemo(() =>
+  const sendIsolate = useCallback((result: ClashResult) => {
+    chRef.current?.postMessage({
+      t: "isolate",
+      modelIdA: result.modelIdA, expressIdA: result.expressIdA,
+      modelIdB: result.modelIdB, expressIdB: result.expressIdB,
+    } satisfies CollisionMsg);
+  }, []);
+
+  const baseResults = useMemo(() =>
     activeRule ? state.results.filter(r => r.ruleId === activeRule) : state.results,
     [state.results, activeRule]
   );
+
+  const sortedResults = useMemo(() => {
+    const arr = [...baseResults];
+    arr.sort((a, b) => {
+      let cmp = 0;
+      switch (sortBy) {
+        case "severity": cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]; break;
+        case "rule":     cmp = a.ruleName.localeCompare(b.ruleName); break;
+        case "nameA":    cmp = a.nameA.localeCompare(b.nameA); break;
+        case "overlap":  cmp = b.overlap - a.overlap; break;
+        case "status":   cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status]; break;
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+    return arr;
+  }, [baseResults, sortBy, sortAsc]);
+
+  const groupedResults = useMemo((): Array<{ label: string; items: ClashResult[] }> => {
+    if (groupBy === "none") return [{ label: "", items: sortedResults }];
+    const map = new Map<string, ClashResult[]>();
+    for (const r of sortedResults) {
+      const key =
+        groupBy === "rule"     ? r.ruleName :
+        groupBy === "severity" ? r.severity.toUpperCase() :
+        groupBy === "typePair" ? `${r.typeA.replace("Ifc","")} ↔ ${r.typeB.replace("Ifc","")}` :
+        /* status */             r.status.toUpperCase();
+      const arr = map.get(key) ?? [];
+      arr.push(r);
+      map.set(key, arr);
+    }
+    return Array.from(map.entries()).map(([label, items]) => ({ label, items }));
+  }, [sortedResults, groupBy]);
 
   const ruleStats = useMemo(() => {
     const map = new Map<string, { total: number; new: number; approved: number; resolved: number }>();
@@ -71,7 +121,7 @@ export function CollisionWindow() {
   const exportCSV = () => {
     const rows = [
       ["Regel","Typ","Status","TypeA","NameA","TypeB","NameB","Wert","ModelA","ModelB"],
-      ...filteredResults.map(r => [
+      ...sortedResults.map(r => [
         r.ruleName, r.severity, r.status,
         r.typeA, r.nameA, r.typeB, r.nameB,
         r.overlap.toFixed(4), r.modelIdA, r.modelIdB,
@@ -91,6 +141,11 @@ export function CollisionWindow() {
     st === "approved" ? <Check size={10} className="text-green-400" /> :
     st === "resolved" ? <Check size={10} className="text-blue-400" /> :
     <AlertCircle size={10} className="text-amber-400" />;
+
+  const toggleSort = (s: SortBy) => {
+    if (sortBy === s) setSortAsc(p => !p);
+    else { setSortBy(s); setSortAsc(true); }
+  };
 
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden">
@@ -240,17 +295,17 @@ export function CollisionWindow() {
           {hasRun && !state.running && (
             <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
               {/* Summary bar */}
-              <div className="px-4 py-2 border-b border-border shrink-0 flex items-center justify-between">
+              <div className="px-4 py-2 border-b border-border shrink-0 flex items-center justify-between flex-wrap gap-2">
                 <div className="flex gap-4">
                   {(["error","warning","info"] as Severity[]).map(s => {
-                    const cnt = filteredResults.filter(r => r.severity === s).length;
+                    const cnt = sortedResults.filter(r => r.severity === s).length;
                     return cnt > 0 ? (
                       <span key={s} className={cn("text-xs font-medium", severityColor(s))}>
                         ⬤ {cnt} {s === "error" ? "Fehler" : s === "warning" ? "Warnungen" : "Info"}
                       </span>
                     ) : null;
                   })}
-                  {filteredResults.length === 0 && (
+                  {sortedResults.length === 0 && (
                     <span className="text-xs text-green-400">✓ Keine Konflikte in dieser Auswahl</span>
                   )}
                 </div>
@@ -261,73 +316,144 @@ export function CollisionWindow() {
                 )}
               </div>
 
+              {/* Sort / Group toolbar */}
+              <div className="px-4 py-1.5 border-b border-border shrink-0 flex items-center gap-3 flex-wrap">
+                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">Sortieren:</span>
+                {([
+                  ["severity", "Schwere"],
+                  ["rule", "Regel"],
+                  ["nameA", "Element A"],
+                  ["overlap", "Wert"],
+                  ["status", "Status"],
+                ] as [SortBy, string][]).map(([s, label]) => (
+                  <button
+                    key={s}
+                    onClick={() => toggleSort(s)}
+                    className={cn(
+                      "flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border transition-colors",
+                      sortBy === s
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40"
+                    )}
+                  >
+                    {label}
+                    {sortBy === s && <ArrowUpDown size={8} className={sortAsc ? "" : "rotate-180"} />}
+                  </button>
+                ))}
+
+                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide ml-2">Gruppieren:</span>
+                {([
+                  ["none", "Keine"],
+                  ["rule", "Regel"],
+                  ["severity", "Schwere"],
+                  ["typePair", "Typpaar"],
+                  ["status", "Status"],
+                ] as [GroupBy, string][]).map(([g, label]) => (
+                  <button
+                    key={g}
+                    onClick={() => setGroupBy(g)}
+                    className={cn(
+                      "text-[10px] px-1.5 py-0.5 rounded border transition-colors",
+                      groupBy === g
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               {/* Result list */}
               <div className="flex-1 overflow-y-auto scrollbar-thin">
-                {filteredResults.map((r, idx) => {
-                  const key = `${r.ruleId}|${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}`;
-                  const expanded = expandedId === key;
-                  return (
-                    <div key={idx} className={cn("border-b border-border/40 last:border-0", r.status === "resolved" && "opacity-40")}>
-                      <button
-                        onClick={() => setExpandedId(expanded ? null : key)}
-                        className="w-full flex items-start gap-2 px-3 py-2 hover:bg-muted/25 text-left transition-colors"
-                      >
-                        {expanded
-                          ? <ChevronDown size={11} className="shrink-0 mt-0.5 text-muted-foreground" />
-                          : <ChevronRight size={11} className="shrink-0 mt-0.5 text-muted-foreground" />
-                        }
-                        <div className={cn("shrink-0 w-1 self-stretch rounded-full mt-0.5", r.severity === "error" ? "bg-red-400" : r.severity === "warning" ? "bg-amber-400" : "bg-blue-400")} />
-                        <div className="flex-1 min-w-0 grid grid-cols-2 gap-x-3">
-                          <div className="min-w-0">
-                            <span className="text-[9px] text-muted-foreground font-mono">{r.typeA.replace("Ifc","")}</span>
-                            <p className="text-xs text-foreground truncate leading-snug">{r.nameA}</p>
+                {groupedResults.map(({ label, items }) => (
+                  <div key={label || "_all"}>
+                    {label && (
+                      <div className="sticky top-0 z-10 px-4 py-1 bg-muted/80 border-b border-border text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {label} <span className="font-normal normal-case">({items.length})</span>
+                      </div>
+                    )}
+                    {items.map((r, idx) => {
+                      const key = `${r.ruleId}|${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}`;
+                      const expanded = expandedId === key;
+                      return (
+                        <div key={idx} className={cn("border-b border-border/40 last:border-0", r.status === "resolved" && "opacity-40")}>
+                          <div className="w-full flex items-start gap-2 px-3 py-2 hover:bg-muted/25 transition-colors">
+                            <button
+                              onClick={() => setExpandedId(expanded ? null : key)}
+                              className="shrink-0 mt-0.5"
+                            >
+                              {expanded
+                                ? <ChevronDown size={11} className="text-muted-foreground" />
+                                : <ChevronRight size={11} className="text-muted-foreground" />
+                              }
+                            </button>
+                            <div className={cn("shrink-0 w-1 self-stretch rounded-full mt-0.5", r.severity === "error" ? "bg-red-400" : r.severity === "warning" ? "bg-amber-400" : "bg-blue-400")} />
+                            <button
+                              onClick={() => setExpandedId(expanded ? null : key)}
+                              className="flex-1 min-w-0 grid grid-cols-2 gap-x-3 text-left"
+                            >
+                              <div className="min-w-0">
+                                <span className="text-[9px] text-muted-foreground font-mono">{r.typeA.replace("Ifc","")}</span>
+                                <p className="text-xs text-foreground truncate leading-snug">{r.nameA}</p>
+                              </div>
+                              <div className="min-w-0">
+                                <span className="text-[9px] text-muted-foreground font-mono">{r.typeB.replace("Ifc","")}</span>
+                                <p className="text-xs text-foreground truncate leading-snug">{r.nameB}</p>
+                              </div>
+                            </button>
+                            <div className="shrink-0 flex items-center gap-1.5">
+                              <div className="flex flex-col items-end gap-0.5">
+                                <span className="text-[9px] text-muted-foreground font-mono">
+                                  {r.overlap > 0 ? `${r.overlap.toFixed(4)} m³` : "clearance"}
+                                </span>
+                                <span className="flex items-center gap-1">{statusIcon(r.status)}</span>
+                              </div>
+                              <button
+                                title="Nur diese Elemente anzeigen"
+                                onClick={() => sendIsolate(r)}
+                                className="text-muted-foreground hover:text-primary p-0.5 rounded transition-colors"
+                              >
+                                <Focus size={12} />
+                              </button>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <span className="text-[9px] text-muted-foreground font-mono">{r.typeB.replace("Ifc","")}</span>
-                            <p className="text-xs text-foreground truncate leading-snug">{r.nameB}</p>
-                          </div>
-                        </div>
-                        <div className="shrink-0 flex flex-col items-end gap-0.5">
-                          <span className="text-[9px] text-muted-foreground font-mono">
-                            {r.overlap > 0 ? `${r.overlap.toFixed(4)} m³` : "clearance"}
-                          </span>
-                          <span className="flex items-center gap-1">{statusIcon(r.status)}</span>
-                        </div>
-                      </button>
 
-                      {expanded && (
-                        <div className="px-6 pb-2.5 pt-1 flex flex-col gap-2">
-                          <div className={cn("text-[10px] px-2 py-1 rounded border w-fit", severityBg(r.severity))}>
-                            <span className={severityColor(r.severity)}>{r.ruleName}</span>
-                          </div>
-                          {(r.propsA && Object.keys(r.propsA).length > 0) && (
-                            <div className="grid grid-cols-2 gap-2">
-                              <PropTable title="Element A" props={r.propsA} />
-                              <PropTable title="Element B" props={r.propsB ?? {}} />
+                          {expanded && (
+                            <div className="px-6 pb-2.5 pt-1 flex flex-col gap-2">
+                              <div className={cn("text-[10px] px-2 py-1 rounded border w-fit", severityBg(r.severity))}>
+                                <span className={severityColor(r.severity)}>{r.ruleName}</span>
+                              </div>
+                              {(r.propsA && Object.keys(r.propsA).length > 0) && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <PropTable title="Element A" props={r.propsA} />
+                                  <PropTable title="Element B" props={r.propsB ?? {}} />
+                                </div>
+                              )}
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <span className="text-muted-foreground text-[9px] mx-1">Status:</span>
+                                {(["new","approved","resolved"] as ClashStatus[]).map(s => (
+                                  <button
+                                    key={s}
+                                    onClick={() => sendSetStatus(r, s)}
+                                    className={cn(
+                                      "text-[9px] px-1.5 py-0.5 rounded border transition-colors",
+                                      r.status === s
+                                        ? "border-primary bg-primary/10 text-primary"
+                                        : "border-border text-muted-foreground hover:border-primary/50"
+                                    )}
+                                  >
+                                    {s === "new" ? "Neu" : s === "approved" ? "Akzeptiert" : "Gelöst"}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
                           )}
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <span className="text-muted-foreground text-[9px] mx-1">Status:</span>
-                            {(["new","approved","resolved"] as ClashStatus[]).map(s => (
-                              <button
-                                key={s}
-                                onClick={() => sendSetStatus(r, s)}
-                                className={cn(
-                                  "text-[9px] px-1.5 py-0.5 rounded border transition-colors",
-                                  r.status === s
-                                    ? "border-primary bg-primary/10 text-primary"
-                                    : "border-border text-muted-foreground hover:border-primary/50"
-                                )}
-                              >
-                                {s === "new" ? "Neu" : s === "approved" ? "Akzeptiert" : "Gelöst"}
-                              </button>
-                            ))}
-                          </div>
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -338,6 +464,7 @@ export function CollisionWindow() {
           <RuleEditor
             rule={editRule}
             allTypes={state.allTypes}
+            loadedPropKeys={state.loadedPropKeys}
             onSave={r => {
               setLocalRules(prev => {
                 const idx = prev.findIndex(x => x.id === r.id);
@@ -373,9 +500,10 @@ function PropTable({ title, props }: { title: string; props: Record<string, stri
 
 // ── RuleEditor ────────────────────────────────────────────────────────────────
 
-function RuleEditor({ rule, allTypes, onSave, onClose }: {
+function RuleEditor({ rule, allTypes, loadedPropKeys, onSave, onClose }: {
   rule: ClashRule;
   allTypes: string[];
+  loadedPropKeys: string[];
   onSave(r: ClashRule): void;
   onClose(): void;
 }) {
@@ -456,6 +584,7 @@ function RuleEditor({ rule, allTypes, onSave, onClose }: {
             title={`Komponente ${side}`}
             filter={side === "A" ? draft.componentA : draft.componentB}
             allTypes={allTypes}
+            loadedPropKeys={loadedPropKeys}
             onToggleType={t => toggleType(side, t)}
             onAddCondition={() => addCondition(side)}
             onUpdateCondition={(i, p) => updateCondition(side, i, p)}
@@ -473,16 +602,18 @@ function RuleEditor({ rule, allTypes, onSave, onClose }: {
   );
 }
 
-function FilterEditor({ title, filter, allTypes, onToggleType, onAddCondition, onUpdateCondition, onRemoveCondition }: {
+function FilterEditor({ title, filter, allTypes, loadedPropKeys, onToggleType, onAddCondition, onUpdateCondition, onRemoveCondition }: {
   title: string;
   filter: ComponentFilter;
   allTypes: string[];
+  loadedPropKeys: string[];
   onToggleType(t: string): void;
   onAddCondition(): void;
   onUpdateCondition(i: number, p: Partial<PropCondition>): void;
   onRemoveCondition(i: number): void;
 }) {
   const [showTypes, setShowTypes] = useState(false);
+  const datalistId = `props-${title.replace(/\s/g,"")}`;
   return (
     <div className="border border-border rounded p-2 flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -505,11 +636,23 @@ function FilterEditor({ title, filter, allTypes, onToggleType, onAddCondition, o
         </div>
       )}
 
+      {loadedPropKeys.length > 0 && (
+        <datalist id={datalistId}>
+          {loadedPropKeys.map(k => <option key={k} value={k} />)}
+        </datalist>
+      )}
+
       <div className="flex flex-col gap-1">
         {filter.conditions.map((c, i) => (
           <div key={i} className="flex items-center gap-1">
-            <input value={c.propName} placeholder="Eigenschaft" onChange={e => onUpdateCondition(i, { propName: e.target.value })}
-              className="flex-1 px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none" style={{ minWidth: 0 }} />
+            <input
+              value={c.propName}
+              placeholder="Eigenschaft"
+              list={loadedPropKeys.length > 0 ? datalistId : undefined}
+              onChange={e => onUpdateCondition(i, { propName: e.target.value })}
+              className="flex-1 px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none"
+              style={{ minWidth: 0 }}
+            />
             <select value={c.operator} onChange={e => onUpdateCondition(i, { operator: e.target.value as PropCondition["operator"] })}
               className="px-1 py-0.5 text-[10px] bg-background border border-border rounded" style={{ width: 70 }}>
               <option value="contains">enthält</option>

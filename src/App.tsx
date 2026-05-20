@@ -218,13 +218,14 @@ function useCollisionSync() {
     const broadcast = (rules: ClashRule[], results: ClashResult[], running: boolean, progress: number) => {
       const allTypes: string[] = [];
       const s = new Set<string>();
-      for (const [, m] of useModelStore.getState().models) {
+      const st = useModelStore.getState();
+      for (const [, m] of st.models) {
         for (const t of Object.keys(m.elementsByType)) {
           if (!s.has(t)) { s.add(t); allTypes.push(t); }
         }
       }
       allTypes.sort();
-      ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes } } satisfies CollisionMsg);
+      ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes, loadedPropKeys: st.loadedPropKeys } } satisfies CollisionMsg);
     };
 
     let currentRules: ClashRule[] = DEFAULT_CLASH_RULES;
@@ -249,6 +250,11 @@ function useCollisionSync() {
           return key === msg.key ? { ...r, status: msg.status } : r;
         });
         broadcast(currentRules, currentResults, false, 100);
+      } else if (msg.t === "isolate") {
+        useModelStore.getState().isolateEntries([
+          { modelId: msg.modelIdA, expressId: msg.expressIdA },
+          { modelId: msg.modelIdB, expressId: msg.expressIdB },
+        ]);
       }
     };
 

@@ -188,13 +188,15 @@ export interface CollisionSyncState {
   running: boolean;
   progress: number;
   allTypes: string[];
+  loadedPropKeys: string[];
 }
 
 export type CollisionMsg =
   | { t: "state"; s: CollisionSyncState }
   | { t: "req" }
   | { t: "run"; rules: ClashRule[] }
-  | { t: "setStatus"; key: string; status: ClashStatus };
+  | { t: "setStatus"; key: string; status: ClashStatus }
+  | { t: "isolate"; modelIdA: string; expressIdA: number; modelIdB: string; expressIdB: number };
 
 const MEP_TYPES    = ["IfcDuctSegment","IfcPipeSegment","IfcCableCarrierSegment","IfcFlowSegment","IfcDistributionFlowElement","IfcDuctFitting","IfcPipeFitting","IfcFlowController","IfcFlowTerminal"];
 const STRUCT_TYPES = ["IfcBeam","IfcColumn","IfcWall","IfcSlab","IfcFoundation","IfcPile","IfcMember"];

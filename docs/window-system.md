@@ -167,17 +167,19 @@ export function openCollisionWindow() {
 
 ```typescript
 type CollisionMsg =
-  | { t: "state"; s: CollisionSyncState }   // Main → Popup: aktueller Zustand
-  | { t: "req" }                             // Popup → Main: Initialzustand anfordern
-  | { t: "run"; rules: ClashRule[] }         // Popup → Main: Prüfung starten
-  | { t: "setStatus"; key: string; status }  // Popup → Main: Status eines Treffers ändern
+  | { t: "state"; s: CollisionSyncState }                                            // Main → Popup: aktueller Zustand
+  | { t: "req" }                                                                     // Popup → Main: Initialzustand anfordern
+  | { t: "run"; rules: ClashRule[] }                                                 // Popup → Main: Prüfung starten
+  | { t: "setStatus"; key: string; status: ClashStatus }                             // Popup → Main: Status eines Treffers ändern
+  | { t: "isolate"; modelIdA: string; expressIdA: number; modelIdB: string; expressIdB: number }  // Popup → Main: Kollisionspaar isolieren
 ```
 
 ### Ablauf
 1. Popup sendet `{ t: "req" }`
-2. Main antwortet mit vollem `CollisionSyncState` (Regeln, Ergebnisse, allTypes)
+2. Main antwortet mit vollem `CollisionSyncState` (Regeln, Ergebnisse, allTypes, loadedPropKeys)
 3. User startet Prüfung → Popup sendet `{ t: "run"; rules }` → Main läuft Detection, sendet Fortschritt-Updates
 4. User ändert Status → Popup sendet `{ t: "setStatus" }` → Main aktualisiert und broadcastet neuen Zustand
+5. User klickt Isolieren-Button → Popup sendet `{ t: "isolate" }` → Main ruft `isolateEntries()` im Viewer auf
 
 ### CollisionSyncState
 ```typescript
@@ -185,8 +187,9 @@ interface CollisionSyncState {
   rules: ClashRule[];
   results: ClashResult[];
   running: boolean;
-  progress: number;   // 0..100
-  allTypes: string[]; // alle IFC-Typen aus geladenen Modellen (für Rule-Editor)
+  progress: number;        // 0..100
+  allTypes: string[];      // alle IFC-Typen aus geladenen Modellen (für Rule-Editor Typ-Filter)
+  loadedPropKeys: string[]; // alle bekannten Property-Schlüssel (für Autocomplete in Bedingungen)
 }
 ```
 
