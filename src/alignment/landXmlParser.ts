@@ -659,7 +659,7 @@ export function evaluateProfile(profileGeom: ProfileGeometry, station: number): 
     if (c.model === "parabolic") return c.yBVC + c.g1*x + (c.A/(2*c.length))*x*x;
     if (c.radius !== undefined && c.centerSta !== undefined && c.centerElev !== undefined) {
       const d = station - c.centerSta, inner = c.radius*c.radius - d*d;
-      if (inner >= 0) return c.centerElev + (c.ySign ?? 1)*Math.sqrt(inner);
+      if (inner >= 0) return c.centerElev - (c.ySign ?? 1)*Math.sqrt(inner);
     }
     return c.yBVC + c.g1*x + (c.A/(2*c.length))*x*x;
   }
