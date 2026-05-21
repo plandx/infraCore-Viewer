@@ -77,9 +77,10 @@ interface MeasureLabel {
 // Safe as module-level singletons because ViewportContainer mounts only once.
 const _v3  = new THREE.Vector3();
 const _v3b = new THREE.Vector3();
-const _flyFwd = new THREE.Vector3(0, 0, -1); // reused every frame in fly mode
-const _ray = new THREE.Raycaster();
-const _ndc = new THREE.Vector2();
+const _flyFwd    = new THREE.Vector3(0, 0, -1); // reused every frame in fly mode
+const _ray       = new THREE.Raycaster();
+const _ndc       = new THREE.Vector2();
+const _centerNDC = new THREE.Vector2(0, 0);    // screen center for fly-mode aim
 // Frustum culling pre-allocations
 const _frustum  = new THREE.Frustum();
 const _projMat  = new THREE.Matrix4();
@@ -2768,7 +2769,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     };
     document.addEventListener("mousemove", onMouseMove);
 
-    // WASD key tracking
+    // WASD key tracking + H to hide aimed element
     const onKeyDown = (e: KeyboardEvent) => {
       const k = flyKeysRef.current;
       if (e.code === "KeyW") k.w = true;
@@ -2777,6 +2778,22 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (e.code === "KeyD") k.d = true;
       if (e.code === "KeyQ") k.q = true;
       if (e.code === "KeyE") k.e = true;
+      if (e.code === "KeyH") {
+        const camera = cameraRef.current;
+        if (!camera) return;
+        _ray.setFromCamera(_centerNDC, camera);
+        const hits = _ray.intersectObjects(
+          pickableMeshesRef.current.filter(m => m.visible),
+          false,
+        );
+        if (hits.length > 0) {
+          const obj = hits[0].object;
+          const { modelId, expressId } = obj.userData as { modelId?: string; expressId?: number };
+          if (modelId && expressId != null) {
+            useModelStore.getState().hideElement(modelId, expressId);
+          }
+        }
+      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       const k = flyKeysRef.current;
