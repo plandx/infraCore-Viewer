@@ -26,13 +26,14 @@ import { CollisionWindow } from "./components/CollisionWindow";
 import { AlignmentPanel } from "./alignment/AlignmentPanel";
 import { ProfileViewer } from "./alignment/ProfileViewer";
 import { CrossSectionWindow } from "./alignment/CrossSectionWindow";
+import { LongitudinalSectionWindow } from "./alignment/LongitudinalSectionWindow";
 import { FaceCrossSectionPanel } from "./alignment/FaceCrossSectionPanel";
 import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifcLoader";
-import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow } from "./utils/windowSync";
-import type { SyncMsg, XSMsg, CollisionMsg, ClashRule, ClashResult } from "./utils/windowSync";
+import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow } from "./utils/windowSync";
+import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, ClashRule, ClashResult } from "./utils/windowSync";
 import { collectElements, runRuleBasedDetection } from "./utils/collisionUtils";
 import type { IFCModelEntry } from "./types/ifc";
 
@@ -42,6 +43,7 @@ const _params = new URLSearchParams(window.location.search);
 const IS_SECONDARY = _params.has("secondary");
 const SECONDARY_PANEL = _params.get("panel") ?? "hierarchy";
 const IS_CROSS_SECTION = _params.has("cross-section");
+const IS_LONG_SECTION  = _params.has("longitudinal-section");
 const IS_COLLISION = _params.has("collision");
 
 // ── root export (secondary windows skip the full app) ─────────────────────────
@@ -55,6 +57,7 @@ export default function App() {
   if (IS_COLLISION) return <CollisionWindow />;
   if (IS_SECONDARY) return <SecondaryWindow panel={SECONDARY_PANEL} />;
   if (IS_CROSS_SECTION) return <CrossSectionWindow />;
+  if (IS_LONG_SECTION) return <LongitudinalSectionWindow />;
   return <MainApp />;
 }
 
@@ -236,6 +239,64 @@ function useCrossSectionSync() {
 }
 
 interface LoadState { phase: string; progress: number; fileName: string }
+
+// ── longitudinal-section window sync hook ─────────────────────────────────────
+
+function useLongitudinalSectionSync() {
+  useEffect(() => {
+    let ch: BroadcastChannel;
+    try { ch = new BroadcastChannel(LS_CHANNEL); } catch { return; }
+
+    const broadcast = () => {
+      const store = useAlignmentStore.getState();
+      const alignment = store.files.flatMap(f => f.alignments)
+        .find(a => a.id === store.lsAlignmentId);
+      ch.postMessage({
+        t: "state", s: {
+          alignmentId:   store.lsAlignmentId,
+          alignmentName: alignment?.displayName ?? "",
+          staStart:      store.lsStaStart ?? 0,
+          staEnd:        store.lsStaEnd   ?? 0,
+          lines:         store.lsLines,
+          profile:       store.lsProfile,
+          computing:     store.lsComputing,
+          theme:         useModelStore.getState().settings.theme,
+        },
+      } satisfies LSMsg);
+    };
+
+    ch.onmessage = (e: MessageEvent<LSMsg>) => {
+      const store = useAlignmentStore.getState();
+      const msg = e.data;
+      if (msg.t === "req") {
+        broadcast();
+        if (store.lsOpen && store.lsLines.length === 0 && !store.lsComputing &&
+            store.lsStaStart !== null && store.lsStaEnd !== null) {
+          store.setLSRange(store.lsStaStart, store.lsStaEnd);
+        }
+      } else if (msg.t === "setRange") {
+        if (store.lsAlignmentId !== null)
+          store.setLSRange(msg.staStart, msg.staEnd);
+      } else if (msg.t === "close") {
+        store.closeLongSection();
+      }
+    };
+
+    const unsub = useAlignmentStore.subscribe((state, prev) => {
+      if (state.lsLines    !== prev.lsLines    ||
+          state.lsProfile  !== prev.lsProfile  ||
+          state.lsStaStart !== prev.lsStaStart ||
+          state.lsStaEnd   !== prev.lsStaEnd   ||
+          state.lsComputing!== prev.lsComputing ||
+          state.lsOpen     !== prev.lsOpen) broadcast();
+    });
+    const unsubModel = useModelStore.subscribe((s, p) => {
+      if (s.settings.theme !== p.settings.theme) broadcast();
+    });
+    return () => { ch.close(); unsub(); unsubModel(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
 
 // ── collision window sync hook ─────────────────────────────────────────────────
 
@@ -551,6 +612,7 @@ function MainApp() {
 
   useMainWindowSync(handleElementClick);
   useCrossSectionSync();
+  useLongitudinalSectionSync();
   useCollisionSync();
 
   // Billing window element-list provider

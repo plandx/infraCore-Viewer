@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect, useMemo } from "react";
-import { X, ZoomIn, ChevronDown } from "lucide-react";
+import { X, ZoomIn, ChevronDown, Slice } from "lucide-react";
 import { useAlignmentStore } from "./alignmentStore";
 import { useModelStore } from "../store/modelStore";
 import { evaluateProfile } from "./landXmlParser";
-import { openCrossSectionWindow } from "../utils/windowSync";
+import { openCrossSectionWindow, openLongitudinalSectionWindow } from "../utils/windowSync";
 
 function fmtSta(sta: number): string {
   const km = Math.floor(sta / 1000);
@@ -51,8 +51,18 @@ export function ProfileViewer() {
   const crossSectionSta  = useAlignmentStore(s => s.crossSectionStation);
   const crossSectionOpen = useAlignmentStore(s => s.crossSectionOpen);
   const setOpen          = useModelStore(s => s.setProfilePanelOpen);
+  const openLongSection  = useAlignmentStore(s => s.openLongSection);
+  const lsStaStart       = useAlignmentStore(s => s.lsStaStart);
+  const lsStaEnd         = useAlignmentStore(s => s.lsStaEnd);
+  const lsOpen           = useAlignmentStore(s => s.lsOpen);
+
+  // Range selection for Längenschnitt: shift+drag or LS-mode drag
+  const [lsMode, setLsMode]             = useState(false);
+  const [lsRange, setLsRange]           = useState<[number, number] | null>(null);
+  const lsRangeRef = useRef<{ start: number; end: number } | null>(null);
 
   useEffect(() => {
+
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver(([e]) => {
@@ -153,17 +163,45 @@ export function ProfileViewer() {
   }, []);
 
   const dragRef = useRef<{ x: number; min: number; max: number } | null>(null);
+  const lsDragRef = useRef<{ startSta: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoverSta, setHoverSta] = useState<number | null>(null);
+  const lsModeRef = useRef(false);
+  useEffect(() => { lsModeRef.current = lsMode; }, [lsMode]);
+
+  const staFromEvent = (e: React.MouseEvent<SVGSVGElement>): number | null => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    if (mx < M.left || mx > M.left + chartW) return null;
+    return vMin + ((mx - M.left) / chartW) * (vMax - vMin);
+  };
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (e.button === 0) {
+    if (e.button !== 0) return;
+    if (lsModeRef.current || e.shiftKey) {
+      const sta = staFromEvent(e);
+      if (sta !== null) {
+        lsDragRef.current = { startSta: sta };
+        setLsRange([sta, sta]);
+        lsRangeRef.current = { start: sta, end: sta };
+      }
+    } else {
       dragRef.current = { x: e.clientX, min: vMin, max: vMax };
       setIsDragging(true);
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (lsDragRef.current) {
+      const sta = staFromEvent(e);
+      if (sta !== null) {
+        const s = lsDragRef.current.startSta;
+        const a = Math.min(s, sta), b = Math.max(s, sta);
+        setLsRange([a, b]);
+        lsRangeRef.current = { start: a, end: b };
+      }
+      return;
+    }
     if (dragRef.current) {
       const dx = e.clientX - dragRef.current.x;
       const range = dragRef.current.max - dragRef.current.min;
@@ -186,6 +224,11 @@ export function ProfileViewer() {
   };
 
   const handleMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (lsDragRef.current) {
+      lsDragRef.current = null;
+      // range already set; user can now open the LS window
+      return;
+    }
     if (dragRef.current && Math.abs(e.clientX - dragRef.current.x) < 5) {
       const rect = e.currentTarget.getBoundingClientRect();
       const mx = e.clientX - rect.left;
@@ -203,6 +246,7 @@ export function ProfileViewer() {
 
   const handleMouseLeave = () => {
     dragRef.current = null;
+    lsDragRef.current = null;
     setIsDragging(false);
     setHoverSta(null);
     setProfileHover(null, null);
@@ -247,6 +291,29 @@ export function ProfileViewer() {
         )}
 
         <div className="flex-1" />
+
+        {lsRange && activeAlignment && (
+          <button
+            onClick={() => {
+              openLongSection(activeAlignment.id, lsRange[0], lsRange[1]);
+              openLongitudinalSectionWindow();
+            }}
+            className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+            title="Längenschnitt öffnen"
+          >
+            <Slice size={9} />
+            Längenschnitt
+          </button>
+        )}
+
+        <button
+          onClick={() => { setLsMode(a => !a); if (lsMode) setLsRange(null); }}
+          className={`shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] transition-colors ${lsMode ? "bg-blue-700 text-white" : "text-muted-foreground hover:text-foreground"}`}
+          title={lsMode ? "LS-Modus deaktivieren" : "LS-Bereich auswählen (oder Shift+Drag)"}
+        >
+          <Slice size={9} />
+          LS
+        </button>
 
         {hoverSta !== null && (
           <span className="text-[9px] font-mono text-muted-foreground shrink-0">
@@ -305,6 +372,17 @@ export function ProfileViewer() {
             </defs>
 
             <g clipPath="url(#profile-clip)">
+              {/* LS range rectangle */}
+              {lsRange && (
+                <rect
+                  x={xs(lsRange[0])} y={M.top}
+                  width={Math.max(0, xs(lsRange[1]) - xs(lsRange[0]))}
+                  height={chartH}
+                  fill="#3b82f6" fillOpacity={0.12}
+                  stroke="#3b82f6" strokeWidth={1} strokeDasharray="4,2"
+                />
+              )}
+
               {/* Active cross-section station marker */}
               {crossSectionOpen && crossSectionSta !== null &&
                xs(crossSectionSta) >= M.left && xs(crossSectionSta) <= M.left + chartW && (

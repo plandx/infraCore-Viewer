@@ -3,7 +3,7 @@ import { parseLandXmlText } from "./landXmlParser";
 import type { Alignment } from "./types";
 import type { SectionLine, SectionPolygon } from "./crossSectionUtils";
 import { buildSectionPolygons } from "./crossSectionUtils";
-import type { XSSyncObjectLabel, XSSyncDepthLine } from "../utils/windowSync";
+import type { XSSyncObjectLabel, XSSyncDepthLine, LSLineSync, LSProfilePt } from "../utils/windowSync";
 
 let _xsWin: Window | null = null;
 
@@ -84,6 +84,15 @@ interface AlignmentStore {
   depthDistance: number;
   depthLines: XSSyncDepthLine[];
 
+  // Longitudinal section state
+  lsOpen: boolean;
+  lsAlignmentId: number | null;
+  lsStaStart: number | null;
+  lsStaEnd: number | null;
+  lsLines: LSLineSync[];
+  lsProfile: LSProfilePt[];
+  lsComputing: boolean;
+
   // Face cross-section (independent of alignment station)
   faceCrossSectionActive: boolean;
   faceCrossSectionOrigin: [number,number,number] | null;
@@ -119,6 +128,12 @@ interface AlignmentStore {
   setDepthView(enabled: boolean): void;
   setDepthDistance(d: number): void;
   setDepthLines(lines: XSSyncDepthLine[]): void;
+
+  // Longitudinal section actions
+  openLongSection(alignmentId: number, staStart: number, staEnd: number): void;
+  closeLongSection(): void;
+  setLSRange(staStart: number, staEnd: number): void;
+  setLSResult(lines: LSLineSync[], profile: LSProfilePt[]): void;
 
   // Face cross-section actions
   openFaceCrossSection(origin: [number,number,number], normal: [number,number,number]): void;
@@ -163,6 +178,13 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   depthView: false,
   depthDistance: 3,
   depthLines: [],
+  lsOpen: false,
+  lsAlignmentId: null,
+  lsStaStart: null,
+  lsStaEnd: null,
+  lsLines: [],
+  lsProfile: [],
+  lsComputing: false,
   faceCrossSectionActive: false,
   faceCrossSectionOrigin: null,
   faceCrossSectionNormal: null,
@@ -274,6 +296,15 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   setDepthView: (enabled) => set({ depthView: enabled }),
   setDepthDistance: (d) => set({ depthDistance: d }),
   setDepthLines: (lines) => set({ depthLines: lines }),
+
+  openLongSection: (alignmentId, staStart, staEnd) => set({
+    lsOpen: true, lsAlignmentId: alignmentId,
+    lsStaStart: staStart, lsStaEnd: staEnd,
+    lsLines: [], lsProfile: [], lsComputing: true,
+  }),
+  closeLongSection: () => set({ lsOpen: false, lsLines: [], lsProfile: [], lsComputing: false }),
+  setLSRange: (staStart, staEnd) => set({ lsStaStart: staStart, lsStaEnd: staEnd, lsLines: [], lsProfile: [], lsComputing: true }),
+  setLSResult: (lines, profile) => set({ lsLines: lines, lsProfile: profile, lsComputing: false }),
 
   openFaceCrossSection: (origin, normal) => {
     set({

@@ -565,3 +565,33 @@ Diese Zustände sind **React-State** in `ViewportContainer`, nicht im Zustand-St
 - `openFaceCrossSection(origin, normal)` — öffnet QS an Fläche
 - `closeFaceCrossSection()` — schließt QS, resettet alle Felder
 - `setFaceCrossSectionOffset(offset)` — verschiebt Schnittebene, triggert Neuberechnung
+
+---
+
+## Längenschnitt-Felder (alignmentStore, 2026-05-21)
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `lsOpen` | `boolean` | Längenschnitt-Fenster geöffnet |
+| `lsAlignmentId` | `number \| null` | ID des Alignments |
+| `lsStaStart` | `number \| null` | Startstation in Metern |
+| `lsStaEnd` | `number \| null` | Endstation in Metern |
+| `lsLines` | `LSLineSync[]` | Berechnete IFC-Schnittlinien |
+| `lsProfile` | `LSProfilePt[]` | Gradiente-Punkte `{ sta, elev }` |
+| `lsComputing` | `boolean` | Berechnung aktiv |
+
+**Aktionen:**
+- `openLongSection(alignmentId, staStart, staEnd)` — öffnet LS, setzt `lsComputing=true`, löscht alte Linien
+- `closeLongSection()` — schließt LS, löscht Daten
+- `setLSRange(staStart, staEnd)` — ändert Bereich, triggert Neuberechnung
+- `setLSResult(lines, profile)` — speichert Ergebnis, setzt `lsComputing=false`
+
+**Tiefenansicht-Felder (Cross-Section):**
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `depthView` | `boolean` | Tiefenansicht aktiv |
+| `depthDistance` | `number` | Sichttiefe in Metern (default 3) |
+| `depthLines` | `XSSyncDepthLine[]` | Projizierte Kanten `{ x1,y1,x2,y2,hidden,color }` |
+
+**Tiefenansicht-Aktionen:** `setDepthView(v)`, `setDepthDistance(d)`, `setDepthLines(lines)`

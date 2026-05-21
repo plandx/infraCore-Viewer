@@ -152,6 +152,40 @@ export function openBillingWindow() {
   window.open(url, "infracore-billing", "width=1100,height=760,resizable=yes");
 }
 
+// ── Longitudinal section window ───────────────────────────────────────────────
+
+export const LS_CHANNEL = "infracore-longitudinal-section";
+
+export interface LSLineSync {
+  sta1: number; elev1: number;
+  sta2: number; elev2: number;
+  color: string;
+  objectKey?: string;
+}
+export interface LSProfilePt { sta: number; elev: number; }
+
+export interface LSSyncState {
+  alignmentId: number | null;
+  alignmentName: string;
+  staStart: number;
+  staEnd: number;
+  lines: LSLineSync[];
+  profile: LSProfilePt[];
+  computing: boolean;
+  theme?: "light" | "dark";
+}
+
+export type LSMsg =
+  | { t: "state"; s: LSSyncState }
+  | { t: "req" }
+  | { t: "close" }
+  | { t: "setRange"; staStart: number; staEnd: number };
+
+export function openLongitudinalSectionWindow() {
+  const url = `${window.location.pathname}?longitudinal-section`;
+  window.open(url, "infracore-longitudinal-section", "width=1200,height=600,resizable=yes");
+}
+
 // ── Collision window ──────────────────────────────────────────────────────────
 
 export const COLLISION_CHANNEL = "infracore-collision";

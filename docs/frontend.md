@@ -608,3 +608,57 @@ Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstel
 5. Bemaßungen: Mess-Linie (blau gestrichelt), Punkt-Beschriftungs-Maßlinien (lila)
 6. Vorschau-Dot bei aktivem Werkzeug
 7. Snap-Indikator (außerhalb Clip-Gruppe, immer sichtbar)
+
+---
+
+## LongitudinalSectionWindow (`src/alignment/LongitudinalSectionWindow.tsx`)
+
+Eigenständiges Popup-Fenster für den Längenschnitt. Wird über `?longitudinal-section` URL-Parameter erkannt und von `App.tsx` als Root-Komponente gerendert.
+
+### Props
+Keine — empfängt alles über BroadcastChannel (`LS_CHANNEL`).
+
+### State
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `state` | `LSSyncState` | Zuletzt empfangener Zustand vom Hauptfenster |
+| `size` | `{ w, h }` | Container-Größe (ResizeObserver) |
+| `viewSta` | `[number, number] \| null` | Gezoomter Stationsbereich |
+| `hoverSta` | `number \| null` | Aktuelle Hover-Station |
+| `isDragging` | `boolean` | Pan-Modus aktiv |
+| `rangeInput` | `{ start, end }` | Rohwert-Inputs für den Stationsbereich |
+
+### Features
+- **X-Achse**: Stationsticks im km+m Format, gleiche `computeTicks`-Logik wie ProfileViewer
+- **Y-Achse**: Höhe in Metern (Three.js world Y = LandXML Höhe − origin Z)
+- **IFC-Schnittlinien**: `lines: LSLineSync[]` werden als farbige Segmente gezeichnet (`<line>`)
+- **Gradiente** (Planprofil): `profile: LSProfilePt[]` als gestrichelter grüner Pfad (`stroke="#4ade80"`, `strokeDasharray="6,3"`)
+- **Zoom**: Mausrad an Cursor-Position (gleicher Algorithmus wie ProfileViewer/CrossSectionWindow)
+- **Pan**: Linke Maustaste + Ziehen
+- **Stationsbereich-Eingabe**: Zwei Inputs oben; bei Enter/Blur wird `{ t: "setRange" }` Nachricht gesendet
+- **SVG-Export**: `Download`-Button → `XMLSerializer` → `<a download>`
+- **Theme**: Erbt `theme: "light" | "dark"` aus `LSSyncState`; Default dunkel
+
+### Kommunikation
+Auf `LS_CHANNEL` (BroadcastChannel):
+- Sendet `{ t: "req" }` beim Mount
+- Empfängt `{ t: "state"; s: LSSyncState }` → update `state`
+- Sendet `{ t: "setRange"; staStart; staEnd }` bei Benutzer-Eingabe
+- Sendet `{ t: "close" }` beim Schließen
+
+## ProfileViewer — Längenschnitt-Erweiterung
+
+### Neue State-Felder
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `lsMode` | `boolean` | LS-Auswahlmodus aktiv (Toggle-Button) |
+| `lsRange` | `[number, number] \| null` | Ausgewählter Stationsbereich |
+| `lsRangeRef` | `Ref<{ start, end } \| null>` | Synchroner Ref für Mouse-Handler |
+| `lsDragRef` | `Ref<{ startSta } \| null>` | Drag-Start-Station |
+| `lsModeRef` | `Ref<boolean>` | Synchroner Ref für lsMode |
+
+### Interaktion
+- **LS-Mode Toggle**: "LS"-Button in der Kopfzeile (Slice-Icon); wechselt `lsMode`, löscht `lsRange` beim Deaktivieren
+- **Bereich ziehen**: `lsMode` aktiv oder `Shift`-Taste gedrückt → Drag definiert `[staStart, staEnd]`
+- **Visuelles Feedback**: Blau gestricheltes Rechteck (`fillOpacity=0.12`) über dem gewählten Bereich
+- **"Längenschnitt" Button**: Erscheint wenn `lsRange` gesetzt; ruft `openLongSection(id, start, end)` + `openLongitudinalSectionWindow()` auf

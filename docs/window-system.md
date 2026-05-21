@@ -342,3 +342,58 @@ Wenn `showSectionSurface = true` und `crossSectionBasis` vorhanden ist, baut `Vi
 2. Sender implementieren (BillingPanel oder ViewportContainer)
 3. Empfänger-Handler implementieren
 4. `docs/window-system.md` aktualisieren (dieses Dokument)
+
+---
+
+## Längenschnitt-Fenster (`LS_CHANNEL = "infracore-longitudinal-section"`)
+
+### Öffnen
+```typescript
+openLongitudinalSectionWindow()  // → ?longitudinal-section, 1200×600
+```
+Wird aus `ProfileViewer` nach `openLongSection(...)` aufgerufen.
+
+### Protokoll (LSMsg)
+
+```
+Main-Fenster (useLongitudinalSectionSync)        LongitudinalSectionWindow
+────────────────────────────────────────────────────────────────────────────
+   │── { t: "state", s: LSSyncState } ──────────►│  vollständiger Push
+   │◄─ { t: "req" } ───────────────────────────│  beim Öffnen
+   │◄─ { t: "setRange", staStart, staEnd } ────│  Benutzer ändert Bereich
+   │◄─ { t: "close" } ─────────────────────────│  Fenster geschlossen
+```
+
+Bei `req` im Hauptfenster: `broadcastLSState()` + wenn `lsAlignmentId !== null && !lsComputing` → `retrigger` via `setLSResult([], [])` + `openLongSection(...)`.
+
+### LSSyncState
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `alignmentId` | `number \| null` | Alignment-ID |
+| `alignmentName` | `string` | Anzeigename |
+| `staStart` / `staEnd` | `number` | Stationsbereich in Metern |
+| `lines` | `LSLineSync[]` | IFC-Schnittlinien `{ sta1,elev1,sta2,elev2,color,objectKey? }` |
+| `profile` | `LSProfilePt[]` | Gradiente-Punkte `{ sta, elev }` |
+| `computing` | `boolean` | Berechnung läuft |
+| `theme` | `"light" \| "dark"` | Farb-Theme des Hauptfensters |
+
+### Berechnungslogik (`ViewportContainer.tsx`, `computeLS()`)
+
+1. Polylinien-Cache (`alignPolylineRef`) für das aktive Alignment laden
+2. Für jedes Segment zwischen `lsStaStart` und `lsStaEnd`:
+   - `normal = (-dzH/hLen, 0, dxH/hLen)` (horizontale Senkrechte)
+   - `right  = (dxH/hLen, 0, dzH/hLen)` (horizontale Tangente)
+   - `LSSegmentPlane` mit `{ origin, normal, right, staA, staDiff, hLen }` erstellen
+3. `sliceSceneLS(scene, segs, staStart, staEnd)` — ein Traversal für alle Segmente
+4. Gradiente mit `evaluateProfile(profileGeom, sta)` an 600 Punkten abtasten
+5. `setLSResult(lines, profile)` in Store schreiben
+
+### longitudinalSectionUtils.ts
+
+- `LSSegmentPlane` — Interface für eine Schnittebene-Beschreibung pro Segment
+- `sliceSceneLS(scene, segs, staStart, staEnd)` — Kern-Algorithmus:
+  - Iteriert alle `THREE.Mesh`-Objekte in der Szene
+  - Pro Mesh: AABB-Test gegen alle Segmentebenen (Bounding-Sphere reject: Normalabstand + rechte Ausdehnung)
+  - Pro Dreieck: Ebenen-Intersection, x → Station-Mapping, Bereichsfilter
+  - Gibt `LSLine[]` zurück (in Three.js Y-Koordinaten)

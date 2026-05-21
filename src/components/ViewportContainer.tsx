@@ -23,6 +23,8 @@ import { useAlignmentStore } from "../alignment/alignmentStore";
 import type { PlacedLabel, OffsetMeasurement } from "../alignment/alignmentStore";
 import { buildRobustPolyline, sampleAtDisplayStation, evaluateProfile } from "../alignment/landXmlParser";
 import { sliceScene } from "../alignment/crossSectionUtils";
+import { sliceSceneLS } from "../alignment/longitudinalSectionUtils";
+import type { LSSegmentPlane } from "../alignment/longitudinalSectionUtils";
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
 
 // Build EdgesGeometry + LineSegments in idle-time batches of 60 meshes.
@@ -2222,6 +2224,79 @@ export function ViewportContainer({ onElementClick }: Props) {
           state.crossSectionLines    !== prev.crossSectionLines) {
         rebuildSurface();
       }
+    });
+    return () => unsub();
+  }, []);
+
+  // ── Longitudinal section computation ──────────────────────────────────────
+  useEffect(() => {
+    const computeLS = () => {
+      const st = useAlignmentStore.getState();
+      if (!st.lsOpen || st.lsAlignmentId === null ||
+          st.lsStaStart === null || st.lsStaEnd === null) return;
+
+      const staStart = st.lsStaStart;
+      const staEnd   = st.lsStaEnd;
+      const allAligns = st.files.flatMap(f => f.alignments);
+      const alignment = allAligns.find(a => a.id === st.lsAlignmentId);
+      if (!alignment) return;
+
+      const cache = alignPolylineRef.current.get(alignment.id);
+      if (!cache) return;
+
+      const ifc = useModelStore.getState().models.values().next().value as import("../types/ifc").IFCModelEntry | undefined;
+      let ox: number, oy: number, oz: number;
+      if (ifc) { ox = ifc.originOffset.x; oy = -ifc.originOffset.z; oz = ifc.originOffset.y; }
+      else if (st.geoOrigin) { ox = st.geoOrigin.x; oy = st.geoOrigin.y; oz = st.geoOrigin.z; }
+      else { ox = 0; oy = 0; oz = 0; }
+
+      const { pts } = cache;
+      const segs: LSSegmentPlane[] = [];
+
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        if (b.sta <= staStart - 1 || a.sta >= staEnd + 1) continue;
+
+        const ax = a.x - ox,  ay = (a.z ?? oz) - oz,  az = -(a.y - oy);
+        const bx = b.x - ox,              bz = -(b.y - oy);
+
+        const dxH = bx - ax, dzH = bz - az;
+        const hLen = Math.sqrt(dxH * dxH + dzH * dzH);
+        if (hLen < 1e-9) continue;
+
+        segs.push({
+          origin: new THREE.Vector3(ax, ay, az),
+          normal: new THREE.Vector3(-dzH / hLen, 0, dxH / hLen),
+          right:  new THREE.Vector3( dxH / hLen, 0, dzH / hLen),
+          staA: a.sta,
+          staDiff: b.sta - a.sta,
+          hLen,
+        });
+      }
+
+      if (segs.length === 0) { useAlignmentStore.getState().setLSResult([], []); return; }
+
+      setTimeout(() => {
+        const sc = sceneRef.current;
+        if (!sc) { useAlignmentStore.getState().setLSResult([], []); return; }
+
+        const lines = sliceSceneLS(sc, segs, staStart, staEnd);
+
+        const profile: import("../utils/windowSync").LSProfilePt[] = [];
+        const STEPS = 600;
+        for (let i = 0; i <= STEPS; i++) {
+          const sta  = staStart + (i / STEPS) * (staEnd - staStart);
+          const elev = evaluateProfile(alignment.profileGeom, sta);
+          if (elev !== null) profile.push({ sta, elev: elev - oz });
+        }
+
+        useAlignmentStore.getState().setLSResult(lines, profile);
+      }, 0);
+    };
+
+    const unsub = useAlignmentStore.subscribe((state, prev) => {
+      if (state.lsComputing && !prev.lsComputing) computeLS();
+      if (!state.lsOpen && prev.lsOpen) useAlignmentStore.getState().setLSResult([], []);
     });
     return () => unsub();
   }, []);
