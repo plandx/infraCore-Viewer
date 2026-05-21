@@ -45,9 +45,11 @@ export function LongitudinalSectionWindow() {
   const containerRef            = useRef<HTMLDivElement>(null);
   const [size, setSize]         = useState({ w: 1160, h: 540 });
   const [viewSta, setViewSta]   = useState<[number, number] | null>(null);
+  const [viewElev, setViewElev] = useState<[number, number] | null>(null);
   const [hoverSta, setHoverSta] = useState<number | null>(null);
 
   const viewStaRef  = useRef<[number, number] | null>(null);
+  const viewElevRef = useRef<[number, number] | null>(null);
 
   // Request state from main window on mount
   useEffect(() => {
@@ -103,43 +105,66 @@ export function LongitudinalSectionWindow() {
     return { sMin: staStart, sMax: staEnd, eMin: eMin - ep, eMax: eMax + ep };
   }, [state]);
 
-  // Reset view when alignment changes
-  useEffect(() => { setViewSta(null); }, [state.alignmentId, state.staStart, state.staEnd]);
+  // Reset view when alignment or data changes
+  useEffect(() => { setViewSta(null); setViewElev(null); }, [state.alignmentId, state.staStart, state.staEnd]);
+  // Also reset elev zoom when new data arrives (new elevation extents)
+  useEffect(() => { setViewElev(null); }, [domain.eMin, domain.eMax]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const vMin = viewSta ? viewSta[0] : domain.sMin;
-  const vMax = viewSta ? viewSta[1] : domain.sMax;
+  const vMin  = viewSta  ? viewSta[0]  : domain.sMin;
+  const vMax  = viewSta  ? viewSta[1]  : domain.sMax;
+  const vEMin = viewElev ? viewElev[0] : domain.eMin;
+  const vEMax = viewElev ? viewElev[1] : domain.eMax;
 
   const chartW = Math.max(1, size.w - M.left - M.right);
   const chartH = Math.max(1, size.h - M.top - M.bottom);
 
-  const xs = (sta: number)  => M.left + ((sta - vMin) / (vMax - vMin || 1)) * chartW;
-  const ys = (elev: number) => M.top  + chartH * (1 - (elev - domain.eMin) / (domain.eMax - domain.eMin || 1));
+  const xs = (sta: number)  => M.left + ((sta  - vMin)  / (vMax  - vMin  || 1)) * chartW;
+  const ys = (elev: number) => M.top  + chartH * (1 - (elev - vEMin) / (vEMax - vEMin || 1));
 
-  useEffect(() => { viewStaRef.current = viewSta; }, [viewSta]);
+  useEffect(() => { viewStaRef.current  = viewSta;  }, [viewSta]);
+  useEffect(() => { viewElevRef.current = viewElev; }, [viewElev]);
   const domainRef = useRef(domain);
   useEffect(() => { domainRef.current = domain; }, [domain]);
 
-  // Wheel zoom
+  // Wheel zoom: plain = X (station), Ctrl = Y (elevation)
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const rect = svg.getBoundingClientRect();
-      const mx   = e.clientX - rect.left;
-      const curMin = viewStaRef.current ? viewStaRef.current[0] : domainRef.current.sMin;
-      const curMax = viewStaRef.current ? viewStaRef.current[1] : domainRef.current.sMax;
-      const cw     = rect.width - M.left - M.right;
-      const centerSta = curMin + Math.max(0, Math.min(1, (mx - M.left) / cw)) * (curMax - curMin);
+      const rect   = svg.getBoundingClientRect();
       const factor = e.deltaY > 0 ? 1.25 : 1 / 1.25;
-      const half   = (curMax - curMin) * factor / 2;
       const dom    = domainRef.current;
-      const newMin = Math.max(dom.sMin, Math.min(dom.sMax - half * 2,
-        centerSta - half * ((centerSta - curMin) / (curMax - curMin || 1)) * 2));
-      setViewSta([newMin, newMin + half * 2]);
+
+      if (e.ctrlKey) {
+        // Ctrl+scroll → zoom elevation (Y axis)
+        const my      = e.clientY - rect.top;
+        const ch      = rect.height - M.top - M.bottom;
+        const curEMin = viewElevRef.current ? viewElevRef.current[0] : dom.eMin;
+        const curEMax = viewElevRef.current ? viewElevRef.current[1] : dom.eMax;
+        const frac    = 1 - Math.max(0, Math.min(1, (my - M.top) / ch));
+        const center  = curEMin + frac * (curEMax - curEMin);
+        const half    = (curEMax - curEMin) * factor / 2;
+        const newMin  = Math.max(dom.eMin, Math.min(dom.eMax - half * 2,
+          center - half * frac * 2));
+        setViewElev([newMin, newMin + half * 2]);
+      } else {
+        // Plain scroll → zoom station (X axis)
+        const mx      = e.clientX - rect.left;
+        const cw      = rect.width - M.left - M.right;
+        const curMin  = viewStaRef.current ? viewStaRef.current[0] : dom.sMin;
+        const curMax  = viewStaRef.current ? viewStaRef.current[1] : dom.sMax;
+        const frac    = Math.max(0, Math.min(1, (mx - M.left) / cw));
+        const center  = curMin + frac * (curMax - curMin);
+        const half    = (curMax - curMin) * factor / 2;
+        const newMin  = Math.max(dom.sMin, Math.min(dom.sMax - half * 2,
+          center - half * frac * 2));
+        setViewSta([newMin, newMin + half * 2]);
+      }
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Pan
@@ -177,8 +202,9 @@ export function LongitudinalSectionWindow() {
     [vMin, vMax, chartW]
   );
   const yTicks = useMemo(
-    () => computeTicks(domain.eMin, domain.eMax, 6),
-    [domain.eMin, domain.eMax]
+    () => computeTicks(vEMin, vEMax, Math.max(4, Math.floor(chartH / 40))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [vEMin, vEMax, chartH]
   );
 
   // Export SVG
@@ -211,7 +237,7 @@ export function LongitudinalSectionWindow() {
     }
   };
 
-  const isZoomed = viewSta !== null;
+  const isZoomed = viewSta !== null || viewElev !== null;
 
   // Visible IFC lines in view
   const visibleLines = useMemo(
@@ -291,10 +317,11 @@ export function LongitudinalSectionWindow() {
         {state.computing && (
           <span style={{ fontSize: 9, opacity: 0.55, fontStyle: "italic" }}>Berechnung…</span>
         )}
+        <span style={{ fontSize: 8, opacity: 0.35 }}>Scroll = X-Zoom · Ctrl+Scroll = Höhe</span>
 
         {isZoomed && (
           <button
-            onClick={() => setViewSta(null)}
+            onClick={() => { setViewSta(null); setViewElev(null); }}
             style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, opacity: 0.7, background: "none", border: "none", cursor: "pointer", color: "inherit" }}
             title="Zoom zurücksetzen"
           >
@@ -319,25 +346,20 @@ export function LongitudinalSectionWindow() {
         </button>
       </div>
 
-      {/* ── Chart area ── */}
+      {/* ── Chart area — SVG always mounted so wheel listener is always attached ── */}
       <div style={{ flex: 1, minHeight: 0 }}>
-        {state.lines.length === 0 && !state.computing && state.alignmentId === null ? (
-          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, opacity: 0.45 }}>
-            Kein Längenschnitt aktiv — Bereich im Profilviewer auswählen (P) und Längenschnitt öffnen
-          </div>
-        ) : (
-          <svg
-            ref={svgRef}
-            width="100%"
-            height="100%"
-            viewBox={`0 0 ${size.w} ${size.h}`}
-            preserveAspectRatio="none"
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseLeave}
-            style={{ cursor: isDragging ? "grabbing" : "crosshair", display: "block" }}
-          >
+        <svg
+          ref={svgRef}
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${size.w} ${size.h}`}
+          preserveAspectRatio="none"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+          style={{ cursor: isDragging ? "grabbing" : "crosshair", display: "block" }}
+        >
             {/* Horizontal grid */}
             {yTicks.map(e => (
               <line key={e}
@@ -445,8 +467,18 @@ export function LongitudinalSectionWindow() {
                 Gradiente
               </text>
             </g>
+
+            {/* Empty-state overlay — shown when no LS is active */}
+            {state.alignmentId === null && !state.computing && (
+              <text
+                x={size.w / 2} y={size.h / 2}
+                textAnchor="middle" dominantBaseline="middle"
+                fontSize={12} fill={isDark ? "#555" : "#aaa"}
+              >
+                Bereich im Profilviewer auswählen (Taste P → LS-Modus) und Längenschnitt öffnen
+              </text>
+            )}
           </svg>
-        )}
       </div>
     </div>
   );

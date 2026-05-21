@@ -61,6 +61,10 @@ export function ProfileViewer() {
   const [lsRange, setLsRange]           = useState<[number, number] | null>(null);
   const lsRangeRef = useRef<{ start: number; end: number } | null>(null);
 
+  // Keep refs for values needed in global mouse handlers (avoid stale closures)
+  const vMinRef  = useRef(0);
+  const vMaxRef  = useRef(1000);
+
   useEffect(() => {
 
     const el = containerRef.current;
@@ -144,6 +148,37 @@ export function ProfileViewer() {
   const domainRef  = useRef(domain);
   useEffect(() => { viewStaRef.current = viewSta; }, [viewSta]);
   useEffect(() => { domainRef.current = domain; }, [domain]);
+  useEffect(() => { vMinRef.current = vMin; }, [vMin]);
+  useEffect(() => { vMaxRef.current = vMax; }, [vMax]);
+
+  // Global mousemove/mouseup so LS-range drag doesn't cancel when mouse leaves SVG
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!lsDragRef.current) return;
+      const svg = svgRef.current;
+      if (!svg) return;
+      const rect = svg.getBoundingClientRect();
+      const mx   = e.clientX - rect.left;
+      const cw   = rect.width - M.left - M.right;
+      const frac = Math.max(0, Math.min(1, (mx - M.left) / cw));
+      const sta  = Math.max(
+        domainRef.current.sMin,
+        Math.min(domainRef.current.sMax, vMinRef.current + frac * (vMaxRef.current - vMinRef.current))
+      );
+      const s  = lsDragRef.current.startSta;
+      const lo = Math.min(s, sta), hi = Math.max(s, sta);
+      setLsRange([lo, hi]);
+      lsRangeRef.current = { start: lo, end: hi };
+    };
+    const onUp = () => { lsDragRef.current = null; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup",   onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup",   onUp);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -198,16 +233,7 @@ export function ProfileViewer() {
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (lsDragRef.current) {
-      const sta = staFromEvent(e);
-      if (sta !== null) {
-        const s = lsDragRef.current.startSta;
-        const a = Math.min(s, sta), b = Math.max(s, sta);
-        setLsRange([a, b]);
-        lsRangeRef.current = { start: a, end: b };
-      }
-      return;
-    }
+    if (lsDragRef.current) return; // handled by global listener
     if (dragRef.current) {
       const dx = e.clientX - dragRef.current.x;
       const range = dragRef.current.max - dragRef.current.min;
@@ -230,11 +256,7 @@ export function ProfileViewer() {
   };
 
   const handleMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (lsDragRef.current) {
-      lsDragRef.current = null;
-      // range already set; user can now open the LS window
-      return;
-    }
+    if (lsDragRef.current) return; // global mouseup handler clears it
     if (dragRef.current && Math.abs(e.clientX - dragRef.current.x) < 5) {
       const rect = e.currentTarget.getBoundingClientRect();
       const mx = e.clientX - rect.left;
@@ -251,8 +273,7 @@ export function ProfileViewer() {
   };
 
   const handleMouseLeave = () => {
-    dragRef.current = null;
-    lsDragRef.current = null;
+    dragRef.current = null; // cancel pan; LS drag continues via global listener
     setIsDragging(false);
     setHoverSta(null);
     setProfileHover(null, null);
