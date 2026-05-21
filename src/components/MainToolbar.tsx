@@ -6,7 +6,7 @@ import {
   Box, ChevronDown, LayoutGrid, Rotate3D,
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
   Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
-  Settings, AlertTriangle,
+  Settings, AlertTriangle, Columns3, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, openCollisionWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -23,9 +23,11 @@ interface Props {
   onFitAll: () => void;
   loading: boolean;
   onOpenBatch: () => void;
+  onToggleSidePanels: () => void;
+  sidePanelsVisible: boolean;
 }
 
-export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Props) {
+export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onToggleSidePanels, sidePanelsVisible }: Props) {
   const inputRef    = useRef<HTMLInputElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
 
@@ -343,6 +345,14 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
           )}
         </div>
 
+        <button
+          className={cn("toolbar-button", activeTool === "fly" && "active text-primary")}
+          title="Fly-Mode [N] · WASD fliegen · Maus umsehen · Scroll Geschwindigkeit · Esc beenden"
+          onClick={() => handleToolClick("fly")}
+        >
+          <Navigation2 size={16} />
+        </button>
+
         <div className="w-px h-5 bg-border mx-1" />
 
         {/* ── Interaction tools ── */}
@@ -381,13 +391,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         </button>
 
         <button
-          className={cn("toolbar-button", activeTool === "fly" && "active text-primary")}
-          title="Fly-Mode [N] · WASD fliegen · Maus umsehen · Esc beenden"
-          onClick={() => handleToolClick("fly")}
-        >
-          <Navigation2 size={16} />
-        </button>
-        <button
           className={cn("toolbar-button text-[10px] font-bold px-1.5", activeTool === "face-section" && "active text-primary")}
           title="Flächen-Querschnitt · Auf eine Fläche klicken für Querschnitt senkrecht zur Fläche"
           onClick={() => setActiveTool(activeTool === "face-section" ? "select" : "face-section")}
@@ -398,6 +401,13 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         <div className="w-px h-5 bg-border mx-1" />
 
         {/* ── Visibility ── */}
+        <button
+          className={cn("toolbar-button", !sidePanelsVisible && "active text-primary")}
+          title={sidePanelsVisible ? "Hierarchie- und Eigenschaftenpanel ausblenden" : "Hierarchie- und Eigenschaftenpanel einblenden"}
+          onClick={onToggleSidePanels}
+        >
+          {sidePanelsVisible ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+        </button>
         <button
           className={cn("toolbar-button", !showSpaces && "opacity-50")}
           title="Räume ein/ausblenden"

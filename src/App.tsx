@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import * as THREE from "three";
-import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle, usePanelRef } from "react-resizable-panels";
 
 import { MainToolbar } from "./components/MainToolbar";
 import { HierarchyPanel } from "./components/HierarchyPanel";
@@ -296,6 +296,24 @@ function MainApp() {
   const [loadStates, setLoadStates]           = useState<Map<string, LoadState>>(new Map());
   const [basketEditorOpen, setBasketEditorOpen] = useState(false);
   const [batchPanelOpen, setBatchPanelOpen]   = useState(false);
+  const [sidePanelsVisible, setSidePanelsVisible] = useState(true);
+  const leftPanelRef  = usePanelRef();
+  const rightPanelRef = usePanelRef();
+
+  const handleToggleSidePanels = useCallback(() => {
+    const left  = leftPanelRef.current;
+    const right = rightPanelRef.current;
+    if (!left || !right) return;
+    if (sidePanelsVisible) {
+      left.collapse();
+      right.collapse();
+      setSidePanelsVisible(false);
+    } else {
+      left.expand();
+      right.expand();
+      setSidePanelsVisible(true);
+    }
+  }, [sidePanelsVisible, leftPanelRef, rightPanelRef]);
   const {
     addModel, removeModel, updateModel, setWorldOrigin, setSelected,
     models, settings, activeTool, setActiveTool, sqlPanelOpen, setSqlPanelOpen,
@@ -601,6 +619,8 @@ function MainApp() {
         onFitAll={() => window.dispatchEvent(new Event("viewer:fitAll"))}
         loading={activeLoads > 0}
         onOpenBatch={() => setBatchPanelOpen(true)}
+        onToggleSidePanels={handleToggleSidePanels}
+        sidePanelsVisible={sidePanelsVisible}
       />
 
       {/* Loading bars */}
@@ -621,7 +641,7 @@ function MainApp() {
       <div className="flex-1 min-h-0">
         <PanelGroup orientation="horizontal" className="h-full">
 
-          <Panel defaultSize={20} minSize={12} collapsible>
+          <Panel defaultSize={20} minSize={12} collapsible collapsedSize={0} panelRef={leftPanelRef}>
             <div className="h-full overflow-hidden border-r border-border">
               {(listPanelOpen || smartViewsPanelOpen || alignmentPanelOpen) ? (
                 <PanelGroup orientation="vertical" className="h-full">
@@ -747,7 +767,7 @@ function MainApp() {
 
           <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-          <Panel defaultSize={22} minSize={14} collapsible>
+          <Panel defaultSize={22} minSize={14} collapsible collapsedSize={0} panelRef={rightPanelRef}>
             <div className="h-full overflow-hidden border-l border-border panel-container flex flex-col">
               <ModelInfoPanel />
               <div className="flex-1 min-h-0 overflow-hidden">
