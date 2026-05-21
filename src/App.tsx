@@ -33,7 +33,7 @@ import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifcLoader";
 import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow } from "./utils/windowSync";
-import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, ClashRule, ClashResult } from "./utils/windowSync";
+import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, ClashRule, ClashResult, XSSyncObjectLabel } from "./utils/windowSync";
 import { collectElements, runRuleBasedDetection } from "./utils/collisionUtils";
 import type { IFCModelEntry } from "./types/ifc";
 
@@ -256,6 +256,28 @@ function useLongitudinalSectionSync() {
       const elevationOrigin = firstIfc
         ? firstIfc.originOffset.y
         : (store.geoOrigin?.z ?? 0);
+
+      const uniqueKeys = new Set(store.lsLines.filter(l => l.objectKey).map(l => l.objectKey!));
+      const objectLabels: XSSyncObjectLabel[] = [];
+      for (const key of uniqueKeys) {
+        const [modelId, eidStr] = key.split(":");
+        const eid = parseInt(eidStr);
+        const model = modelStore.models.get(modelId);
+        if (!model) { objectLabels.push({ key, name: key, type: "—", props: {} }); continue; }
+        let name = key, type = "—", props: Record<string, string> = {};
+        for (const [itype, els] of Object.entries(model.elementsByType as Record<string, Array<{ expressId: number; properties: Record<string, unknown> }>>)) {
+          const el = els.find(e => e.expressId === eid);
+          if (el) {
+            name = String(el.properties["Name"] ?? el.properties["LongName"] ?? el.properties["Tag"] ?? key);
+            type = itype;
+            for (const [k, v] of Object.entries(el.properties))
+              if (typeof v === "string" || typeof v === "number") props[k] = String(v);
+            break;
+          }
+        }
+        objectLabels.push({ key, name, type, props });
+      }
+
       ch.postMessage({
         t: "state", s: {
           alignmentId:      store.lsAlignmentId,
@@ -267,6 +289,7 @@ function useLongitudinalSectionSync() {
           computing:        store.lsComputing,
           theme:            modelStore.settings.theme,
           elevationOrigin,
+          objectLabels,
         },
       } satisfies LSMsg);
     };

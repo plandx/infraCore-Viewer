@@ -175,6 +175,7 @@ export interface LSSyncState {
   theme?: "light" | "dark";
   /** oz — world-Y of the coordinate origin; add to world-Y to get real-world elevation */
   elevationOrigin: number;
+  objectLabels?: XSSyncObjectLabel[];
 }
 
 export type LSMsg =
