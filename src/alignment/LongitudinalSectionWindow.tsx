@@ -301,8 +301,8 @@ export function LongitudinalSectionWindow() {
   const ys = useCallback((elev: number) => M.top  + chartH * (1 - (elev - vEMin) / vERange), [vEMin, vERange, chartH]);
 
   // ── vpRef for stable callbacks ────────────────────────────────────────────
-  const vpRef = useRef({ vMin, vMax, vEMin, vEMax, vRange, vERange, chartW, chartH });
-  vpRef.current = { vMin, vMax, vEMin, vEMax, vRange, vERange, chartW, chartH };
+  const vpRef = useRef({ vMin, vMax, vEMin, vEMax, vRange, vERange, chartW, chartH, rawVEMin, rawVEMax });
+  vpRef.current = { vMin, vMax, vEMin, vEMax, vRange, vERange, chartW, chartH, rawVEMin, rawVEMax };
 
   // ── Stable refs for wheel/pan handler (avoid stale closures) ─────────────
   const viewStaRef  = useRef<[number, number] | null>(null);
@@ -342,9 +342,11 @@ export function LongitudinalSectionWindow() {
         setViewSta([pivot - (pivot - cur[0]) * f, pivot + (cur[1] - pivot) * f]);
       }
 
-      // Elevation axis (Y)
+      // Elevation axis (Y) — fall back to the actual rendered range (rawVEMin/rawVEMax),
+      // not domain.eMin/eMax, so the first zoom event uses the correct 1:1 baseline
       if (!ly) {
-        const cur = viewElevRef.current ?? [domainRef.current.eMin, domainRef.current.eMax] as [number, number];
+        const vp = vpRef.current;
+        const cur = viewElevRef.current ?? [vp.rawVEMin, vp.rawVEMax] as [number, number];
         const frac  = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top - M.top) / ch));
         const pivot = cur[0] + frac * (cur[1] - cur[0]);
         setViewElev([pivot - (pivot - cur[0]) * f, pivot + (cur[1] - pivot) * f]);
@@ -595,7 +597,8 @@ export function LongitudinalSectionWindow() {
   // ── Mouse handlers ────────────────────────────────────────────────────────
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     if (activeToolRef.current.measActive || e.button !== 0) return;
-    dragRef.current = { mx: e.clientX, my: e.clientY, sMin: vMin, sMax: vMax, eMin: vEMin, eMax: vEMax };
+    // Store raw (pre-exaggeration) elevation range so pan works correctly with any vExag
+    dragRef.current = { mx: e.clientX, my: e.clientY, sMin: vMin, sMax: vMax, eMin: rawVEMin, eMax: rawVEMax };
     setPanning(true);
   };
 
@@ -616,8 +619,8 @@ export function LongitudinalSectionWindow() {
         setViewSta([dragRef.current.sMin + dSta, dragRef.current.sMax + dSta]);
       }
       if (!lockYRef.current) {
-        const elevRange = dragRef.current.eMax - dragRef.current.eMin;
-        const dElev = (dyPx / vp.chartH) * elevRange;
+        // Pixels map to the displayed (exaggerated) range; shift the raw range by the same amount
+        const dElev = (dyPx / vp.chartH) * vp.vERange;
         setViewElev([dragRef.current.eMin + dElev, dragRef.current.eMax + dElev]);
       }
       return;
