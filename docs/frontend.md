@@ -623,18 +623,27 @@ Keine — empfängt alles über BroadcastChannel (`LS_CHANNEL`).
 |---|---|---|
 | `state` | `LSSyncState` | Zuletzt empfangener Zustand vom Hauptfenster |
 | `size` | `{ w, h }` | Container-Größe (ResizeObserver) |
-| `viewSta` | `[number, number] \| null` | Gezoomter Stationsbereich |
+| `viewSta` | `[number, number] \| null` | Gezoomter Stationsbereich (null = Vollauschnitt) |
+| `viewElev` | `[number, number] \| null` | Gezoomter Höhenbereich (null = 1:1-Ausgangsansicht) |
+| `vExag` | `number` | Vertikale Überhöhung (default 1 = physikalisch 1:1) |
 | `hoverSta` | `number \| null` | Aktuelle Hover-Station |
 | `isDragging` | `boolean` | Pan-Modus aktiv |
 | `rangeInput` | `{ start, end }` | Rohwert-Inputs für den Stationsbereich |
+
+### Koordinatenskalierung
+- **Startskalierung 1:1**: Beim ersten Öffnen (und nach Reset) wird `viewElev = null` gesetzt. Der Fallback berechnet dann den sichtbaren Höhenbereich so, dass gilt: `(vEMax − vEMin) / chartH = (vMax − vMin) / chartW` — also 1 Meter in X entspricht 1 Meter in Y auf dem Bildschirm.
+- **Überhöhung (vExag)**: Komprimiert den Rohhöhenbereich um Faktor `1/vExag`. Bei `vExag = 1` bleibt die 1:1-Physik erhalten; bei `vExag = 5` erscheint die Y-Achse 5× gestreckt. Zoom und Überhöhung sind unabhängig voneinander.
+- **Reset**: `setViewElev(null)` beim Alignment-Wechsel und bei Datenänderung → kehrt zur 1:1-Ansicht zurück.
 
 ### Features
 - **X-Achse**: Stationsticks im km+m Format, gleiche `computeTicks`-Logik wie ProfileViewer
 - **Y-Achse**: Höhe in Metern (Three.js world Y = LandXML Höhe − origin Z)
 - **IFC-Schnittlinien**: `lines: LSLineSync[]` werden als farbige Segmente gezeichnet (`<line>`)
 - **Gradiente** (Planprofil): `profile: LSProfilePt[]` als gestrichelter grüner Pfad (`stroke="#4ade80"`, `strokeDasharray="6,3"`)
-- **Zoom**: Mausrad an Cursor-Position (gleicher Algorithmus wie ProfileViewer/CrossSectionWindow)
+- **Zoom**: Mausrad an Cursor-Position, beide Achsen gleichzeitig; Achslock-Buttons "Sta" / "Höhe"
 - **Pan**: Linke Maustaste + Ziehen
+- **Überhöhung**: Preset-Buttons 1×/2×/5×/10×/20× + freies Zahlenfeld; Y-Achsentitel zeigt Faktor wenn aktiv
+- **Tiefenlinien (Depth View)**: Kanten von Objekten innerhalb `maxDist` der Trasse werden projiziert und als transparente Linien gezeichnet
 - **Stationsbereich-Eingabe**: Zwei Inputs oben; bei Enter/Blur wird `{ t: "setRange" }` Nachricht gesendet
 - **SVG-Export**: `Download`-Button → `XMLSerializer` → `<a download>`
 - **Theme**: Erbt `theme: "light" | "dark"` aus `LSSyncState`; Default dunkel

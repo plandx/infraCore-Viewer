@@ -279,18 +279,20 @@ export function LongitudinalSectionWindow() {
   const vMin  = viewSta  ? viewSta[0]  : domain.sMin;
   const vMax  = viewSta  ? viewSta[1]  : domain.sMax;
 
-  // Raw elevation range (from zoom/pan or domain)
-  const rawVEMin = viewElev ? viewElev[0] : domain.eMin;
-  const rawVEMax = viewElev ? viewElev[1] : domain.eMax;
+  const chartW = Math.max(1, size.w - M.left - M.right);
+  const chartH = Math.max(1, size.h - M.top - M.bottom);
 
-  // Exaggerated elevation range: same center, compressed range
+  // Raw elevation range — default to 1:1 physical scale (1 m in X = 1 m in Y on screen)
+  const elevRange1to1  = (domain.sMax - domain.sMin) * chartH / chartW;
+  const elevCenter1to1 = (domain.eMin + domain.eMax) / 2;
+  const rawVEMin = viewElev ? viewElev[0] : elevCenter1to1 - elevRange1to1 / 2;
+  const rawVEMax = viewElev ? viewElev[1] : elevCenter1to1 + elevRange1to1 / 2;
+
+  // Exaggerated elevation range: same center, compressed by vExag
   const rawVECenter = (rawVEMin + rawVEMax) / 2;
   const rawVEHalf   = (rawVEMax - rawVEMin) / 2;
   const vEMin = rawVECenter - rawVEHalf / vExag;
   const vEMax = rawVECenter + rawVEHalf / vExag;
-
-  const chartW = Math.max(1, size.w - M.left - M.right);
-  const chartH = Math.max(1, size.h - M.top - M.bottom);
 
   const vRange  = vMax  - vMin  || 1;
   const vERange = vEMax - vEMin || 1;
