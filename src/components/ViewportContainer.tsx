@@ -2798,7 +2798,13 @@ export function ViewportContainer({ onElementClick }: Props) {
         );
         if (hits.length > 0) {
           const obj = hits[0].object;
-          const { modelId, expressId } = obj.userData as { modelId?: string; expressId?: number };
+          const expressId = obj.userData.expressId as number | undefined;
+          let modelId = "";
+          let node: THREE.Object3D | null = obj;
+          while (node) {
+            if (node.userData.modelId) { modelId = node.userData.modelId as string; break; }
+            node = node.parent;
+          }
           if (modelId && expressId != null) {
             useModelStore.getState().hideElement(modelId, expressId);
           }
