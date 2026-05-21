@@ -59,7 +59,7 @@ export default function App() {
 
 // ── main-window sync hook ─────────────────────────────────────────────────────
 
-function useMainWindowSync(handleElementClick: (modelId: string, expressId: number) => Promise<void>) {
+function useMainWindowSync(handleElementClick: (modelId: string, expressId: number, ctrlHeld?: boolean) => Promise<void>) {
   const channelRef = useRef<BroadcastChannel | null>(null);
   const applyingRef = useRef(false);
 
@@ -398,7 +398,15 @@ function MainApp() {
         if (hChordArmedRef.current) {
           hChordArmedRef.current = false;
           if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
-          if (selectedElement) hideElement(selectedElement.modelId, selectedElement.expressId);
+          const ms = useModelStore.getState().multiSelection;
+          if (ms.size > 0) {
+            for (const k of ms) {
+              const [mId, eId] = k.split(":");
+              hideElement(mId, parseInt(eId));
+            }
+          } else if (selectedElement) {
+            hideElement(selectedElement.modelId, selectedElement.expressId);
+          }
         } else {
           hChordArmedRef.current = true;
           if (hChordTimerRef.current) clearTimeout(hChordTimerRef.current);
@@ -474,13 +482,35 @@ function MainApp() {
     window.dispatchEvent(new CustomEvent("viewer:fitTo", { detail: model.boundingBox }));
   }, []);
 
-  const handleElementClick = useCallback(async (modelId: string, expressId: number) => {
+  const handleElementClick = useCallback(async (modelId: string, expressId: number, ctrlHeld = false) => {
     const model = useModelStore.getState().models.get(modelId);
     if (!model) return;
 
-    setSelected({ modelId, expressId, properties: {}, psets: [] });
+    const key = `${modelId}:${expressId}`;
     const st = useModelStore.getState();
-    if (st.basketAutoAdd) st.addToBasket(modelId, expressId);
+
+    if (ctrlHeld) {
+      const next = new Set(st.multiSelection);
+      if (next.has(key)) {
+        next.delete(key);
+        st.setMultiSelection(next);
+        if (next.size === 0) {
+          setSelected(null);
+        } else if (st.selectedElement?.modelId === modelId && st.selectedElement?.expressId === expressId) {
+          const lastKey = Array.from(next).at(-1)!;
+          const [lmId, leId] = lastKey.split(":");
+          setSelected({ modelId: lmId, expressId: parseInt(leId), properties: {}, psets: [] });
+        }
+        return;
+      }
+      next.add(key);
+      st.setMultiSelection(next);
+    } else {
+      st.setMultiSelection(new Set([key]));
+      if (st.basketAutoAdd) st.addToBasket(modelId, expressId);
+    }
+
+    setSelected({ modelId, expressId, properties: {}, psets: [] });
 
     try {
       const { properties, psets } = await loadIFCProperties(model.file, expressId);

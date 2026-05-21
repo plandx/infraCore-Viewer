@@ -43,6 +43,9 @@ interface ModelStore {
   selectionBasket: Set<string>;
   basketMode: BasketMode | null;
 
+  // Multi-element selection (Ctrl+click)
+  multiSelection: Set<string>;
+
   addModel: (model: IFCModelEntry) => void;
   removeModel: (id: string) => void;
   updateModel: (id: string, patch: Partial<IFCModelEntry>) => void;
@@ -87,6 +90,10 @@ interface ModelStore {
     keys: string[],
   ) => void;
   loadAllProperties: () => Promise<void>;
+
+  // Multi-selection actions
+  setMultiSelection: (s: Set<string>) => void;
+  clearMultiSelection: () => void;
 
   // Selection basket actions
   setBasket: (basket: Set<string>) => void;
@@ -155,6 +162,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   loadingPropertiesProgress: null,
   selectionBasket: new Set<string>(),
   basketMode: null,
+  multiSelection: new Set<string>(),
   basketAutoAdd: false,
   propertyOverrides: new Map(),
   sectionPlanes: [],
@@ -203,7 +211,9 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     }),
 
   setWorldOrigin: (origin) => set({ worldOrigin: origin }),
-  setSelected: (element) => set({ selectedElement: element }),
+  setSelected: (element) => set(element === null
+    ? { selectedElement: null, multiSelection: new Set() }
+    : { selectedElement: element }),
   updateSettings: (patch) =>
     set((state) => {
       const next = { ...state.settings, ...patch };
@@ -518,6 +528,9 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     }),
 
   clearBasket: () => set({ selectionBasket: new Set() }),
+
+  setMultiSelection: (s) => set({ multiSelection: s }),
+  clearMultiSelection: () => set({ multiSelection: new Set() }),
 
   setBasketMode: (mode) => set({ basketMode: mode }),
   setBasketAutoAdd: (v) => set({ basketAutoAdd: v }),

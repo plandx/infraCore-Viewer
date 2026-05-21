@@ -63,7 +63,7 @@ function scheduleEdgeBuild(
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 interface Props {
-  onElementClick: (modelId: string, expressId: number) => void;
+  onElementClick: (modelId: string, expressId: number, ctrlHeld: boolean) => void;
 }
 
 interface MeasureLabel {
@@ -150,6 +150,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const hiddenElements = useModelStore((s) => s.hiddenElements);
   const isolatedElements = useModelStore((s) => s.isolatedElements);
   const selectedElement = useModelStore((s) => s.selectedElement);
+  const multiSelection = useModelStore((s) => s.multiSelection);
   const colorGroups = useModelStore((s) => s.colorGroups);
 
   // Basket state — always used together
@@ -1360,11 +1361,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     highlightRef.current = [];
     needsRenderRef.current = true;
 
-    if (!selectedElement) return;
-
-    const key = `${selectedElement.modelId}:${selectedElement.expressId}`;
-    if (hiddenElements.has(key)) return;
-    if (isolatedElements !== null && !isolatedElements.has(key)) return;
+    if (multiSelection.size === 0) return;
 
     const hlMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(0xf59e0b),
@@ -1376,19 +1373,23 @@ export function ViewportContainer({ onElementClick }: Props) {
       side: THREE.DoubleSide,
     });
 
-    const targetMeshes = meshIndexRef.current.get(key) ?? [];
-    for (const obj of targetMeshes) {
-      const hl = new THREE.Mesh(obj.geometry, hlMat);
-      obj.updateWorldMatrix(true, false);
-      hl.matrixAutoUpdate = false;
-      hl.matrix.copy(obj.matrixWorld);
-      hl.renderOrder = 999;
-      hl.userData = { isHighlight: true };
-      scene.add(hl);
-      highlightRef.current.push(hl);
+    for (const key of multiSelection) {
+      if (hiddenElements.has(key)) continue;
+      if (isolatedElements !== null && !isolatedElements.has(key)) continue;
+      const targetMeshes = meshIndexRef.current.get(key) ?? [];
+      for (const obj of targetMeshes) {
+        const hl = new THREE.Mesh(obj.geometry, hlMat);
+        obj.updateWorldMatrix(true, false);
+        hl.matrixAutoUpdate = false;
+        hl.matrix.copy(obj.matrixWorld);
+        hl.renderOrder = 999;
+        hl.userData = { isHighlight: true };
+        scene.add(hl);
+        highlightRef.current.push(hl);
+      }
     }
     needsRenderRef.current = true;
-  }, [selectedElement, hiddenElements, isolatedElements]);
+  }, [multiSelection, hiddenElements, isolatedElements]);
 
   // ── Camera fit helpers ────────────────────────────────────────────────────
   const fitCameraToBox = useCallback((box: THREE.Box3) => {
@@ -2526,7 +2527,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (!hit) return;
 
     // Select tool: store update triggers the highlight useEffect
-    onElementClick(hit.modelId, hit.expressId);
+    onElementClick(hit.modelId, hit.expressId, e.ctrlKey);
   }, [activeTool, raycastPoint, addSphere, addMeasurement, updateMeasureLabels, findClosestAlignPoint, onElementClick]);
 
   // ── Mouse position tracking for click-suppression ────────────────────────
