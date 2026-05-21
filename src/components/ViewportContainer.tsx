@@ -2293,14 +2293,10 @@ export function ViewportContainer({ onElementClick }: Props) {
         }
 
         const curSt = useAlignmentStore.getState();
-        if (curSt.lsDepthView) {
-          const depthLines = computeLSDepthLines(sc, segs, staStart, staEnd, curSt.lsDepthDistance);
-          useAlignmentStore.getState().setLSDepthLines(depthLines);
-        } else {
-          useAlignmentStore.getState().setLSDepthLines([]);
-        }
-
-        useAlignmentStore.getState().setLSResult(lines, profile);
+        const depthLines = curSt.lsDepthView
+          ? computeLSDepthLines(sc, segs, staStart, staEnd, curSt.lsDepthDistance)
+          : [];
+        useAlignmentStore.getState().setLSComputeResult(lines, profile, depthLines);
       }, 0);
     };
 

@@ -137,6 +137,7 @@ interface AlignmentStore {
   closeLongSection(): void;
   setLSRange(staStart: number, staEnd: number): void;
   setLSResult(lines: LSLineSync[], profile: LSProfilePt[]): void;
+  setLSComputeResult(lines: LSLineSync[], profile: LSProfilePt[], depthLines: LSDepthLineSync[]): void;
   setLSDepthView(enabled: boolean, distance?: number): void;
   setLSDepthLines(lines: LSDepthLineSync[]): void;
 
@@ -313,6 +314,7 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   closeLongSection: () => set({ lsOpen: false, lsLines: [], lsProfile: [], lsComputing: false, lsDepthLines: [] }),
   setLSRange: (staStart, staEnd) => set({ lsStaStart: staStart, lsStaEnd: staEnd, lsLines: [], lsProfile: [], lsComputing: true }),
   setLSResult: (lines, profile) => set({ lsLines: lines, lsProfile: profile, lsComputing: false }),
+  setLSComputeResult: (lines, profile, depthLines) => set({ lsLines: lines, lsProfile: profile, lsDepthLines: depthLines, lsComputing: false }),
   setLSDepthView: (enabled, distance) => set(s => ({ lsDepthView: enabled, lsDepthDistance: distance ?? s.lsDepthDistance })),
   setLSDepthLines: (lines) => set({ lsDepthLines: lines }),
 

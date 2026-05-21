@@ -295,8 +295,8 @@ export function LongitudinalSectionWindow() {
   const vRange  = vMax  - vMin  || 1;
   const vERange = vEMax - vEMin || 1;
 
-  const xs = (sta: number)  => M.left + (sta  - vMin)  / vRange  * chartW;
-  const ys = (elev: number) => M.top  + chartH * (1 - (elev - vEMin) / vERange);
+  const xs = useCallback((sta: number)  => M.left + (sta  - vMin)  / vRange  * chartW,  [vMin,  vRange,  chartW]);
+  const ys = useCallback((elev: number) => M.top  + chartH * (1 - (elev - vEMin) / vERange), [vEMin, vERange, chartH]);
 
   // ── vpRef for stable callbacks ────────────────────────────────────────────
   const vpRef = useRef({ vMin, vMax, vEMin, vEMax, vRange, vERange, chartW, chartH });
@@ -463,7 +463,7 @@ export function LongitudinalSectionWindow() {
       result.push({ objectKey: key, d: top + bot + "Z" });
     }
     return result;
-  }, [hatchMode, lines, elevationOrigin, xs, ys]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hatchMode, lines, elevationOrigin, xs, ys]);
 
   const visibleTypes = useMemo(() => {
     if (hatchMode !== "custom") return [];
@@ -488,7 +488,7 @@ export function LongitudinalSectionWindow() {
       byColor.set(l.color, (byColor.get(l.color) ?? "") + `M${x1s},${y1s}L${x2s},${y2s}`);
     }
     return [...byColor.entries()];
-  }, [lines, vMin, vEMin, vRange, vERange, chartW, chartH, elevationOrigin]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lines, xs, ys, elevationOrigin]);
 
   // Depth lines batched by color (visible and hidden separately)
   const svgDepthPaths = useMemo(() => {
@@ -504,7 +504,7 @@ export function LongitudinalSectionWindow() {
       else          visible.set(l.color, (visible.get(l.color) ?? "") + seg);
     }
     return { visible: [...visible.entries()], hidden: [...hidden.entries()] };
-  }, [depthLines, vMin, vEMin, vRange, vERange, chartW, chartH, elevationOrigin]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [depthLines, xs, ys, elevationOrigin]);
 
   // Screen-coordinate segments for snap
   const screenSegs = useMemo(() => lines.map(l => ({
@@ -512,7 +512,7 @@ export function LongitudinalSectionWindow() {
     sx2: xs(l.sta2), sy2: ys(l.elev2 + elevationOrigin),
     sta1: l.sta1, elev1: l.elev1 + elevationOrigin,
     sta2: l.sta2, elev2: l.elev2 + elevationOrigin,
-  })), [lines, vMin, vEMin, vRange, vERange, chartW, chartH, elevationOrigin]); // eslint-disable-line react-hooks/exhaustive-deps
+  })), [lines, xs, ys, elevationOrigin]);
 
   const screenSegsRef = useRef(screenSegs);
   screenSegsRef.current = screenSegs;
@@ -524,7 +524,7 @@ export function LongitudinalSectionWindow() {
     return pts.map((p, i) =>
       `${i === 0 ? "M" : "L"}${xs(p.sta).toFixed(1)},${ys(p.elev + elevationOrigin).toFixed(1)}`
     ).join(" ");
-  }, [profile, vMin, vMax, vEMin, vERange, chartW, chartH, elevationOrigin]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [profile, vMin, vMax, xs, ys, elevationOrigin]);
 
   // ── Ticks ─────────────────────────────────────────────────────────────────
   const xTicks = useMemo(() => computeTicks(vMin, vMax, Math.max(4, Math.floor(chartW / 110))), [vMin, vMax, chartW]);

@@ -247,6 +247,10 @@ function useLongitudinalSectionSync() {
     let ch: BroadcastChannel;
     try { ch = new BroadcastChannel(LS_CHANNEL); } catch { return; }
 
+    // objectLabels cache — recomputed only when lsLines reference changes
+    let cachedLsLines: import("./utils/windowSync").LSLineSync[] | null = null;
+    let cachedObjectLabels: XSSyncObjectLabel[] = [];
+
     const broadcast = () => {
       const store = useAlignmentStore.getState();
       const alignment = store.files.flatMap(f => f.alignments)
@@ -257,26 +261,27 @@ function useLongitudinalSectionSync() {
         ? firstIfc.originOffset.y
         : (store.geoOrigin?.z ?? 0);
 
-      const uniqueKeys = new Set(store.lsLines.filter(l => l.objectKey).map(l => l.objectKey!));
-      const objectLabels: XSSyncObjectLabel[] = [];
-      for (const key of uniqueKeys) {
-        const [modelId, eidStr] = key.split(":");
-        const eid = parseInt(eidStr);
-        const model = modelStore.models.get(modelId);
-        if (!model) { objectLabels.push({ key, name: key, type: "—", props: {} }); continue; }
-        let name = key, type = "—", props: Record<string, string> = {};
-        // ElementNode has expressId/type/name/guid — no properties field
-        // Full property sets live in model.properties[expressId]
-        for (const [itype, els] of Object.entries(model.elementsByType)) {
-          const el = (els as import("./types/ifc").ElementNode[]).find(e => e.expressId === eid);
-          if (el) { name = el.name || key; type = itype; break; }
+      if (store.lsLines !== cachedLsLines) {
+        cachedLsLines = store.lsLines;
+        const uniqueKeys = new Set(store.lsLines.filter(l => l.objectKey).map(l => l.objectKey!));
+        cachedObjectLabels = [];
+        for (const key of uniqueKeys) {
+          const [modelId, eidStr] = key.split(":");
+          const eid = parseInt(eidStr);
+          const model = modelStore.models.get(modelId);
+          if (!model) { cachedObjectLabels.push({ key, name: key, type: "—", props: {} }); continue; }
+          let name = key, type = "—", props: Record<string, string> = {};
+          for (const [itype, els] of Object.entries(model.elementsByType)) {
+            const el = (els as import("./types/ifc").ElementNode[]).find(e => e.expressId === eid);
+            if (el) { name = el.name || key; type = itype; break; }
+          }
+          const ifcProps = (model.properties as Record<number, import("./types/ifc").IFCProperties>)[eid];
+          if (ifcProps?.properties) {
+            for (const p of ifcProps.properties)
+              if (typeof p.value === "string" || typeof p.value === "number") props[p.name] = String(p.value);
+          }
+          cachedObjectLabels.push({ key, name, type, props });
         }
-        const ifcProps = (model.properties as Record<number, import("./types/ifc").IFCProperties>)[eid];
-        if (ifcProps?.properties) {
-          for (const p of ifcProps.properties)
-            if (typeof p.value === "string" || typeof p.value === "number") props[p.name] = String(p.value);
-        }
-        objectLabels.push({ key, name, type, props });
       }
 
       ch.postMessage({
@@ -290,7 +295,7 @@ function useLongitudinalSectionSync() {
           computing:        store.lsComputing,
           theme:            modelStore.settings.theme,
           elevationOrigin,
-          objectLabels,
+          objectLabels:     cachedObjectLabels,
           depthLines:       store.lsDepthLines,
           depthView:        store.lsDepthView,
           depthDistance:    store.lsDepthDistance,
