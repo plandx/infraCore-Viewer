@@ -141,27 +141,26 @@ export async function loadIFCFile(
         continue;
       }
 
-      // web-ifc vertex format: [x, y, z, nx, ny, nz, ...] interleaved
+      // web-ifc vertex format: [x, y, z, nx, ny, nz, ...] interleaved.
+      // Use InterleavedBuffer to avoid deinterleaving: one fast slice() instead of
+      // two Float32Array allocations + a per-vertex copy loop.
       const stride = 6;
       const vertCount = vertexData.length / stride;
-      const positions = new Float32Array(vertCount * 3);
-      const normals = new Float32Array(vertCount * 3);
 
-      for (let j = 0; j < vertCount; j++) {
-        const src = j * stride;
-        const dst = j * 3;
-        positions[dst] = vertexData[src];
-        positions[dst + 1] = vertexData[src + 1];
-        positions[dst + 2] = vertexData[src + 2];
-        normals[dst] = vertexData[src + 3];
-        normals[dst + 1] = vertexData[src + 4];
-        normals[dst + 2] = vertexData[src + 5];
-      }
+      // vertexData is a view into WASM memory — must be copied before geomData.delete().
+      // slice() is a single memcpy, much faster than a JS loop for large meshes.
+      const interleavedData = vertexData.slice();
+      const ib = new THREE.InterleavedBuffer(interleavedData, stride);
 
       const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-      geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-      geometry.setIndex(new THREE.BufferAttribute(indexData, 1));
+      geometry.setAttribute("position", new THREE.InterleavedBufferAttribute(ib, 3, 0));
+      geometry.setAttribute("normal",   new THREE.InterleavedBufferAttribute(ib, 3, 3));
+
+      // Use Uint16 indices when the mesh has < 65536 vertices — half the index bandwidth.
+      const indexAttr = vertCount < 65536
+        ? new THREE.BufferAttribute(new Uint16Array(indexData), 1)
+        : new THREE.BufferAttribute(indexData.slice(), 1); // Uint32, but must copy from WASM
+      geometry.setIndex(indexAttr);
 
       const matrix = new THREE.Matrix4().fromArray(placed.flatTransformation);
       const { x: r, y: g, z: b, w: a } = placed.color;
@@ -179,6 +178,9 @@ export async function loadIFCFile(
 
       const mesh = new THREE.Mesh(geometry, material);
       mesh.applyMatrix4(matrix);
+      // Pre-compute bounding sphere now (during load) so the first render frame
+      // doesn't stall on lazy computation for all 10K+ meshes simultaneously.
+      geometry.computeBoundingSphere();
       mesh.userData.expressId = flatMesh.expressID;
       group.add(mesh);
       meshCount++;

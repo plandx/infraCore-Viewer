@@ -25,7 +25,7 @@ import { buildRobustPolyline, sampleAtDisplayStation, evaluateProfile } from "..
 import { sliceScene } from "../alignment/crossSectionUtils";
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
 
-// Build EdgesGeometry + LineSegments in idle-time batches of 30 meshes.
+// Build EdgesGeometry + LineSegments in idle-time batches of 60 meshes.
 // Uses a single shared material — never clones it.
 function scheduleEdgeBuild(
   queue: THREE.Mesh[],
@@ -35,7 +35,7 @@ function scheduleEdgeBuild(
 ) {
   if (queue.length === 0) return;
   const run = () => {
-    const batch = queue.splice(0, 30);
+    const batch = queue.splice(0, 60);
     for (const mesh of batch) {
       if (mesh.children.some(c => c.userData.isEdge)) continue; // already built
       const geo  = new THREE.EdgesGeometry(mesh.geometry, 15);
@@ -314,8 +314,13 @@ export function ViewportContainer({ onElementClick }: Props) {
       antialias: true,
       logarithmicDepthBuffer: true,
       alpha: false,
+      // Prefer dedicated GPU on multi-GPU systems (laptops with integrated + discrete).
+      powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Cap at 1.5 — visually indistinguishable from 2× on typical screen sizes but
+    // renders ~44% fewer fragments on 3× HiDPI displays (MacBook Pro, etc.).
+    const fullDpr = Math.min(window.devicePixelRatio, 1.5);
+    renderer.setPixelRatio(fullDpr);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = false;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -434,9 +439,24 @@ export function ViewportContainer({ onElementClick }: Props) {
     scene.add(xsSurfaceGroup);
     xsSurfaceGroupRef.current = xsSurfaceGroup;
 
+    // Dynamic resolution scaling: drop to 1.0 DPR while orbiting for smooth 60fps,
+    // restore to full DPR 200ms after movement stops (one-shot re-render at full res).
+    let dprRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+    const restoreDpr = () => {
+      dprRestoreTimer = null;
+      if (renderer.getPixelRatio() !== fullDpr) {
+        renderer.setPixelRatio(fullDpr);
+        needsRenderRef.current = true;
+      }
+    };
+
     // Trigger a render whenever the camera moves; throttle inspector label updates via RAF
     controls.addEventListener("change", () => {
       needsRenderRef.current = true;
+      // Reduce resolution while moving — frames are cheaper so orbit stays smooth
+      if (renderer.getPixelRatio() !== 1.0) renderer.setPixelRatio(1.0);
+      if (dprRestoreTimer !== null) clearTimeout(dprRestoreTimer);
+      dprRestoreTimer = setTimeout(restoreDpr, 200);
       if (!pickerRef.current) return;
       if (!labelScheduledRef.current) {
         labelScheduledRef.current = true;
@@ -541,6 +561,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     return () => {
       running = false;
+      if (dprRestoreTimer !== null) clearTimeout(dprRestoreTimer);
       cancelAnimationFrame(rafRef.current);
       ro.disconnect();
       sectionModuleRef.current?.dispose();
