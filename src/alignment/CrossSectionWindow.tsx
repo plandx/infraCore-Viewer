@@ -399,6 +399,7 @@ export function CrossSectionWindow() {
   const [customHatchMap, setCustomHatchMap] = useState<Record<string, HatchId>>({});
 
   // ── Depth view ────────────────────────────────────────────────────────────
+  const [showCutLines,  setShowCutLines]  = useState(true);
   const [depthDistInput, setDepthDistInput] = useState("3.00");
   useEffect(() => {
     setDepthDistInput((state?.depthDistance ?? 3).toFixed(2));
@@ -792,7 +793,16 @@ export function CrossSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
-        {/* Depth view toggle */}
+        {/* Line visibility toggles — Ansichtslinien / Verdeckte Linien */}
+        <button
+          onClick={() => setShowCutLines(v => !v)}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            showCutLines ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Ansichtslinien (Schnittlinien) ein-/ausblenden"
+        >
+          <Eye size={13} /> Ansicht
+        </button>
         <button
           onClick={() => send({ t: "setDepthView", enabled: !(state?.depthView ?? false) })}
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
@@ -800,9 +810,9 @@ export function CrossSectionWindow() {
               ? "bg-emerald-600 text-white"
               : "bg-muted text-muted-foreground hover:text-foreground"
           )}
-          title="Tiefenansicht: Kanten hinter dem Schnitt einzeichnen"
+          title="Verdeckte Linien (Kanten hinter dem Schnitt) ein-/ausblenden"
         >
-          <Eye size={13} /> Tiefe
+          <Layers size={13} /> Verdeckt
         </button>
         {state?.depthView && (
           <div className="flex items-center gap-1">
@@ -1128,8 +1138,8 @@ export function CrossSectionWindow() {
                 <path key={color} d={d} stroke={color} strokeWidth={1} fill="none" opacity={0.55} />
               ))}
 
-              {/* Section lines */}
-              {svgPaths.map(([color, d]) => (
+              {/* Section lines (Ansichtslinien) */}
+              {showCutLines && svgPaths.map(([color, d]) => (
                 <path key={color} d={d} stroke={color} strokeWidth={1.5} fill="none" />
               ))}
 

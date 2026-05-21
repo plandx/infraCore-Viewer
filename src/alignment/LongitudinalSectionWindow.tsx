@@ -386,6 +386,7 @@ export function LongitudinalSectionWindow() {
   const depthLines: LSDepthLineSync[] = state?.depthLines ?? [];
   const depthViewActive  = state?.depthView    ?? false;
   const depthDistVal     = state?.depthDistance ?? 3;
+  const [showCutLines,  setShowCutLines]  = useState(true);
   const [depthDistInput, setDepthDistInput] = useState("3");
   useEffect(() => { setDepthDistInput(String(depthDistVal)); }, [depthDistVal]);
 
@@ -820,15 +821,24 @@ export function LongitudinalSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
-        {/* Depth view (Tiefe) */}
+        {/* Line visibility toggles — Ansichtslinien / Verdeckte Linien */}
+        <button
+          onClick={() => setShowCutLines(v => !v)}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            showCutLines ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Ansichtslinien (Schnittlinien) ein-/ausblenden"
+        >
+          <Eye size={13} /> Ansicht
+        </button>
         <button
           onClick={() => sendDepthView(!depthViewActive)}
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
             depthViewActive ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
           )}
-          title="Tiefenansicht — zeigt Kanten im Bereich hinter dem Schnitt"
+          title="Verdeckte Linien (Kanten hinter dem Schnitt) ein-/ausblenden"
         >
-          <Layers size={13} /> Tiefe
+          <Layers size={13} /> Verdeckt
         </button>
         {depthViewActive && (
           <input
@@ -1049,8 +1059,8 @@ export function LongitudinalSectionWindow() {
                   strokeDasharray="3,3" opacity={0.28} />
               ))}
 
-              {/* IFC section lines */}
-              {svgPaths.map(([color, d]) => (
+              {/* IFC section lines (Ansichtslinien) */}
+              {showCutLines && svgPaths.map(([color, d]) => (
                 <path key={color} d={d} stroke={color} strokeWidth={1.5} fill="none" />
               ))}
 
