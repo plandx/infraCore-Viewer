@@ -251,16 +251,22 @@ function useLongitudinalSectionSync() {
       const store = useAlignmentStore.getState();
       const alignment = store.files.flatMap(f => f.alignments)
         .find(a => a.id === store.lsAlignmentId);
+      const modelStore  = useModelStore.getState();
+      const firstIfc    = modelStore.models.values().next().value as import("./types/ifc").IFCModelEntry | undefined;
+      const elevationOrigin = firstIfc
+        ? firstIfc.originOffset.y
+        : (store.geoOrigin?.z ?? 0);
       ch.postMessage({
         t: "state", s: {
-          alignmentId:   store.lsAlignmentId,
-          alignmentName: alignment?.displayName ?? "",
-          staStart:      store.lsStaStart ?? 0,
-          staEnd:        store.lsStaEnd   ?? 0,
-          lines:         store.lsLines,
-          profile:       store.lsProfile,
-          computing:     store.lsComputing,
-          theme:         useModelStore.getState().settings.theme,
+          alignmentId:      store.lsAlignmentId,
+          alignmentName:    alignment?.displayName ?? "",
+          staStart:         store.lsStaStart ?? 0,
+          staEnd:           store.lsStaEnd   ?? 0,
+          lines:            store.lsLines,
+          profile:          store.lsProfile,
+          computing:        store.lsComputing,
+          theme:            modelStore.settings.theme,
+          elevationOrigin,
         },
       } satisfies LSMsg);
     };

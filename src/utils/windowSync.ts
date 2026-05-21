@@ -173,6 +173,8 @@ export interface LSSyncState {
   profile: LSProfilePt[];
   computing: boolean;
   theme?: "light" | "dark";
+  /** oz — world-Y of the coordinate origin; add to world-Y to get real-world elevation */
+  elevationOrigin: number;
 }
 
 export type LSMsg =

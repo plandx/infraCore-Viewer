@@ -34,6 +34,7 @@ const EMPTY_STATE: LSSyncState = {
   profile: [],
   computing: false,
   theme: "dark",
+  elevationOrigin: 0,
 };
 
 export function LongitudinalSectionWindow() {
@@ -83,19 +84,19 @@ export function LongitudinalSectionWindow() {
     window.close();
   };
 
-  // Domain
+  // Domain — all elevations in absolute real-world metres (world Y + elevationOrigin)
+  const { elevationOrigin } = state;
   const domain = useMemo(() => {
-    const { lines, profile, staStart, staEnd } = state;
+    const { lines, profile, staStart, staEnd, elevationOrigin: eo } = state;
     let eMin = Infinity, eMax = -Infinity;
     for (const l of lines) {
-      if (l.elev1 < eMin) eMin = l.elev1;
-      if (l.elev1 > eMax) eMax = l.elev1;
-      if (l.elev2 < eMin) eMin = l.elev2;
-      if (l.elev2 > eMax) eMax = l.elev2;
+      const e1 = l.elev1 + eo, e2 = l.elev2 + eo;
+      if (e1 < eMin) eMin = e1; if (e1 > eMax) eMax = e1;
+      if (e2 < eMin) eMin = e2; if (e2 > eMax) eMax = e2;
     }
     for (const p of profile) {
-      if (p.elev < eMin) eMin = p.elev;
-      if (p.elev > eMax) eMax = p.elev;
+      const e = p.elev + eo;
+      if (e < eMin) eMin = e; if (e > eMax) eMax = e;
     }
     if (!isFinite(eMin)) { eMin = 0; eMax = 100; }
     const ep = Math.max(2, (eMax - eMin) * 0.15);
@@ -220,12 +221,15 @@ export function LongitudinalSectionWindow() {
     [state.lines, vMin, vMax]
   );
 
-  // Profile polyline path
+  // Profile polyline path — elevations shifted to absolute
   const profilePath = useMemo(() => {
     const pts = state.profile.filter(p => p.sta >= vMin && p.sta <= vMax);
     if (pts.length < 2) return "";
-    return pts.map((p, i) => `${i === 0 ? "M" : "L"}${xs(p.sta).toFixed(1)},${ys(p.elev).toFixed(1)}`).join(" ");
-  }, [state.profile, vMin, vMax, xs, ys]); // eslint-disable-line react-hooks/exhaustive-deps
+    return pts.map((p, i) =>
+      `${i === 0 ? "M" : "L"}${xs(p.sta).toFixed(1)},${ys(p.elev + elevationOrigin).toFixed(1)}`
+    ).join(" ");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.profile, vMin, vMax, elevationOrigin, xs, ys]);
 
   const isDark = state.theme !== "light";
 
@@ -355,11 +359,11 @@ export function LongitudinalSectionWindow() {
                   fill={isDark ? "#ffffff08" : "#00000008"} />
               )}
 
-              {/* IFC section lines */}
+              {/* IFC section lines — elev is world Y; add elevationOrigin for absolute */}
               {visibleLines.map((l, i) => (
                 <line key={i}
-                  x1={xs(l.sta1)} y1={ys(l.elev1)}
-                  x2={xs(l.sta2)} y2={ys(l.elev2)}
+                  x1={xs(l.sta1)} y1={ys(l.elev1 + elevationOrigin)}
+                  x2={xs(l.sta2)} y2={ys(l.elev2 + elevationOrigin)}
                   stroke={l.color} strokeWidth={1} opacity={0.75}
                 />
               ))}

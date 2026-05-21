@@ -2244,13 +2244,10 @@ export function ViewportContainer({ onElementClick }: Props) {
       const cache = alignPolylineRef.current.get(alignment.id);
       if (!cache) return;
 
-      const ifc = useModelStore.getState().models.values().next().value as import("../types/ifc").IFCModelEntry | undefined;
-      let ox: number, oy: number, oz: number;
-      if (ifc) { ox = ifc.originOffset.x; oy = -ifc.originOffset.z; oz = ifc.originOffset.y; }
-      else if (st.geoOrigin) { ox = st.geoOrigin.x; oy = st.geoOrigin.y; oz = st.geoOrigin.z; }
-      else { ox = 0; oy = 0; oz = 0; }
-
       const { pts } = cache;
+      // Use the origin that was stored in the cache when the polyline was last built.
+      // Avoids mismatch if the IFC model was loaded/unloaded since then.
+      const { ox, oy, oz } = pts[0];
       const segs: LSSegmentPlane[] = [];
 
       for (let i = 0; i < pts.length - 1; i++) {

@@ -86,11 +86,16 @@ export function ProfileViewer() {
 
   useEffect(() => {
     if (alignments.length === 0) { setActiveAlignId(null); return; }
-    // If there's a selected alignment that has a profile, switch to it
+    let newId: number | null = null;
     if (selectedId !== null && alignments.some(a => a.id === selectedId)) {
-      setActiveAlignId(selectedId);
+      newId = selectedId;
     } else if (activeAlignId === null || !alignments.some(a => a.id === activeAlignId)) {
-      setActiveAlignId(alignments[0].id);
+      newId = alignments[0].id;
+    }
+    if (newId !== null && newId !== activeAlignId) {
+      setActiveAlignId(newId);
+      setLsRange(null);
+      lsRangeRef.current = null;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, alignments]);
@@ -173,7 +178,8 @@ export function ProfileViewer() {
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     if (mx < M.left || mx > M.left + chartW) return null;
-    return vMin + ((mx - M.left) / chartW) * (vMax - vMin);
+    const sta = vMin + ((mx - M.left) / chartW) * (vMax - vMin);
+    return Math.max(domain.sMin, Math.min(domain.sMax, sta));
   };
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -355,7 +361,7 @@ export function ProfileViewer() {
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseLeave}
-            style={{ cursor: isDragging ? "grabbing" : "crosshair", display: "block" }}
+            style={{ cursor: isDragging ? "grabbing" : lsMode ? "col-resize" : "crosshair", display: "block" }}
           >
             {/* Horizontal grid */}
             {yTicks.map(e => (

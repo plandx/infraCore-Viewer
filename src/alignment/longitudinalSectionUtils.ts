@@ -114,7 +114,7 @@ export function sliceSceneLS(
           _pt.lerpVectors(va, vb, da / (da - db));
           _dq.copy(_pt).sub(seg.origin);
           const x = _dq.dot(seg.right);
-          const y = _dq.dot(WORLD_UP);
+          const y = _pt.y;  // absolute world Y, not relative to segment origin
           crossings.push([x, y]);
         };
 
