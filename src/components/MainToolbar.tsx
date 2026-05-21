@@ -23,11 +23,13 @@ interface Props {
   onFitAll: () => void;
   loading: boolean;
   onOpenBatch: () => void;
-  onToggleSidePanels: () => void;
-  sidePanelsVisible: boolean;
+  onToggleLeftPanel: () => void;
+  onToggleRightPanel: () => void;
+  leftPanelVisible: boolean;
+  rightPanelVisible: boolean;
 }
 
-export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onToggleSidePanels, sidePanelsVisible }: Props) {
+export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onToggleLeftPanel, onToggleRightPanel, leftPanelVisible, rightPanelVisible }: Props) {
   const inputRef    = useRef<HTMLInputElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
 
@@ -402,11 +404,20 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
         {/* ── Visibility ── */}
         <button
-          className={cn("toolbar-button", !sidePanelsVisible && "active text-primary")}
-          title={sidePanelsVisible ? "Hierarchie- und Eigenschaftenpanel ausblenden" : "Hierarchie- und Eigenschaftenpanel einblenden"}
-          onClick={onToggleSidePanels}
+          className={cn("toolbar-button", !leftPanelVisible && "active text-primary")}
+          title={leftPanelVisible ? "Projekthierarchie ausblenden" : "Projekthierarchie einblenden"}
+          onClick={onToggleLeftPanel}
         >
-          {sidePanelsVisible ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+          {leftPanelVisible ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+        </button>
+        <button
+          className={cn("toolbar-button", !rightPanelVisible && "active text-primary")}
+          title={rightPanelVisible ? "Eigenschaften ausblenden" : "Eigenschaften einblenden"}
+          onClick={onToggleRightPanel}
+        >
+          <span className="inline-flex scale-x-[-1]">
+            {rightPanelVisible ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+          </span>
         </button>
         <button
           className={cn("toolbar-button", !showSpaces && "opacity-50")}

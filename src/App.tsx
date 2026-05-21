@@ -296,24 +296,24 @@ function MainApp() {
   const [loadStates, setLoadStates]           = useState<Map<string, LoadState>>(new Map());
   const [basketEditorOpen, setBasketEditorOpen] = useState(false);
   const [batchPanelOpen, setBatchPanelOpen]   = useState(false);
-  const [sidePanelsVisible, setSidePanelsVisible] = useState(true);
+  const [leftPanelVisible,  setLeftPanelVisible]  = useState(true);
+  const [rightPanelVisible, setRightPanelVisible] = useState(true);
   const leftPanelRef  = usePanelRef();
   const rightPanelRef = usePanelRef();
 
-  const handleToggleSidePanels = useCallback(() => {
-    const left  = leftPanelRef.current;
-    const right = rightPanelRef.current;
-    if (!left || !right) return;
-    if (sidePanelsVisible) {
-      left.collapse();
-      right.collapse();
-      setSidePanelsVisible(false);
-    } else {
-      left.expand();
-      right.expand();
-      setSidePanelsVisible(true);
-    }
-  }, [sidePanelsVisible, leftPanelRef, rightPanelRef]);
+  const handleToggleLeftPanel = useCallback(() => {
+    const p = leftPanelRef.current;
+    if (!p) return;
+    if (leftPanelVisible) { p.collapse(); setLeftPanelVisible(false); }
+    else                  { p.expand();   setLeftPanelVisible(true);  }
+  }, [leftPanelVisible, leftPanelRef]);
+
+  const handleToggleRightPanel = useCallback(() => {
+    const p = rightPanelRef.current;
+    if (!p) return;
+    if (rightPanelVisible) { p.collapse(); setRightPanelVisible(false); }
+    else                   { p.expand();   setRightPanelVisible(true);  }
+  }, [rightPanelVisible, rightPanelRef]);
   const {
     addModel, removeModel, updateModel, setWorldOrigin, setSelected,
     models, settings, activeTool, setActiveTool, sqlPanelOpen, setSqlPanelOpen,
@@ -619,8 +619,10 @@ function MainApp() {
         onFitAll={() => window.dispatchEvent(new Event("viewer:fitAll"))}
         loading={activeLoads > 0}
         onOpenBatch={() => setBatchPanelOpen(true)}
-        onToggleSidePanels={handleToggleSidePanels}
-        sidePanelsVisible={sidePanelsVisible}
+        onToggleLeftPanel={handleToggleLeftPanel}
+        onToggleRightPanel={handleToggleRightPanel}
+        leftPanelVisible={leftPanelVisible}
+        rightPanelVisible={rightPanelVisible}
       />
 
       {/* Loading bars */}
