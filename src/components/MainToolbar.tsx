@@ -185,18 +185,20 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
   // ── 5D: isolate tracked elements ──────────────────────────────────────────
   const handleIsolate5D = useCallback(() => {
-    const billingEntries = useBillingStore.getState().entries;
-    const modelMap       = useModelStore.getState().models;
-    if (Object.keys(billingEntries).length === 0) return;
+    const entries = useBillingStore.getState().entries;
+    const models  = useModelStore.getState().models;
+    if (Object.keys(entries).length === 0) return;
 
     const toIsolate: Array<{ modelId: string; expressId: number }> = [];
-    for (const key of Object.keys(billingEntries)) {
-      const colonIdx = key.lastIndexOf(":");
-      const filename  = key.slice(0, colonIdx);
-      const expressId = parseInt(key.slice(colonIdx + 1), 10);
-      for (const [modelId, model] of modelMap) {
-        if (model.name === filename) { toIsolate.push({ modelId, expressId }); break; }
-      }
+    for (const entry of Object.values(entries)) {
+      const guid = entry.guid;
+      if (!guid) continue;
+      models.forEach((m, modelId) => {
+        for (const els of Object.values(m.elementsByType)) {
+          const found = (els as Array<{ expressId: number; guid?: string }>).find(el => el.guid === guid);
+          if (found) { toIsolate.push({ modelId, expressId: found.expressId }); break; }
+        }
+      });
     }
     if (toIsolate.length > 0) useModelStore.getState().isolateEntries(toIsolate);
   }, []);
