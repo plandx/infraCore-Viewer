@@ -2235,14 +2235,15 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!st.lsOpen || st.lsAlignmentId === null ||
           st.lsStaStart === null || st.lsStaEnd === null) return;
 
-      const staStart = st.lsStaStart;
-      const staEnd   = st.lsStaEnd;
-      const allAligns = st.files.flatMap(f => f.alignments);
-      const alignment = allAligns.find(a => a.id === st.lsAlignmentId);
-      if (!alignment) return;
+      const staStart   = st.lsStaStart;
+      const staEnd     = st.lsStaEnd;
+      const alignId    = st.lsAlignmentId;
+      const allAligns  = st.files.flatMap(f => f.alignments);
+      const alignment  = allAligns.find(a => a.id === alignId);
+      if (!alignment) { useAlignmentStore.getState().setLSResult([], []); return; }
 
       const cache = alignPolylineRef.current.get(alignment.id);
-      if (!cache) return;
+      if (!cache) { useAlignmentStore.getState().setLSResult([], []); return; }
 
       const { pts } = cache;
       // Use the origin that was stored in the cache when the polyline was last built.
@@ -2274,6 +2275,10 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (segs.length === 0) { useAlignmentStore.getState().setLSResult([], []); return; }
 
       setTimeout(() => {
+        // Discard stale computation if the user already changed the range/alignment
+        const cur = useAlignmentStore.getState();
+        if (cur.lsStaStart !== staStart || cur.lsStaEnd !== staEnd || cur.lsAlignmentId !== alignId) return;
+
         const sc = sceneRef.current;
         if (!sc) { useAlignmentStore.getState().setLSResult([], []); return; }
 
@@ -2292,7 +2297,14 @@ export function ViewportContainer({ onElementClick }: Props) {
     };
 
     const unsub = useAlignmentStore.subscribe((state, prev) => {
-      if (state.lsComputing && !prev.lsComputing) computeLS();
+      // Trigger computation whenever lsComputing is true AND the request changed
+      // (covers: initial trigger, range change while already computing)
+      if (state.lsComputing && (
+        !prev.lsComputing ||
+        state.lsStaStart   !== prev.lsStaStart ||
+        state.lsStaEnd     !== prev.lsStaEnd   ||
+        state.lsAlignmentId !== prev.lsAlignmentId
+      )) computeLS();
       if (!state.lsOpen && prev.lsOpen) useAlignmentStore.getState().setLSResult([], []);
     });
     return () => unsub();

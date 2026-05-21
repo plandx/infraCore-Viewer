@@ -293,38 +293,55 @@ export function LongitudinalSectionWindow() {
   useEffect(() => { viewElevRef.current = viewElev; }, [viewElev]);
   useEffect(() => { domainRef.current   = domain;   }, [domain]);
 
+  // ── Zoom lock (X = station axis, Y = elevation axis) ─────────────────────
+  const [lockX, setLockX] = useState(false);
+  const [lockY, setLockY] = useState(false);
+  const lockXRef = useRef(false);
+  const lockYRef = useRef(false);
+  useEffect(() => { lockXRef.current = lockX; }, [lockX]);
+  useEffect(() => { lockYRef.current = lockY; }, [lockY]);
+
   // ── Wheel zoom ────────────────────────────────────────────────────────────
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
+    const zoomElev = (e: WheelEvent, dom: ReturnType<typeof domainRef.current>, rect: DOMRect, factor: number) => {
+      const my     = e.clientY - rect.top;
+      const ch     = rect.height - M.top - M.bottom;
+      const curMin = viewElevRef.current ? viewElevRef.current[0] : dom.eMin;
+      const curMax = viewElevRef.current ? viewElevRef.current[1] : dom.eMax;
+      const frac   = 1 - Math.max(0, Math.min(1, (my - M.top) / ch));
+      const center = curMin + frac * (curMax - curMin);
+      const half   = (curMax - curMin) * factor / 2;
+      svgRectRef.current = null;
+      setViewElev([center - half, center + half]);
+    };
+    const zoomSta = (e: WheelEvent, dom: ReturnType<typeof domainRef.current>, rect: DOMRect, factor: number) => {
+      const mx     = e.clientX - rect.left;
+      const cw     = rect.width - M.left - M.right;
+      const curMin = viewStaRef.current ? viewStaRef.current[0] : dom.sMin;
+      const curMax = viewStaRef.current ? viewStaRef.current[1] : dom.sMax;
+      const frac   = Math.max(0, Math.min(1, (mx - M.left) / cw));
+      const center = curMin + frac * (curMax - curMin);
+      const half   = (curMax - curMin) * factor / 2;
+      svgRectRef.current = null;
+      setViewSta([center - half, center + half]);
+    };
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect   = svg.getBoundingClientRect();
       const factor = e.deltaY > 0 ? 1.25 : 1 / 1.25;
       const dom    = domainRef.current;
+      const lx = lockXRef.current, ly = lockYRef.current;
 
+      // Primary axis: Y if Ctrl held, else X (unless locked — then fall back to the other)
       if (e.ctrlKey) {
-        const my     = e.clientY - rect.top;
-        const ch     = rect.height - M.top - M.bottom;
-        const curMin = viewElevRef.current ? viewElevRef.current[0] : dom.eMin;
-        const curMax = viewElevRef.current ? viewElevRef.current[1] : dom.eMax;
-        const frac   = 1 - Math.max(0, Math.min(1, (my - M.top) / ch));
-        const center = curMin + frac * (curMax - curMin);
-        const half   = (curMax - curMin) * factor / 2;
-        const newMin = Math.max(dom.eMin, Math.min(dom.eMax - half * 2, center - half * frac * 2));
-        svgRectRef.current = null;
-        setViewElev([newMin, newMin + half * 2]);
+        if (!ly) zoomElev(e, dom, rect, factor);
+        else if (!lx) zoomSta(e, dom, rect, factor);
       } else {
-        const mx     = e.clientX - rect.left;
-        const cw     = rect.width - M.left - M.right;
-        const curMin = viewStaRef.current ? viewStaRef.current[0] : dom.sMin;
-        const curMax = viewStaRef.current ? viewStaRef.current[1] : dom.sMax;
-        const frac   = Math.max(0, Math.min(1, (mx - M.left) / cw));
-        const center = curMin + frac * (curMax - curMin);
-        const half   = (curMax - curMin) * factor / 2;
-        const newMin = Math.max(dom.sMin, Math.min(dom.sMax - half * 2, center - half * frac * 2));
-        svgRectRef.current = null;
-        setViewSta([newMin, newMin + half * 2]);
+        if (!lx) zoomSta(e, dom, rect, factor);
+        else if (!ly) zoomElev(e, dom, rect, factor);
       }
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
@@ -557,16 +574,20 @@ export function LongitudinalSectionWindow() {
       const dxPx = e.clientX - dragRef.current.mx;
       const dyPx = e.clientY - dragRef.current.my;
       const vp   = vpRef.current;
-      const dSta  = -(dxPx / vp.chartW) * (dragRef.current.sMax - dragRef.current.sMin);
-      const dElev =  (dyPx / vp.chartH) * (dragRef.current.eMax - dragRef.current.eMin);
-      const dom   = domainRef.current;
-      const staRange  = dragRef.current.sMax - dragRef.current.sMin;
-      const elevRange = dragRef.current.eMax - dragRef.current.eMin;
-      const newSMin = Math.max(dom.sMin, Math.min(dom.sMax - staRange,  dragRef.current.sMin + dSta));
-      const newEMin = Math.max(dom.eMin, Math.min(dom.eMax - elevRange, dragRef.current.eMin + dElev));
+      const dom  = domainRef.current;
       svgRectRef.current = null;
-      setViewSta([newSMin, newSMin + staRange]);
-      setViewElev([newEMin, newEMin + elevRange]);
+      if (!lockXRef.current) {
+        const staRange = dragRef.current.sMax - dragRef.current.sMin;
+        const dSta = -(dxPx / vp.chartW) * staRange;
+        const newSMin = Math.max(dom.sMin, Math.min(dom.sMax - staRange, dragRef.current.sMin + dSta));
+        setViewSta([newSMin, newSMin + staRange]);
+      }
+      if (!lockYRef.current) {
+        const elevRange = dragRef.current.eMax - dragRef.current.eMin;
+        const dElev = (dyPx / vp.chartH) * elevRange;
+        const newEMin = Math.max(dom.eMin, Math.min(dom.eMax - elevRange, dragRef.current.eMin + dElev));
+        setViewElev([newEMin, newEMin + elevRange]);
+      }
       return;
     }
 
@@ -772,6 +793,31 @@ export function LongitudinalSectionWindow() {
         >
           <Download size={13} /> SVG
         </button>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
+        {/* Zoom-axis lock */}
+        <span className="text-[10px] text-muted-foreground">Zoom:</span>
+        <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
+          <button
+            onClick={() => setLockX(a => !a)}
+            className={cn("px-2 py-0.5 transition-colors",
+              lockX ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
+            )}
+            title={lockX ? "X-Achse gesperrt (Station)" : "X-Achse sperren (Station)"}
+          >
+            X {lockX ? "🔒" : "🔓"}
+          </button>
+          <button
+            onClick={() => setLockY(a => !a)}
+            className={cn("px-2 py-0.5 transition-colors",
+              lockY ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
+            )}
+            title={lockY ? "Y-Achse gesperrt (Höhe)" : "Y-Achse sperren (Höhe)"}
+          >
+            Y {lockY ? "🔒" : "🔓"}
+          </button>
+        </div>
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
