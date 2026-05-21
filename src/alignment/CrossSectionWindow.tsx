@@ -399,7 +399,9 @@ export function CrossSectionWindow() {
   const [customHatchMap, setCustomHatchMap] = useState<Record<string, HatchId>>({});
 
   // ── Depth view ────────────────────────────────────────────────────────────
-  const [showCutLines,  setShowCutLines]  = useState(true);
+  const [showCutLines,    setShowCutLines]    = useState(true);
+  const [showViewLines,   setShowViewLines]   = useState(false);
+  const [showHiddenLines, setShowHiddenLines] = useState(false);
   const [depthDistInput, setDepthDistInput] = useState("3.00");
   useEffect(() => {
     setDepthDistInput((state?.depthDistance ?? 3).toFixed(2));
@@ -793,28 +795,47 @@ export function CrossSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
-        {/* Line visibility toggles — Ansichtslinien / Verdeckte Linien */}
+        {/* Line type toggles: Schnittlinien / Ansichtslinien / Verdeckte Linien */}
         <button
           onClick={() => setShowCutLines(v => !v)}
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
             showCutLines ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
           )}
-          title="Ansichtslinien (Schnittlinien) ein-/ausblenden"
+          title="Schnittlinien ein-/ausblenden (direkte Verschneidung mit der Schnittebene)"
+        >
+          <Eye size={13} /> Schnitt
+        </button>
+        <button
+          onClick={() => {
+            const next = !showViewLines;
+            setShowViewLines(next);
+            const depthOn = state?.depthView ?? false;
+            if (next && !depthOn) send({ t: "setDepthView", enabled: true });
+            else if (!next && !showHiddenLines && depthOn) send({ t: "setDepthView", enabled: false });
+          }}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            showViewLines ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Ansichtslinien ein-/ausblenden (sichtbare Kanten hinter dem Schnitt, dünn)"
         >
           <Eye size={13} /> Ansicht
         </button>
         <button
-          onClick={() => send({ t: "setDepthView", enabled: !(state?.depthView ?? false) })}
+          onClick={() => {
+            const next = !showHiddenLines;
+            setShowHiddenLines(next);
+            const depthOn = state?.depthView ?? false;
+            if (next && !depthOn) send({ t: "setDepthView", enabled: true });
+            else if (!next && !showViewLines && depthOn) send({ t: "setDepthView", enabled: false });
+          }}
           className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            state?.depthView
-              ? "bg-emerald-600 text-white"
-              : "bg-muted text-muted-foreground hover:text-foreground"
+            showHiddenLines ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
           )}
-          title="Verdeckte Linien (Kanten hinter dem Schnitt) ein-/ausblenden"
+          title="Verdeckte Linien ein-/ausblenden (nicht sichtbare Kanten, gestrichelt)"
         >
           <Layers size={13} /> Verdeckt
         </button>
-        {state?.depthView && (
+        {(state?.depthView) && (
           <div className="flex items-center gap-1">
             <input
               type="number"
@@ -1128,17 +1149,16 @@ export function CrossSectionWindow() {
                 );
               })}
 
-              {/* Depth view lines — hidden (dashed) */}
-              {svgDepthPaths.hid.map(([color, d]) => (
-                <path key={color} d={d} stroke={color} strokeWidth={0.8} fill="none"
+              {/* Verdeckte Linien (hidden edges, dashed thin) */}
+              {showHiddenLines && svgDepthPaths.hid.map(([color, d]) => (
+                <path key={color} d={d} stroke={color} strokeWidth={0.7} fill="none"
                   strokeDasharray="3,3" opacity={0.35} />
               ))}
-              {/* Depth view lines — visible (solid) */}
-              {svgDepthPaths.vis.map(([color, d]) => (
-                <path key={color} d={d} stroke={color} strokeWidth={1} fill="none" opacity={0.55} />
+              {/* Ansichtslinien (visible depth edges, solid thin) */}
+              {showViewLines && svgDepthPaths.vis.map(([color, d]) => (
+                <path key={color} d={d} stroke={color} strokeWidth={0.9} fill="none" opacity={0.55} />
               ))}
-
-              {/* Section lines (Ansichtslinien) */}
+              {/* Schnittlinien (direct section cut, thick solid) */}
               {showCutLines && svgPaths.map(([color, d]) => (
                 <path key={color} d={d} stroke={color} strokeWidth={1.5} fill="none" />
               ))}
