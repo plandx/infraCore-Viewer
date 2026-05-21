@@ -2282,20 +2282,29 @@ export function ViewportContainer({ onElementClick }: Props) {
         const sc = sceneRef.current;
         if (!sc) { useAlignmentStore.getState().setLSResult([], []); return; }
 
-        const lines = sliceSceneLS(sc, segs, staStart, staEnd);
+        // Convert slice elevations (worldY) to absolute elevation by adding oz.
+        // All LS elevation data is stored as absolute so there is no oz-dependency
+        // at display time and no race condition when IFC models are loaded/unloaded.
+        const rawLines = sliceSceneLS(sc, segs, staStart, staEnd);
+        const lines = rawLines.map(l => ({
+          ...l, elev1: l.elev1 + oz, elev2: l.elev2 + oz,
+        }));
 
         const profile: import("../utils/windowSync").LSProfilePt[] = [];
         const STEPS = 600;
         for (let i = 0; i <= STEPS; i++) {
           const sta  = staStart + (i / STEPS) * (staEnd - staStart);
           const elev = evaluateProfile(alignment.profileGeom, sta);
-          if (elev !== null) profile.push({ sta, elev: elev - oz });
+          if (elev !== null) profile.push({ sta, elev });
         }
 
         const curSt = useAlignmentStore.getState();
-        const depthLines = curSt.lsDepthView
+        const rawDepth = curSt.lsDepthView
           ? computeLSDepthLines(sc, segs, staStart, staEnd, curSt.lsDepthDistance)
           : [];
+        const depthLines = rawDepth.map(l => ({
+          ...l, elev1: l.elev1 + oz, elev2: l.elev2 + oz,
+        }));
         useAlignmentStore.getState().setLSComputeResult(lines, profile, depthLines);
       }, 0);
     };
@@ -2316,7 +2325,14 @@ export function ViewportContainer({ onElementClick }: Props) {
       )) computeLS();
       if (!state.lsOpen && prev.lsOpen) useAlignmentStore.getState().setLSResult([], []);
     });
-    return () => unsub();
+    // Re-compute LS when IFC models change (oz may have changed)
+    const unsubModelLS = useModelStore.subscribe((state, prev) => {
+      if (state.models !== prev.models) {
+        const aState = useAlignmentStore.getState();
+        if (aState.lsOpen && aState.lsAlignmentId != null) computeLS();
+      }
+    });
+    return () => { unsub(); unsubModelLS(); };
   }, []);
 
   // ── Alignment click helpers ────────────────────────────────────────────────

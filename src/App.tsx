@@ -257,9 +257,9 @@ function useLongitudinalSectionSync() {
         .find(a => a.id === store.lsAlignmentId);
       const modelStore  = useModelStore.getState();
       const firstIfc    = modelStore.models.values().next().value as import("./types/ifc").IFCModelEntry | undefined;
-      const elevationOrigin = firstIfc
-        ? firstIfc.originOffset.y
-        : (store.geoOrigin?.z ?? 0);
+      // LS elevations are stored as absolute values (worldY + oz at compute time),
+      // so no additional offset is needed at display time.
+      const elevationOrigin = 0;
 
       if (store.lsLines !== cachedLsLines) {
         cachedLsLines = store.lsLines;
