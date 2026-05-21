@@ -146,6 +146,13 @@ function useCrossSectionSync() {
       const store = useAlignmentStore.getState();
       const alignment = store.files.flatMap(f => f.alignments)
         .find(a => a.id === store.crossSectionAlignmentId);
+      const modelStore   = useModelStore.getState();
+      const firstIfcXS   = modelStore.models.values().next().value as import("./types/ifc").IFCModelEntry | undefined;
+      // oz = elevation that maps worldY=0 back to absolute elevation;
+      // origin[1] is worldY of the alignment axis, so absolute elevation = origin[1] + oz.
+      const ozXS = firstIfcXS
+        ? firstIfcXS.originOffset.y
+        : (store.geoOrigin?.z ?? 0);
       ch.postMessage({
         t: "state", s: {
           station: store.crossSectionStation,
@@ -161,8 +168,10 @@ function useCrossSectionSync() {
           objectLabels: store.crossSectionObjectLabels,
           isFaceSection: store.faceCrossSectionActive,
           faceOffset: store.faceCrossSectionOffset,
-          theme: useModelStore.getState().settings.theme,
-          elevationOrigin: store.crossSectionBasis?.origin[1],
+          theme: modelStore.settings.theme,
+          elevationOrigin: store.crossSectionBasis != null
+            ? store.crossSectionBasis.origin[1] + ozXS
+            : undefined,
           depthView: store.depthView,
           depthDistance: store.depthDistance,
           depthLines: store.depthLines,

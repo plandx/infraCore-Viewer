@@ -1912,16 +1912,22 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       const cache = alignPolylineRef.current.get(alignment.id);
 
-      // Get section origin — prefer polyline cache, fall back to analytical
+      // Get section origin — prefer polyline cache for XZ, but always use
+      // evaluateProfile directly for elevation to avoid linear-interpolation
+      // error inside vertical curves (cache is sampled every sampleInterval m).
       let wx: number, wy: number, wz: number;
       if (cache) {
         const ip = interpOnPolyline(cache, crossSectionStation);
         if (!ip) return;
-        wx = ip.x - ox; wz = -(ip.y - oy); wy = (ip.z ?? oz) - oz;
+        const exactZ = evaluateProfile(alignment.profileGeom, crossSectionStation);
+        wx = ip.x - ox; wz = -(ip.y - oy);
+        wy = (exactZ ?? ip.z ?? oz) - oz;
       } else {
         const pt = sampleAtDisplayStation(alignment, crossSectionStation);
         if (!pt) return;
-        wx = pt.x - ox; wz = -(pt.y - oy); wy = (pt.z ?? oz) - oz;
+        const exactZ = evaluateProfile(alignment.profileGeom, crossSectionStation);
+        wx = pt.x - ox; wz = -(pt.y - oy);
+        wy = (exactZ ?? pt.z ?? oz) - oz;
       }
 
       // Tangent from two bracketing polyline points (or analytical fallback)
