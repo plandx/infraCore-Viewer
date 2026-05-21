@@ -265,15 +265,16 @@ function useLongitudinalSectionSync() {
         const model = modelStore.models.get(modelId);
         if (!model) { objectLabels.push({ key, name: key, type: "—", props: {} }); continue; }
         let name = key, type = "—", props: Record<string, string> = {};
-        for (const [itype, els] of Object.entries(model.elementsByType as Record<string, Array<{ expressId: number; properties: Record<string, unknown> }>>)) {
-          const el = els.find(e => e.expressId === eid);
-          if (el) {
-            name = String(el.properties["Name"] ?? el.properties["LongName"] ?? el.properties["Tag"] ?? key);
-            type = itype;
-            for (const [k, v] of Object.entries(el.properties))
-              if (typeof v === "string" || typeof v === "number") props[k] = String(v);
-            break;
-          }
+        // ElementNode has expressId/type/name/guid — no properties field
+        // Full property sets live in model.properties[expressId]
+        for (const [itype, els] of Object.entries(model.elementsByType)) {
+          const el = (els as import("./types/ifc").ElementNode[]).find(e => e.expressId === eid);
+          if (el) { name = el.name || key; type = itype; break; }
+        }
+        const ifcProps = (model.properties as Record<number, import("./types/ifc").IFCProperties>)[eid];
+        if (ifcProps?.properties) {
+          for (const p of ifcProps.properties)
+            if (typeof p.value === "string" || typeof p.value === "number") props[p.name] = String(p.value);
         }
         objectLabels.push({ key, name, type, props });
       }
