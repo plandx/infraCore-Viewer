@@ -64,8 +64,10 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   const propertyOverrides = useModelStore((s) => s.propertyOverrides);
 
   // 5D state
-  const billingModuleActive = useBillingStore((s) => s.moduleActive);
-  const billing5DCount      = useBillingStore((s) => Object.keys(s.entries).length);
+  const billingModuleActive  = useBillingStore((s) => s.moduleActive);
+  const billing5DCount       = useBillingStore((s) => Object.keys(s.entries).length);
+  const billing5DPanelOpen   = useModelStore((s) => s.billing5DPanelOpen);
+  const setBilling5DPanelOpen = useModelStore((s) => s.setBilling5DPanelOpen);
 
   // Alignment state
   const alignmentPanelOpen   = useAlignmentStore((s) => s.panelOpen);
@@ -591,19 +593,28 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
         <div className="w-px h-5 bg-border mx-1" />
 
         {/* ── 5D-Abrechnung ── */}
-        <button
-          onClick={() => openBillingWindow()}
-          className="toolbar-button flex items-center gap-1 px-2 py-1 text-xs"
-          title="5D-Abrechnung öffnen"
-        >
-          <BarChart2 size={14} />
-          <span className="text-[11px]">5D</span>
-          {billing5DCount > 0 && (
-            <span className="bg-muted text-muted-foreground text-[8px] px-1 rounded-full">
-              {billing5DCount}
-            </span>
-          )}
-        </button>
+        <div className="relative group/popout5d">
+          <button
+            onClick={() => setBilling5DPanelOpen(!billing5DPanelOpen)}
+            className={cn("toolbar-button flex items-center gap-1 px-2 py-1 text-xs", billing5DPanelOpen && "active text-primary")}
+            title="5D-Abrechnung (Overlay)"
+          >
+            <BarChart2 size={14} />
+            <span className="text-[11px]">5D</span>
+            {billing5DCount > 0 && (
+              <span className="bg-muted text-muted-foreground text-[8px] px-1 rounded-full">
+                {billing5DCount}
+              </span>
+            )}
+          </button>
+          <button
+            className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-card border border-border flex items-center justify-center opacity-0 group-hover/popout5d:opacity-100 hover:!opacity-100 hover:bg-primary hover:border-primary hover:text-primary-foreground text-muted-foreground transition-all z-10"
+            title="5D-Abrechnung in neuem Fenster öffnen"
+            onClick={(e) => { e.stopPropagation(); openBillingWindow(); }}
+          >
+            <ExternalLink size={8} />
+          </button>
+        </div>
         <button
           onClick={handleIsolate5D}
           disabled={billing5DCount === 0}

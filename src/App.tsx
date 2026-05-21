@@ -18,6 +18,7 @@ import { SelectionBasket } from "./components/SelectionBasket";
 import { BasketEditor } from "./components/BasketEditor";
 import { ModelInfoPanel } from "./components/ModelInfoPanel";
 import { useBillingStore } from "./billing/billingStore";
+import { Billing5DOverlay } from "./billing/Billing5DOverlay";
 import { BatchPanel } from "./batch/BatchPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { CollisionWindow } from "./components/CollisionWindow";
@@ -321,6 +322,7 @@ function MainApp() {
     listPanelOpen, setListPanelOpen,
     smartViewsPanelOpen, setSmartViewsPanelOpen,
     qtoPanelOpen, setQTOPanelOpen,
+    billing5DPanelOpen, setBilling5DPanelOpen,
     profilePanelOpen, setProfilePanelOpen,
     settingsPanelOpen,
     keyBindings,
@@ -720,6 +722,11 @@ function MainApp() {
 
                 {/* Face cross-section controls */}
                 <FaceCrossSectionPanel />
+
+                {/* 5D overlay — bottom-left */}
+                {billing5DPanelOpen && (
+                  <Billing5DOverlay onClose={() => setBilling5DPanelOpen(false)} />
+                )}
 
                 {!hasModels && activeLoads === 0 && (
                   <LandingOverlay onOpenFiles={handleFiles} loading={false} />

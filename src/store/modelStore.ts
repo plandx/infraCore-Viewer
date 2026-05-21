@@ -69,6 +69,8 @@ interface ModelStore {
   setSmartViewsPanelOpen: (open: boolean) => void;
   qtoPanelOpen: boolean;
   setQTOPanelOpen: (open: boolean) => void;
+  billing5DPanelOpen: boolean;
+  setBilling5DPanelOpen: (open: boolean) => void;
   profilePanelOpen: boolean;
   setProfilePanelOpen: (open: boolean) => void;
   qtoLists: QTOList[];
@@ -141,6 +143,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   listPanelOpen: false,
   smartViewsPanelOpen: false,
   qtoPanelOpen: false,
+  billing5DPanelOpen: false,
   profilePanelOpen: false,
   qtoLists: (() => {
     try {
@@ -282,6 +285,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   setSmartViewsPanelOpen: (open) => set({ smartViewsPanelOpen: open }),
 
   setQTOPanelOpen: (open) => set({ qtoPanelOpen: open }),
+  setBilling5DPanelOpen: (open) => set({ billing5DPanelOpen: open }),
   setProfilePanelOpen: (open) => set({ profilePanelOpen: open }),
 
   addQTOList: (list) =>
