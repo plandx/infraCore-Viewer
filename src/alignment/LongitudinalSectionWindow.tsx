@@ -267,10 +267,27 @@ export function LongitudinalSectionWindow() {
   useEffect(() => { setViewSta(null); setViewElev(null); }, [state?.alignmentId, state?.staStart, state?.staEnd]);
   useEffect(() => { setViewElev(null); }, [domain.eMin, domain.eMax]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Vertical exaggeration (Überhöhung) ───────────────────────────────────
+  const [vExag, setVExag] = useState(1);
+  const [vExagInput, setVExagInput] = useState("1");
+
+  const applyVExag = (raw: string) => {
+    const v = parseFloat(raw);
+    if (isFinite(v) && v >= 0.1 && v <= 500) setVExag(v);
+  };
+
   const vMin  = viewSta  ? viewSta[0]  : domain.sMin;
   const vMax  = viewSta  ? viewSta[1]  : domain.sMax;
-  const vEMin = viewElev ? viewElev[0] : domain.eMin;
-  const vEMax = viewElev ? viewElev[1] : domain.eMax;
+
+  // Raw elevation range (from zoom/pan or domain)
+  const rawVEMin = viewElev ? viewElev[0] : domain.eMin;
+  const rawVEMax = viewElev ? viewElev[1] : domain.eMax;
+
+  // Exaggerated elevation range: same center, compressed range
+  const rawVECenter = (rawVEMin + rawVEMax) / 2;
+  const rawVEHalf   = (rawVEMax - rawVEMin) / 2;
+  const vEMin = rawVECenter - rawVEHalf / vExag;
+  const vEMax = rawVECenter + rawVEHalf / vExag;
 
   const chartW = Math.max(1, size.w - M.left - M.right);
   const chartH = Math.max(1, size.h - M.top - M.bottom);
@@ -866,6 +883,35 @@ export function LongitudinalSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
+        {/* Vertical exaggeration (Überhöhung) */}
+        <span className="text-[10px] text-muted-foreground">Überhöhung</span>
+        <div className="flex items-center gap-0.5">
+          {[1, 2, 5, 10, 20].map(v => (
+            <button
+              key={v}
+              onClick={() => { setVExag(v); setVExagInput(String(v)); }}
+              className={cn("px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors",
+                vExag === v
+                  ? "bg-indigo-600 text-white"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
+              )}
+            >{v}×</button>
+          ))}
+          <input
+            type="number"
+            min={0.1} max={500} step={1}
+            value={vExagInput}
+            onChange={e => setVExagInput(e.target.value)}
+            onBlur={() => applyVExag(vExagInput)}
+            onKeyDown={e => { if (e.key === "Enter") applyVExag(vExagInput); }}
+            className="w-12 text-center text-[10px] font-mono bg-muted border border-border rounded px-1 py-0.5 text-foreground"
+            title="Benutzerdefinierte Überhöhung"
+            placeholder="1"
+          />
+        </div>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
         {isZoomed && (
           <button onClick={() => { setViewSta(null); setViewElev(null); }}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground"
@@ -1135,7 +1181,9 @@ export function LongitudinalSectionWindow() {
               </g>
             ))}
             <text x={M.left + 4} y={M.top + 8}
-              textAnchor="start" fontSize={9} fill="var(--color-muted-foreground)">↑ m ü.NHN</text>
+              textAnchor="start" fontSize={9} fill="var(--color-muted-foreground)">
+              {vExag === 1 ? "↑ m ü.NHN" : `↑ m ü.NHN (${vExag}×)`}
+            </text>
 
             {/* Legend */}
             <g>
