@@ -81,6 +81,9 @@ const _flyFwd    = new THREE.Vector3(0, 0, -1); // reused every frame in fly mod
 const _ray       = new THREE.Raycaster();
 const _ndc       = new THREE.Vector2();
 const _centerNDC = new THREE.Vector2(0, 0);    // screen center for fly-mode aim
+
+const FLY_SPEEDS  = [0.8, 4, 16, 60, 200] as const; // m/s per level
+const FLY_LABELS  = ["Schritt", "Joggen", "Fahren", "Fliegen", "Rakete"] as const;
 // Frustum culling pre-allocations
 const _frustum  = new THREE.Frustum();
 const _projMat  = new THREE.Matrix4();
@@ -105,9 +108,11 @@ export function ViewportContainer({ onElementClick }: Props) {
   const clickSuppressedRef = useRef(false);
 
   // Fly mode
-  const flyActiveRef = useRef(false);
-  const flyKeysRef   = useRef({ w: false, a: false, s: false, d: false, q: false, e: false });
-  const flyEulerRef  = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
+  const flyActiveRef    = useRef(false);
+  const flyKeysRef      = useRef({ w: false, a: false, s: false, d: false, q: false, e: false, shift: false });
+  const flyEulerRef     = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
+  const flySpeedIdxRef  = useRef(2); // index into FLY_SPEEDS
+  const [flySpeedIdx, setFlySpeedIdx] = useState(2);
 
 
   // Measurement state
@@ -484,8 +489,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         const keys = flyKeysRef.current;
         const anyKey = keys.w || keys.a || keys.s || keys.d || keys.q || keys.e;
         if (anyKey) {
-          // Speed: shift held = 5×
-          const spd = 20 * dt;
+          const spd = FLY_SPEEDS[flySpeedIdxRef.current] * (keys.shift ? 4 : 1) * dt;
           if (keys.w) camera.translateZ(-spd);
           if (keys.s) camera.translateZ( spd);
           if (keys.a) camera.translateX(-spd);
@@ -2769,15 +2773,16 @@ export function ViewportContainer({ onElementClick }: Props) {
     };
     document.addEventListener("mousemove", onMouseMove);
 
-    // WASD key tracking + H to hide aimed element
+    // WASD + Shift key tracking + H to hide aimed element
     const onKeyDown = (e: KeyboardEvent) => {
       const k = flyKeysRef.current;
-      if (e.code === "KeyW") k.w = true;
-      if (e.code === "KeyA") k.a = true;
-      if (e.code === "KeyS") k.s = true;
-      if (e.code === "KeyD") k.d = true;
-      if (e.code === "KeyQ") k.q = true;
-      if (e.code === "KeyE") k.e = true;
+      if (e.code === "KeyW")    k.w = true;
+      if (e.code === "KeyA")    k.a = true;
+      if (e.code === "KeyS")    k.s = true;
+      if (e.code === "KeyD")    k.d = true;
+      if (e.code === "KeyQ")    k.q = true;
+      if (e.code === "KeyE")    k.e = true;
+      if (e.code === "ShiftLeft" || e.code === "ShiftRight") k.shift = true;
       if (e.code === "KeyH") {
         const camera = cameraRef.current;
         if (!camera) return;
@@ -2797,15 +2802,26 @@ export function ViewportContainer({ onElementClick }: Props) {
     };
     const onKeyUp = (e: KeyboardEvent) => {
       const k = flyKeysRef.current;
-      if (e.code === "KeyW") k.w = false;
-      if (e.code === "KeyA") k.a = false;
-      if (e.code === "KeyS") k.s = false;
-      if (e.code === "KeyD") k.d = false;
-      if (e.code === "KeyQ") k.q = false;
-      if (e.code === "KeyE") k.e = false;
+      if (e.code === "KeyW")    k.w = false;
+      if (e.code === "KeyA")    k.a = false;
+      if (e.code === "KeyS")    k.s = false;
+      if (e.code === "KeyD")    k.d = false;
+      if (e.code === "KeyQ")    k.q = false;
+      if (e.code === "KeyE")    k.e = false;
+      if (e.code === "ShiftLeft" || e.code === "ShiftRight") k.shift = false;
+    };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 1 : -1;
+      const next = Math.max(0, Math.min(FLY_SPEEDS.length - 1, flySpeedIdxRef.current + delta));
+      if (next !== flySpeedIdxRef.current) {
+        flySpeedIdxRef.current = next;
+        setFlySpeedIdx(next);
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup",   onKeyUp);
+    document.addEventListener("wheel",   onWheel, { passive: false });
 
     // ESC exits fly mode (pointer lock releases automatically via browser)
     const onLockChange = () => {
@@ -2821,9 +2837,10 @@ export function ViewportContainer({ onElementClick }: Props) {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup",   onKeyUp);
+      document.removeEventListener("wheel",   onWheel);
       document.removeEventListener("pointerlockchange", onLockChange);
       if (document.pointerLockElement === mount) document.exitPointerLock();
-      flyKeysRef.current = { w: false, a: false, s: false, d: false, q: false, e: false };
+      flyKeysRef.current = { w: false, a: false, s: false, d: false, q: false, e: false, shift: false };
     };
   }, [activeTool]);
 
@@ -2865,7 +2882,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       {/* Fly mode hint */}
       {activeTool === "fly" && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none flex flex-col items-center gap-2">
           <div className="bg-card/90 backdrop-blur border border-border rounded-lg px-4 py-2 text-xs text-foreground text-center leading-relaxed">
             <span className="font-semibold text-primary">Fly-Mode</span>
             <span className="mx-2 opacity-40">·</span>
@@ -2875,9 +2892,31 @@ export function ViewportContainer({ onElementClick }: Props) {
             <span className="mx-2 opacity-40">·</span>
             <span className="font-mono">Q/E</span> Hoch/Runter
             <span className="mx-2 opacity-40">·</span>
-            Maus Umsehen
+            <span className="font-mono">Shift</span> Sprint
+            <span className="mx-2 opacity-40">·</span>
+            <span className="font-mono">Scroll</span> Geschwindigkeit
+            <span className="mx-2 opacity-40">·</span>
+            <span className="font-mono">H</span> Ausblenden
             <span className="mx-2 opacity-40">·</span>
             <span className="font-mono">Esc</span> Beenden
+          </div>
+          {/* Speed indicator */}
+          <div className="bg-card/90 backdrop-blur border border-border rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs text-foreground">
+            <span className="opacity-60">Tempo:</span>
+            {FLY_SPEEDS.map((_, i) => (
+              <div
+                key={i}
+                className={`rounded-sm transition-all duration-100 ${
+                  i === flySpeedIdx
+                    ? "bg-primary w-3 h-3"
+                    : i < flySpeedIdx
+                    ? "bg-primary/40 w-2 h-2"
+                    : "bg-muted-foreground/30 w-2 h-2"
+                }`}
+              />
+            ))}
+            <span className="font-semibold text-primary ml-1">{FLY_LABELS[flySpeedIdx]}</span>
+            <span className="opacity-50">({FLY_SPEEDS[flySpeedIdx]} m/s)</span>
           </div>
         </div>
       )}
