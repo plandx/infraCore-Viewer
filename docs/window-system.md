@@ -312,6 +312,7 @@ Main-Fenster (useCrossSectionSync)        CrossSectionWindow
    │◄─ { t: "nextStation", delta } ──────│  Schritt-Navigation
    │◄─ { t: "setMode", mode } ───────────│  Modus-Wechsel
    │◄─ { t: "toggleSectionSurface" } ────│  3D-Fläche ein/aus
+   │◄─ { t: "setDepthView", enabled, distance? } ─│  Tiefenansicht ein/aus + Distanz
 ```
 
 ### XSSyncState
@@ -327,6 +328,9 @@ Main-Fenster (useCrossSectionSync)        CrossSectionWindow
 | `polygons` | `XSSyncPolygon[]` | Geschlossene Polygone (für Hatch-Fill) |
 | `computing` | `boolean` | Berechnung aktiv |
 | `showSectionSurface` | `boolean` | 3D-Schnittfläche im Viewport sichtbar |
+| `depthView` | `boolean` | Tiefenansicht aktiv |
+| `depthDistance` | `number` | Sichttiefe in Metern |
+| `depthLines` | `XSSyncDepthLine[]` | Projizierte Kanten — `{ x1,y1,x2,y2, hidden, color }` |
 
 ### 3D-Schnittfläche
 

@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from "react";
-import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers, Magnet, MapPin, Tag, Download, Columns2 } from "lucide-react";
+import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers, Magnet, MapPin, Tag, Download, Columns2, Eye } from "lucide-react";
 import { cn } from "../lib/utils";
 import { CROSS_SECTION_CHANNEL } from "../utils/windowSync";
-import type { XSMsg, XSSyncState, XSSyncObjectLabel } from "../utils/windowSync";
+import type { XSMsg, XSSyncState, XSSyncObjectLabel, XSSyncDepthLine } from "../utils/windowSync";
 
 function fmtSta(sta: number): string {
   const km = Math.floor(sta / 1000);
@@ -276,21 +276,23 @@ export function CrossSectionWindow() {
     return () => ro.disconnect();
   }, []);
 
-  const lines    = state?.lines    ?? [];
-  const polygons = state?.polygons ?? [];
+  const lines      = state?.lines      ?? [];
+  const polygons   = state?.polygons   ?? [];
+  const depthLines = (state?.depthLines ?? []) as XSSyncDepthLine[];
 
   // ── Domain ────────────────────────────────────────────────────────────────
   const domain = useMemo(() => {
-    if (!lines.length) return { xMin: -20, xMax: 20, yMin: -5, yMax: 10 };
+    const allSegs = [...lines, ...depthLines];
+    if (!allSegs.length) return { xMin: -20, xMax: 20, yMin: -5, yMax: 10 };
     let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
-    for (const l of lines) {
+    for (const l of allSegs) {
       xMin = Math.min(xMin, l.x1, l.x2); xMax = Math.max(xMax, l.x1, l.x2);
       yMin = Math.min(yMin, l.y1, l.y2); yMax = Math.max(yMax, l.y1, l.y2);
     }
     xMin = Math.min(xMin, -2); xMax = Math.max(xMax, 2);
     const xp = (xMax - xMin) * 0.08, yp = Math.max(1, (yMax - yMin) * 0.12);
     return { xMin: xMin - xp, xMax: xMax + xp, yMin: yMin - yp, yMax: yMax + yp };
-  }, [lines]);
+  }, [lines, depthLines]);
 
   // ── Equal-scale zoom / pan ────────────────────────────────────────────────
   const [zoomFactor, setZoomFactor] = useState(1.0);
@@ -396,6 +398,12 @@ export function CrossSectionWindow() {
   // custom: user can override per-type hatch
   const [customHatchMap, setCustomHatchMap] = useState<Record<string, HatchId>>({});
 
+  // ── Depth view ────────────────────────────────────────────────────────────
+  const [depthDistInput, setDepthDistInput] = useState("3.00");
+  useEffect(() => {
+    setDepthDistInput((state?.depthDistance ?? 3).toFixed(2));
+  }, [state?.depthDistance]);
+
   // ── Snap mode ────────────────────────────────────────────────────────────
   const [snapActive, setSnapActive] = useState(false);
   const [snapDisplay, setSnapDisplay] = useState<SnapInfo | null>(null);
@@ -423,6 +431,22 @@ export function CrossSectionWindow() {
     }
     return [...byColor.entries()];
   }, [lines, vxMin, vyMin, visW, visH, chartW, chartH]);
+
+  // Depth lines split into visible/hidden buckets per color
+  const svgDepthPaths = useMemo(() => {
+    const vis = new Map<string, string>();
+    const hid = new Map<string, string>();
+    for (const l of depthLines) {
+      const x1s = (M.left + (l.x1 - vxMin) / visW * chartW).toFixed(1);
+      const y1s = (M.top  + (1 - (l.y1 - vyMin) / visH) * chartH).toFixed(1);
+      const x2s = (M.left + (l.x2 - vxMin) / visW * chartW).toFixed(1);
+      const y2s = (M.top  + (1 - (l.y2 - vyMin) / visH) * chartH).toFixed(1);
+      const seg = `M${x1s},${y1s}L${x2s},${y2s}`;
+      if (l.hidden) { hid.set(l.color, (hid.get(l.color) ?? "") + seg); }
+      else          { vis.set(l.color, (vis.get(l.color) ?? "") + seg); }
+    }
+    return { vis: [...vis.entries()], hid: [...hid.entries()] };
+  }, [depthLines, vxMin, vyMin, visW, visH, chartW, chartH]);
 
   const svgPolyPaths = useMemo(() => polygons.map(poly => ({
     color: poly.color,
@@ -768,6 +792,43 @@ export function CrossSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
+        {/* Depth view toggle */}
+        <button
+          onClick={() => send({ t: "setDepthView", enabled: !(state?.depthView ?? false) })}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            state?.depthView
+              ? "bg-emerald-600 text-white"
+              : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Tiefenansicht: Kanten hinter dem Schnitt einzeichnen"
+        >
+          <Eye size={13} /> Tiefe
+        </button>
+        {state?.depthView && (
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              min={0.1} max={100} step={0.5}
+              value={depthDistInput}
+              onChange={e => setDepthDistInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  const v = parseFloat(depthDistInput.replace(",", "."));
+                  if (!isNaN(v) && v > 0) send({ t: "setDepthView", enabled: true, distance: v });
+                }
+              }}
+              onBlur={() => {
+                const v = parseFloat(depthDistInput.replace(",", "."));
+                if (!isNaN(v) && v > 0) send({ t: "setDepthView", enabled: true, distance: v });
+              }}
+              className="w-14 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
+            />
+            <span className="text-[10px] text-muted-foreground">m</span>
+          </div>
+        )}
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
         {/* Measure */}
         <button
           onClick={() => { setMeasActive(a => !a); setPending(null); setPtLabelMode(false); setDimActive(false); setDimStep("p1"); setDimP1(null); setDimP2(null); }}
@@ -1056,6 +1117,16 @@ export function CrossSectionWindow() {
                   </g>
                 );
               })}
+
+              {/* Depth view lines — hidden (dashed) */}
+              {svgDepthPaths.hid.map(([color, d]) => (
+                <path key={color} d={d} stroke={color} strokeWidth={0.8} fill="none"
+                  strokeDasharray="3,3" opacity={0.35} />
+              ))}
+              {/* Depth view lines — visible (solid) */}
+              {svgDepthPaths.vis.map(([color, d]) => (
+                <path key={color} d={d} stroke={color} strokeWidth={1} fill="none" opacity={0.55} />
+              ))}
 
               {/* Section lines */}
               {svgPaths.map(([color, d]) => (

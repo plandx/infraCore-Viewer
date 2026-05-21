@@ -1789,6 +1789,87 @@ export function ViewportContainer({ onElementClick }: Props) {
 
   // Cross-section: compute slice and update 3D plane indicator
   useEffect(() => {
+    type XSSyncDepthLine = import("../utils/windowSync").XSSyncDepthLine;
+
+    const computeDepthLines = (
+      origin3: THREE.Vector3,
+      normalVec: THREE.Vector3,
+      rightDir: THREE.Vector3,
+      upDir: THREE.Vector3,
+    ) => {
+      const st = useAlignmentStore.getState();
+      if (!st.depthView) { useAlignmentStore.getState().setDepthLines([]); return; }
+      const maxDist = st.depthDistance;
+      const meshes = pickableMeshesRef.current;
+      const depthLines: XSSyncDepthLine[] = [];
+      const rc = new THREE.Raycaster();
+      const p1w = new THREE.Vector3();
+      const p2w = new THREE.Vector3();
+
+      for (const mesh of meshes) {
+        if (!isWorldVisible(mesh)) continue;
+        const geo = mesh.geometry;
+        if (!geo.boundingSphere) geo.computeBoundingSphere();
+        const bs = geo.boundingSphere!;
+        const center = bs.center.clone().applyMatrix4(mesh.matrixWorld);
+        const distCenter = center.clone().sub(origin3).dot(normalVec);
+        const radius = bs.radius * mesh.matrixWorld.getMaxScaleOnAxis();
+        if (distCenter + radius <= 0 || distCenter - radius > maxDist) continue;
+
+        let color = "#888888";
+        const mat = mesh.material;
+        if (mat && !Array.isArray(mat) && (mat as THREE.MeshLambertMaterial).color) {
+          color = "#" + (mat as THREE.MeshLambertMaterial).color.getHexString();
+        }
+
+        // Visibility: ray from section plane toward element center
+        const centerOnPlane = center.clone().sub(normalVec.clone().multiplyScalar(distCenter));
+        rc.set(centerOnPlane, normalVec);
+        const hits = rc.intersectObjects(meshes as THREE.Object3D[], false);
+        const isHidden = hits.length > 0 && hits[0].distance < distCenter - 0.05;
+
+        // Edge segments: prefer existing isEdge child, otherwise compute temporarily
+        const edgeChild = mesh.children.find(c => c.userData.isEdge) as THREE.LineSegments | undefined;
+        let edgePos: THREE.BufferAttribute;
+        let tempGeo: THREE.EdgesGeometry | null = null;
+        if (edgeChild) {
+          edgePos = edgeChild.geometry.attributes.position as THREE.BufferAttribute;
+        } else {
+          tempGeo = new THREE.EdgesGeometry(geo, 15);
+          edgePos = tempGeo.attributes.position as THREE.BufferAttribute;
+        }
+
+        const wm = mesh.matrixWorld;
+        for (let i = 0; i < edgePos.count; i += 2) {
+          p1w.fromBufferAttribute(edgePos, i).applyMatrix4(wm);
+          p2w.fromBufferAttribute(edgePos, i + 1).applyMatrix4(wm);
+          const d1 = p1w.clone().sub(origin3).dot(normalVec);
+          const d2 = p2w.clone().sub(origin3).dot(normalVec);
+          if ((d1 <= 0 && d2 <= 0) || (d1 > maxDist && d2 > maxDist)) continue;
+          const v1 = p1w.clone().sub(origin3);
+          const v2 = p2w.clone().sub(origin3);
+          depthLines.push({
+            x1: v1.dot(rightDir), y1: v1.dot(upDir),
+            x2: v2.dot(rightDir), y2: v2.dot(upDir),
+            hidden: isHidden, color,
+          });
+        }
+        if (tempGeo) tempGeo.dispose();
+      }
+      useAlignmentStore.getState().setDepthLines(depthLines);
+    };
+
+    const computeDepthLinesFromBasis = () => {
+      const basis = useAlignmentStore.getState().crossSectionBasis;
+      if (!basis) return;
+      computeDepthLines(
+        new THREE.Vector3(...basis.origin),
+        new THREE.Vector3(...basis.normal),
+        new THREE.Vector3(...basis.right),
+        new THREE.Vector3(...basis.up),
+      );
+    };
+
     const computeSection = () => {
       const scene = sceneRef.current;
       if (!scene) return;
@@ -1940,6 +2021,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           objectLabels.push({ key: l.objectKey, name, type, props });
         }
         useAlignmentStore.getState().setCrossSectionObjectLabels(objectLabels);
+        computeDepthLines(origin3, planeNormal, rightDir, upDir);
       }, 0);
     };
 
@@ -2017,6 +2099,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           objectLabels.push({ key: l.objectKey, name, type, props });
         }
         useAlignmentStore.getState().setCrossSectionObjectLabels(objectLabels);
+        computeDepthLines(originVec, normalVec, right, upVec);
       }, 0);
     };
 
@@ -2051,6 +2134,10 @@ export function ViewportContainer({ onElementClick }: Props) {
       if (!state.faceCrossSectionActive && prev.faceCrossSectionActive) {
         const indicator = sectionIndicatorRef.current;
         if (indicator) { indicator.visible = false; needsRenderRef.current = true; }
+      }
+      if ((state.depthView !== prev.depthView || state.depthDistance !== prev.depthDistance) &&
+          state.crossSectionBasis) {
+        computeDepthLinesFromBasis();
       }
     });
     return () => unsub();

@@ -80,6 +80,7 @@ export const CROSS_SECTION_CHANNEL = "infracore-cross-section";
 
 export type XSSyncLine = { x1: number; y1: number; x2: number; y2: number; color: string; objectKey?: string };
 export type XSSyncPolygon = { points: Array<[number, number]>; color: string; objectKey?: string };
+export type XSSyncDepthLine = { x1: number; y1: number; x2: number; y2: number; hidden: boolean; color: string };
 
 /** Label metadata for one IFC element visible in the current cross-section */
 export interface XSSyncObjectLabel {
@@ -107,6 +108,9 @@ export interface XSSyncState {
   theme?: "light" | "dark";
   /** World-Y of the section origin — used for the absolute-elevation right axis */
   elevationOrigin?: number;
+  depthView: boolean;
+  depthDistance: number;
+  depthLines: XSSyncDepthLine[];
 }
 
 export type XSMsg =
@@ -117,7 +121,8 @@ export type XSMsg =
   | { t: "nextStation"; delta: number }
   | { t: "setMode"; mode: "vertical" | "normal" }
   | { t: "toggleSectionSurface" }
-  | { t: "setFaceOffset"; offset: number };
+  | { t: "setFaceOffset"; offset: number }
+  | { t: "setDepthView"; enabled: boolean; distance?: number };
 
 export function openCrossSectionWindow() {
   const url = `${window.location.pathname}?cross-section`;

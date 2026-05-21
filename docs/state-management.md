@@ -485,6 +485,9 @@ Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen 
 | `crossSectionBasis` | `{origin,right,up,normal: [number,number,number]} \| null` | 3D-Basis der letzten Schnittebene im Szenen-Koordinatensystem |
 | `crossSectionComputing` | `boolean` | Berechnung läuft |
 | `showSectionSurface` | `boolean` | 3D-Schnittfläche im Viewport anzeigen |
+| `depthView` | `boolean` | Tiefenansicht aktiv (Kanten hinter dem Schnitt) |
+| `depthDistance` | `number` | Sichttiefe in Metern (default 3) |
+| `depthLines` | `XSSyncDepthLine[]` | Berechnete Tiefenansichts-Liniensegmente |
 
 ### Aktionen
 
@@ -503,6 +506,9 @@ Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen 
 | `setCrossSectionMode(mode)` | Schnittmodus wechseln |
 | `setCrossSectionResult(lines, basis?)` | Berechnungsergebnis speichern; leitet `buildSectionPolygons` ab |
 | `setShowSectionSurface(v)` | 3D-Schnittfläche im Viewport ein-/ausblenden |
+| `setDepthView(enabled)` | Tiefenansicht aktivieren/deaktivieren |
+| `setDepthDistance(d)` | Sichttiefe in Metern setzen |
+| `setDepthLines(lines)` | Berechnete Tiefenlinien setzen (von ViewportContainer aufgerufen) |
 
 ### Koordinaten-Konvention in `geoOrigin`
 

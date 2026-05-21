@@ -160,6 +160,9 @@ function useCrossSectionSync() {
           faceOffset: store.faceCrossSectionOffset,
           theme: useModelStore.getState().settings.theme,
           elevationOrigin: store.crossSectionBasis?.origin[1],
+          depthView: store.depthView,
+          depthDistance: store.depthDistance,
+          depthLines: store.depthLines,
         },
       } satisfies XSMsg);
     };
@@ -192,6 +195,9 @@ function useCrossSectionSync() {
         store.setShowSectionSurface(!store.showSectionSurface);
       } else if (msg.t === "setFaceOffset") {
         store.setFaceCrossSectionOffset(msg.offset);
+      } else if (msg.t === "setDepthView") {
+        store.setDepthView(msg.enabled);
+        if (msg.distance !== undefined) store.setDepthDistance(msg.distance);
       } else if (msg.t === "close") {
         if (store.faceCrossSectionActive) {
           store.closeFaceCrossSection();
@@ -213,7 +219,10 @@ function useCrossSectionSync() {
         state.crossSectionObjectLabels  !== prev.crossSectionObjectLabels  ||
         state.faceCrossSectionActive    !== prev.faceCrossSectionActive    ||
         state.faceCrossSectionOffset    !== prev.faceCrossSectionOffset    ||
-        state.crossSectionBasis         !== prev.crossSectionBasis
+        state.crossSectionBasis         !== prev.crossSectionBasis         ||
+        state.depthView                 !== prev.depthView                 ||
+        state.depthDistance             !== prev.depthDistance             ||
+        state.depthLines                !== prev.depthLines
       ) broadcast();
     });
 

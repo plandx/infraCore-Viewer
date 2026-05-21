@@ -3,7 +3,7 @@ import { parseLandXmlText } from "./landXmlParser";
 import type { Alignment } from "./types";
 import type { SectionLine, SectionPolygon } from "./crossSectionUtils";
 import { buildSectionPolygons } from "./crossSectionUtils";
-import type { XSSyncObjectLabel } from "../utils/windowSync";
+import type { XSSyncObjectLabel, XSSyncDepthLine } from "../utils/windowSync";
 
 let _xsWin: Window | null = null;
 
@@ -80,6 +80,10 @@ interface AlignmentStore {
   showSectionSurface: boolean;
   crossSectionObjectLabels: XSSyncObjectLabel[];
 
+  depthView: boolean;
+  depthDistance: number;
+  depthLines: XSSyncDepthLine[];
+
   // Face cross-section (independent of alignment station)
   faceCrossSectionActive: boolean;
   faceCrossSectionOrigin: [number,number,number] | null;
@@ -112,6 +116,9 @@ interface AlignmentStore {
   setCrossSectionResult(lines: SectionLine[], basis?: AlignmentStore["crossSectionBasis"]): void;
   setCrossSectionObjectLabels(labels: XSSyncObjectLabel[]): void;
   setShowSectionSurface(v: boolean): void;
+  setDepthView(enabled: boolean): void;
+  setDepthDistance(d: number): void;
+  setDepthLines(lines: XSSyncDepthLine[]): void;
 
   // Face cross-section actions
   openFaceCrossSection(origin: [number,number,number], normal: [number,number,number]): void;
@@ -153,6 +160,9 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   crossSectionComputing: false,
   showSectionSurface: false,
   crossSectionObjectLabels: [],
+  depthView: false,
+  depthDistance: 3,
+  depthLines: [],
   faceCrossSectionActive: false,
   faceCrossSectionOrigin: null,
   faceCrossSectionNormal: null,
@@ -261,6 +271,9 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   setCrossSectionResult: (lines, basis) => set({ crossSectionLines: lines, crossSectionPolygons: buildSectionPolygons(lines), crossSectionBasis: basis ?? null, crossSectionComputing: false }),
   setCrossSectionObjectLabels: (labels) => set({ crossSectionObjectLabels: labels }),
   setShowSectionSurface: (v) => set({ showSectionSurface: v }),
+  setDepthView: (enabled) => set({ depthView: enabled }),
+  setDepthDistance: (d) => set({ depthDistance: d }),
+  setDepthLines: (lines) => set({ depthLines: lines }),
 
   openFaceCrossSection: (origin, normal) => {
     set({

@@ -561,6 +561,7 @@ Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstel
 | Punkt X/Y | MapPin-Icon (violett) | Setzt eine Bemaßungs-Annotation mit Querabstand (R/L) und Höhenabstand (+/−) vom Achspunkt als Maßlinien |
 | Fang | Magnet-Icon (himmelblau) | Aktiviert Snap-Modus: Vertex-Fang (Priorität, 14px-Schwelle) dann Kanten-Fang (Lot auf Segment) |
 | Objekte | Tag-Icon (grün) | Schaltet Objektbeschriftung ein; Dropdown wählt das Anzeigeattribut (Name, Typ, beliebige geladene Property) |
+| Tiefe | Eye-Icon (grün) | Aktiviert Tiefenansicht: projiziert alle Kanten im Sichtbereich hinter dem Schnitt (default 3 m) — sichtbare Kanten solid, verdeckte Kanten gestrichelt |
 
 ### Objektbeschriftung
 
@@ -585,11 +586,25 @@ Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstel
 - `pointLabels: PtLabel[]` — gespeicherte Punkte `{ id, x, y }` in Achskoordinaten
 - SVG-Darstellung: horizontale Maßlinie auf Höhe des Punkts (zeigt X-Abstand, R/L), vertikale Maßlinie an X-Position des Punkts (zeigt Y-Abstand +/−); Texte mit Hintergrundrechtecken
 
+### Tiefenansicht (Depth View)
+
+- **Toggle + Distanzfeld** in der Werkzeugleiste; Distanz default 3 m, min 0,1 m
+- **`computeDepthLines(origin3, normalVec, rightDir, upDir)`** in `ViewportContainer.tsx`:
+  - Iteriert `pickableMeshesRef.current` (alle sichtbaren IFC-Meshes)
+  - Bounding-Sphere-Check gegen den Tiefenbereich `[0, depthDistance]` entlang der Normalen
+  - Sichtbarkeitsprüfung: 1 Raycast je Element vom Schnittbild-Projektionspunkt in Normalenrichtung; trifft ein Objekt vorher → `hidden = true`
+  - Kantensegmente aus vorhandenem `isEdge`-Kind oder neu erzeugter `EdgesGeometry` (wird sofort `dispose()`d)
+  - Ergebnis in `alignmentStore.depthLines: XSSyncDepthLine[]` gespeichert
+- **`computeDepthLinesFromBasis()`**: wird bei Änderung von `depthView`/`depthDistance` ohne neuen Schnitt aufgerufen
+- **`XSSyncDepthLine`**: `{ x1, y1, x2, y2, hidden: boolean, color: string }` in 2D-Schnittkoordinaten
+- **SVG-Rendering**: getrennte `<path>`-Elemente für sichtbare (solid, 55 % Opazität) und verdeckte Linien (gestrichelt 3,3, 35 % Opazität), unter den Schnittlinien gezeichnet
+
 ### SVG-Aufbau
 
 1. Achsenkreuz + Tick-Labels (cm-Genauigkeit, 2 Dezimalstellen)
 2. `<clipPath>` begrenzt Schnittlinien und Hatch-Füllung auf Darstellungsbereich
-3. Schnittlinien (`<polyline>`) + Hatch-Füllung (`<polygon>` mit SVG-Pattern)
-4. Bemaßungen: Mess-Linie (blau gestrichelt), Punkt-Beschriftungs-Maßlinien (lila)
-5. Vorschau-Dot bei aktivem Werkzeug
-6. Snap-Indikator (außerhalb Clip-Gruppe, immer sichtbar)
+3. Tiefenansichts-Kanten (gestrichelt verdeckt, solid sichtbar) — Ebene unterhalb der Schnittlinien
+4. Schnittlinien (`<polyline>`) + Hatch-Füllung (`<polygon>` mit SVG-Pattern)
+5. Bemaßungen: Mess-Linie (blau gestrichelt), Punkt-Beschriftungs-Maßlinien (lila)
+6. Vorschau-Dot bei aktivem Werkzeug
+7. Snap-Indikator (außerhalb Clip-Gruppe, immer sichtbar)
