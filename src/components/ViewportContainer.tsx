@@ -2245,11 +2245,16 @@ export function ViewportContainer({ onElementClick }: Props) {
       const scene = sceneRef.current;
       if (!renderer || !camera || !scene) return null;
 
-      const rect = domRectRef.current ?? renderer.domElement.getBoundingClientRect();
-      _ndc.set(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1,
-      );
+      // In pointer-lock (fly mode) the cursor position is frozen — always use screen centre
+      if (document.pointerLockElement === mountRef.current) {
+        _ndc.set(0, 0);
+      } else {
+        const rect = domRectRef.current ?? renderer.domElement.getBoundingClientRect();
+        _ndc.set(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+      }
 
       const activeCamera = useModelStore.getState().settings.orthographic
         ? orthoCameraRef.current ?? camera
@@ -2788,7 +2793,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         if (!camera) return;
         _ray.setFromCamera(_centerNDC, camera);
         const hits = _ray.intersectObjects(
-          pickableMeshesRef.current.filter(m => m.visible),
+          pickableMeshesRef.current.filter(isWorldVisible),
           false,
         );
         if (hits.length > 0) {
