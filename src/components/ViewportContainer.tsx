@@ -2811,6 +2811,9 @@ export function ViewportContainer({ onElementClick }: Props) {
           }
         }
       }
+      if (e.code === "KeyR") {
+        useModelStore.getState().showAll();
+      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       const k = flyKeysRef.current;
