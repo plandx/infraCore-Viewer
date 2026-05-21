@@ -23,7 +23,7 @@ import { useAlignmentStore } from "../alignment/alignmentStore";
 import type { PlacedLabel, OffsetMeasurement } from "../alignment/alignmentStore";
 import { buildRobustPolyline, sampleAtDisplayStation, evaluateProfile } from "../alignment/landXmlParser";
 import { sliceScene } from "../alignment/crossSectionUtils";
-import { sliceSceneLS } from "../alignment/longitudinalSectionUtils";
+import { sliceSceneLS, computeLSDepthLines } from "../alignment/longitudinalSectionUtils";
 import type { LSSegmentPlane } from "../alignment/longitudinalSectionUtils";
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
 
@@ -2292,6 +2292,14 @@ export function ViewportContainer({ onElementClick }: Props) {
           if (elev !== null) profile.push({ sta, elev: elev - oz });
         }
 
+        const curSt = useAlignmentStore.getState();
+        if (curSt.lsDepthView) {
+          const depthLines = computeLSDepthLines(sc, segs, staStart, staEnd, curSt.lsDepthDistance);
+          useAlignmentStore.getState().setLSDepthLines(depthLines);
+        } else {
+          useAlignmentStore.getState().setLSDepthLines([]);
+        }
+
         useAlignmentStore.getState().setLSResult(lines, profile);
       }, 0);
     };
@@ -2301,9 +2309,14 @@ export function ViewportContainer({ onElementClick }: Props) {
       // (covers: initial trigger, range change while already computing)
       if (state.lsComputing && (
         !prev.lsComputing ||
-        state.lsStaStart   !== prev.lsStaStart ||
-        state.lsStaEnd     !== prev.lsStaEnd   ||
+        state.lsStaStart    !== prev.lsStaStart ||
+        state.lsStaEnd      !== prev.lsStaEnd   ||
         state.lsAlignmentId !== prev.lsAlignmentId
+      )) computeLS();
+      // Re-trigger when depth view settings change while LS is open
+      if (state.lsOpen && !state.lsComputing && (
+        state.lsDepthView     !== prev.lsDepthView ||
+        state.lsDepthDistance !== prev.lsDepthDistance
       )) computeLS();
       if (!state.lsOpen && prev.lsOpen) useAlignmentStore.getState().setLSResult([], []);
     });

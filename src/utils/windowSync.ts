@@ -163,6 +163,12 @@ export interface LSLineSync {
   objectKey?: string;
 }
 export interface LSProfilePt { sta: number; elev: number; }
+export interface LSDepthLineSync {
+  sta1: number; elev1: number;
+  sta2: number; elev2: number;
+  hidden: boolean;
+  color: string;
+}
 
 export interface LSSyncState {
   alignmentId: number | null;
@@ -176,13 +182,17 @@ export interface LSSyncState {
   /** oz — world-Y of the coordinate origin; add to world-Y to get real-world elevation */
   elevationOrigin: number;
   objectLabels?: XSSyncObjectLabel[];
+  depthLines?: LSDepthLineSync[];
+  depthView?: boolean;
+  depthDistance?: number;
 }
 
 export type LSMsg =
   | { t: "state"; s: LSSyncState }
   | { t: "req" }
   | { t: "close" }
-  | { t: "setRange"; staStart: number; staEnd: number };
+  | { t: "setRange"; staStart: number; staEnd: number }
+  | { t: "setDepthView"; enabled: boolean; distance?: number };
 
 export function openLongitudinalSectionWindow() {
   const url = `${window.location.pathname}?longitudinal-section`;

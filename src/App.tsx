@@ -291,6 +291,9 @@ function useLongitudinalSectionSync() {
           theme:            modelStore.settings.theme,
           elevationOrigin,
           objectLabels,
+          depthLines:       store.lsDepthLines,
+          depthView:        store.lsDepthView,
+          depthDistance:    store.lsDepthDistance,
         },
       } satisfies LSMsg);
     };
@@ -307,18 +310,23 @@ function useLongitudinalSectionSync() {
       } else if (msg.t === "setRange") {
         if (store.lsAlignmentId !== null)
           store.setLSRange(msg.staStart, msg.staEnd);
+      } else if (msg.t === "setDepthView") {
+        store.setLSDepthView(msg.enabled, msg.distance);
       } else if (msg.t === "close") {
         store.closeLongSection();
       }
     };
 
     const unsub = useAlignmentStore.subscribe((state, prev) => {
-      if (state.lsLines    !== prev.lsLines    ||
-          state.lsProfile  !== prev.lsProfile  ||
-          state.lsStaStart !== prev.lsStaStart ||
-          state.lsStaEnd   !== prev.lsStaEnd   ||
-          state.lsComputing!== prev.lsComputing ||
-          state.lsOpen     !== prev.lsOpen) broadcast();
+      if (state.lsLines        !== prev.lsLines        ||
+          state.lsProfile      !== prev.lsProfile      ||
+          state.lsStaStart     !== prev.lsStaStart     ||
+          state.lsStaEnd       !== prev.lsStaEnd       ||
+          state.lsComputing    !== prev.lsComputing    ||
+          state.lsOpen         !== prev.lsOpen         ||
+          state.lsDepthLines   !== prev.lsDepthLines   ||
+          state.lsDepthView    !== prev.lsDepthView    ||
+          state.lsDepthDistance!== prev.lsDepthDistance) broadcast();
     });
     const unsubModel = useModelStore.subscribe((s, p) => {
       if (s.settings.theme !== p.settings.theme) broadcast();

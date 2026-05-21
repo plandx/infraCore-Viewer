@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from "react";
-import { Ruler, Trash2, ZoomIn, Loader2, Tag, Download, Eye } from "lucide-react";
+import { Ruler, Trash2, ZoomIn, Loader2, Tag, Download, Eye, Layers } from "lucide-react";
 import { cn } from "../lib/utils";
 import { LS_CHANNEL } from "../utils/windowSync";
-import type { LSMsg, LSSyncState, XSSyncObjectLabel } from "../utils/windowSync";
+import type { LSMsg, LSSyncState, XSSyncObjectLabel, LSDepthLineSync } from "../utils/windowSync";
 
 function fmtSta(sta: number): string {
   const km = Math.floor(sta / 1000);
@@ -372,6 +372,17 @@ export function LongitudinalSectionWindow() {
   const linesRef      = useRef(lines);
   linesRef.current    = lines;
 
+  // ── Depth view ────────────────────────────────────────────────────────────
+  const depthLines: LSDepthLineSync[] = state?.depthLines ?? [];
+  const depthViewActive  = state?.depthView    ?? false;
+  const depthDistVal     = state?.depthDistance ?? 3;
+  const [depthDistInput, setDepthDistInput] = useState("3");
+  useEffect(() => { setDepthDistInput(String(depthDistVal)); }, [depthDistVal]);
+
+  const sendDepthView = (enabled: boolean, distance?: number) => {
+    chRef.current?.postMessage({ t: "setDepthView", enabled, distance } satisfies LSMsg);
+  };
+
   // ── Object labels ─────────────────────────────────────────────────────────
   const [objLabelsVisible, setObjLabelsVisible] = useState(false);
   const [objLabelProp, setObjLabelProp]         = useState("name");
@@ -472,6 +483,22 @@ export function LongitudinalSectionWindow() {
     }
     return [...byColor.entries()];
   }, [lines, vMin, vEMin, vRange, vERange, chartW, chartH, elevationOrigin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Depth lines batched by color (visible and hidden separately)
+  const svgDepthPaths = useMemo(() => {
+    const visible = new Map<string, string>();
+    const hidden  = new Map<string, string>();
+    for (const l of depthLines) {
+      const x1s = xs(l.sta1).toFixed(1);
+      const y1s = ys(l.elev1 + elevationOrigin).toFixed(1);
+      const x2s = xs(l.sta2).toFixed(1);
+      const y2s = ys(l.elev2 + elevationOrigin).toFixed(1);
+      const seg = `M${x1s},${y1s}L${x2s},${y2s}`;
+      if (l.hidden) hidden.set(l.color,  (hidden.get(l.color)  ?? "") + seg);
+      else          visible.set(l.color, (visible.get(l.color) ?? "") + seg);
+    }
+    return { visible: [...visible.entries()], hidden: [...hidden.entries()] };
+  }, [depthLines, vMin, vEMin, vRange, vERange, chartW, chartH, elevationOrigin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Screen-coordinate segments for snap
   const screenSegs = useMemo(() => lines.map(l => ({
@@ -785,6 +812,39 @@ export function LongitudinalSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
+        {/* Depth view (Tiefe) */}
+        <button
+          onClick={() => sendDepthView(!depthViewActive)}
+          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
+            depthViewActive ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title="Tiefenansicht — zeigt Kanten im Bereich hinter dem Schnitt"
+        >
+          <Layers size={13} /> Tiefe
+        </button>
+        {depthViewActive && (
+          <input
+            type="number"
+            min={0.1} max={50} step={0.5}
+            value={depthDistInput}
+            onChange={e => setDepthDistInput(e.target.value)}
+            onBlur={() => {
+              const v = parseFloat(depthDistInput);
+              if (isFinite(v) && v > 0) sendDepthView(true, v);
+            }}
+            onKeyDown={e => {
+              if (e.key === "Enter") {
+                const v = parseFloat(depthDistInput);
+                if (isFinite(v) && v > 0) sendDepthView(true, v);
+              }
+            }}
+            className="w-14 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
+            title="Tiefendistanz in Metern"
+          />
+        )}
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
         {/* SVG Export */}
         <button
           onClick={handleExport}
@@ -943,6 +1003,15 @@ export function LongitudinalSectionWindow() {
                   </g>
                 );
               })}
+
+              {/* Depth lines (behind the section plane) */}
+              {depthViewActive && svgDepthPaths.visible.map(([color, d]) => (
+                <path key={`dv-${color}`} d={d} stroke={color} strokeWidth={0.8} fill="none" opacity={0.45} />
+              ))}
+              {depthViewActive && svgDepthPaths.hidden.map(([color, d]) => (
+                <path key={`dh-${color}`} d={d} stroke={color} strokeWidth={0.7} fill="none"
+                  strokeDasharray="3,3" opacity={0.28} />
+              ))}
 
               {/* IFC section lines */}
               {svgPaths.map(([color, d]) => (
