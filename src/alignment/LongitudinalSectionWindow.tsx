@@ -285,7 +285,7 @@ export function LongitudinalSectionWindow() {
   const vpRef = useRef({ vMin, vMax, vEMin, vEMax, vRange, vERange, chartW, chartH });
   vpRef.current = { vMin, vMax, vEMin, vEMax, vRange, vERange, chartW, chartH };
 
-  // ── Refs for wheel handler ────────────────────────────────────────────────
+  // ── Stable refs for wheel/pan handler (avoid stale closures) ─────────────
   const viewStaRef  = useRef<[number, number] | null>(null);
   const viewElevRef = useRef<[number, number] | null>(null);
   const domainRef   = useRef(domain);
@@ -293,7 +293,7 @@ export function LongitudinalSectionWindow() {
   useEffect(() => { viewElevRef.current = viewElev; }, [viewElev]);
   useEffect(() => { domainRef.current   = domain;   }, [domain]);
 
-  // ── Zoom lock (X = station axis, Y = elevation axis) ─────────────────────
+  // ── Axis lock (fixiert die jeweilige Achse beim Zoomen/Pannen) ────────────
   const [lockX, setLockX] = useState(false);
   const [lockY, setLockY] = useState(false);
   const lockXRef = useRef(false);
@@ -301,48 +301,37 @@ export function LongitudinalSectionWindow() {
   useEffect(() => { lockXRef.current = lockX; }, [lockX]);
   useEffect(() => { lockYRef.current = lockY; }, [lockY]);
 
-  // ── Wheel zoom ────────────────────────────────────────────────────────────
+  // ── Wheel zoom — beide Achsen gleichzeitig, Pivot am Mauszeiger ──────────
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
-    const zoomElev = (e: WheelEvent, dom: ReturnType<typeof domainRef.current>, rect: DOMRect, factor: number) => {
-      const my     = e.clientY - rect.top;
-      const ch     = rect.height - M.top - M.bottom;
-      const curMin = viewElevRef.current ? viewElevRef.current[0] : dom.eMin;
-      const curMax = viewElevRef.current ? viewElevRef.current[1] : dom.eMax;
-      const frac   = 1 - Math.max(0, Math.min(1, (my - M.top) / ch));
-      const center = curMin + frac * (curMax - curMin);
-      const half   = (curMax - curMin) * factor / 2;
-      svgRectRef.current = null;
-      setViewElev([center - half, center + half]);
-    };
-    const zoomSta = (e: WheelEvent, dom: ReturnType<typeof domainRef.current>, rect: DOMRect, factor: number) => {
-      const mx     = e.clientX - rect.left;
-      const cw     = rect.width - M.left - M.right;
-      const curMin = viewStaRef.current ? viewStaRef.current[0] : dom.sMin;
-      const curMax = viewStaRef.current ? viewStaRef.current[1] : dom.sMax;
-      const frac   = Math.max(0, Math.min(1, (mx - M.left) / cw));
-      const center = curMin + frac * (curMax - curMin);
-      const half   = (curMax - curMin) * factor / 2;
-      svgRectRef.current = null;
-      setViewSta([center - half, center + half]);
-    };
-
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const rect   = svg.getBoundingClientRect();
-      const factor = e.deltaY > 0 ? 1.25 : 1 / 1.25;
-      const dom    = domainRef.current;
       const lx = lockXRef.current, ly = lockYRef.current;
+      if (lx && ly) return;
 
-      // Primary axis: Y if Ctrl held, else X (unless locked — then fall back to the other)
-      if (e.ctrlKey) {
-        if (!ly) zoomElev(e, dom, rect, factor);
-        else if (!lx) zoomSta(e, dom, rect, factor);
-      } else {
-        if (!lx) zoomSta(e, dom, rect, factor);
-        else if (!ly) zoomElev(e, dom, rect, factor);
+      const rect = svg.getBoundingClientRect();
+      const cw   = rect.width  - M.left - M.right;
+      const ch   = rect.height - M.top  - M.bottom;
+      const f    = e.deltaY > 0 ? 1.25 : 1 / 1.25;
+
+      // Station axis (X)
+      if (!lx) {
+        const cur = viewStaRef.current ?? [domainRef.current.sMin, domainRef.current.sMax] as [number, number];
+        const frac  = Math.max(0, Math.min(1, (e.clientX - rect.left - M.left) / cw));
+        const pivot = cur[0] + frac * (cur[1] - cur[0]);
+        setViewSta([pivot - (pivot - cur[0]) * f, pivot + (cur[1] - pivot) * f]);
       }
+
+      // Elevation axis (Y)
+      if (!ly) {
+        const cur = viewElevRef.current ?? [domainRef.current.eMin, domainRef.current.eMax] as [number, number];
+        const frac  = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top - M.top) / ch));
+        const pivot = cur[0] + frac * (cur[1] - cur[0]);
+        setViewElev([pivot - (pivot - cur[0]) * f, pivot + (cur[1] - pivot) * f]);
+      }
+
+      svgRectRef.current = null;
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
@@ -350,7 +339,7 @@ export function LongitudinalSectionWindow() {
   }, []);
 
   // ── Pan ───────────────────────────────────────────────────────────────────
-  const dragRef  = useRef<{ mx: number; my: number; sMin: number; sMax: number; eMin: number; eMax: number } | null>(null);
+  const dragRef = useRef<{ mx: number; my: number; sMin: number; sMax: number; eMin: number; eMax: number } | null>(null);
   const [panning, setPanning] = useState(false);
 
   // ── Measurement tool ─────────────────────────────────────────────────────
@@ -601,19 +590,16 @@ export function LongitudinalSectionWindow() {
       const dxPx = e.clientX - dragRef.current.mx;
       const dyPx = e.clientY - dragRef.current.my;
       const vp   = vpRef.current;
-      const dom  = domainRef.current;
       svgRectRef.current = null;
       if (!lockXRef.current) {
         const staRange = dragRef.current.sMax - dragRef.current.sMin;
         const dSta = -(dxPx / vp.chartW) * staRange;
-        const newSMin = Math.max(dom.sMin, Math.min(dom.sMax - staRange, dragRef.current.sMin + dSta));
-        setViewSta([newSMin, newSMin + staRange]);
+        setViewSta([dragRef.current.sMin + dSta, dragRef.current.sMax + dSta]);
       }
       if (!lockYRef.current) {
         const elevRange = dragRef.current.eMax - dragRef.current.eMin;
         const dElev = (dyPx / vp.chartH) * elevRange;
-        const newEMin = Math.max(dom.eMin, Math.min(dom.eMax - elevRange, dragRef.current.eMin + dElev));
-        setViewElev([newEMin, newEMin + elevRange]);
+        setViewElev([dragRef.current.eMin + dElev, dragRef.current.eMax + dElev]);
       }
       return;
     }
@@ -856,26 +842,25 @@ export function LongitudinalSectionWindow() {
 
         <div className="w-px h-5 bg-border mx-0.5" />
 
-        {/* Zoom-axis lock */}
-        <span className="text-[10px] text-muted-foreground">Zoom:</span>
+        {/* Axis lock */}
         <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
           <button
             onClick={() => setLockX(a => !a)}
             className={cn("px-2 py-0.5 transition-colors",
               lockX ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
             )}
-            title={lockX ? "X-Achse gesperrt (Station)" : "X-Achse sperren (Station)"}
+            title={lockX ? "Station fixiert — nur Höhe zoomen/pannen" : "Station fixieren"}
           >
-            X {lockX ? "🔒" : "🔓"}
+            Sta {lockX ? "↔" : "⟷"}
           </button>
           <button
             onClick={() => setLockY(a => !a)}
             className={cn("px-2 py-0.5 transition-colors",
               lockY ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
             )}
-            title={lockY ? "Y-Achse gesperrt (Höhe)" : "Y-Achse sperren (Höhe)"}
+            title={lockY ? "Höhe fixiert — nur Station zoomen/pannen" : "Höhe fixieren"}
           >
-            Y {lockY ? "🔒" : "🔓"}
+            Höhe {lockY ? "↕" : "⟺"}
           </button>
         </div>
 
