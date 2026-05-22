@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from "react";
+import type { ReactNode } from "react";
 import { Ruler, Trash2, ZoomIn, Loader2, ChevronLeft, ChevronRight, Layers, Magnet, MapPin, Tag, Download, Columns2, Eye } from "lucide-react";
 import { cn } from "../lib/utils";
 import { CROSS_SECTION_CHANNEL } from "../utils/windowSync";
@@ -190,6 +191,44 @@ function buildLabelPositions(
 
   deOverlapLabels(positions);
   return positions;
+}
+
+// ── CrossSectionWindow ribbon helpers ─────────────────────────────────────────
+
+type XsIconProps = { size?: number; className?: string; strokeWidth?: number };
+
+function XsGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col shrink-0 border-r border-border">
+      <div className="flex items-center gap-1 px-2 flex-1 min-w-0">{children}</div>
+      <div className="text-[9px] text-muted-foreground/60 font-medium tracking-wide text-center px-2 pb-0.5 shrink-0">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function XsToolBtn({
+  icon: Icon, label, onClick, active, title, disabled,
+  color = "bg-sky-600 text-white",
+}: {
+  icon: (props: XsIconProps) => ReactNode;
+  label?: string; onClick: () => void;
+  active?: boolean; title?: string; disabled?: boolean; color?: string;
+}) {
+  return (
+    <button
+      onClick={onClick} disabled={disabled} title={title}
+      className={cn(
+        "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors whitespace-nowrap",
+        active ? color : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted",
+        disabled ? "opacity-50 cursor-not-allowed" : ""
+      )}
+    >
+      <Icon size={12} />
+      {label && <span>{label}</span>}
+    </button>
+  );
 }
 
 // ── SVG arrow helper ──────────────────────────────────────────────────────────
@@ -669,363 +708,25 @@ export function CrossSectionWindow() {
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-none">
 
       {/* ── Title bar ─────────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-2 h-10 px-3 border-b border-border bg-card">
-        <svg width="16" height="16" viewBox="0 0 32 32" className="shrink-0 rounded-[3px]">
+      <div className="shrink-0 flex items-center gap-2 h-7 px-2 border-b border-border bg-card">
+        <svg width="14" height="14" viewBox="0 0 32 32" className="shrink-0 rounded-[3px]">
           <rect width="32" height="32" rx="5" fill="#E8312A"/>
           <text x="16" y="23" fontFamily="Arial" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle">iC</text>
         </svg>
-        <span className="font-bold text-sm">Querschnitt</span>
+        <span className="font-bold text-[11px]">Querschnitt</span>
         {state?.alignmentName && (
-          <span className="text-xs text-muted-foreground">— {state.alignmentName}</span>
-        )}
-        {state?.isFaceSection && (
-          <span className="text-xs font-mono text-amber-400 ml-1">Versatz: {(state.faceOffset ?? 0).toFixed(2)} m</span>
+          <span className="text-[10px] text-muted-foreground truncate max-w-[180px]">— {state.alignmentName}</span>
         )}
         {!state?.isFaceSection && state?.station != null && (
-          <span className="text-xs font-mono text-sky-400 ml-1">{fmtSta(state.station)}</span>
+          <span className="text-[10px] font-mono text-primary ml-1">{fmtSta(state.station)}</span>
         )}
+        {state?.isFaceSection && (
+          <span className="text-[10px] font-mono text-amber-400 ml-1">Versatz: {(state.faceOffset ?? 0).toFixed(2)} m</span>
+        )}
+        {state?.computing && <Loader2 size={11} className="animate-spin text-muted-foreground ml-1" />}
         <div className="flex-1" />
-        <div className="flex items-center gap-1 text-[10px]">
-          <div className={`w-1.5 h-1.5 rounded-full ${state != null ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
-          <span className="text-muted-foreground">{state != null ? "Verbunden" : "Warte auf Hauptfenster…"}</span>
-        </div>
-      </div>
-
-      {/* ── Controls bar ─────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/40 flex-wrap">
-
-        {state?.isFaceSection ? (
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-muted-foreground">Versatz</span>
-            <button
-              onClick={() => send({ t: "setFaceOffset", offset: (state.faceOffset ?? 0) - faceStep })}
-              className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-            ><ChevronLeft size={13} /></button>
-            <input
-              type="number"
-              step={faceStep}
-              value={faceOffsetInput}
-              onChange={e => setFaceOffsetInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") {
-                  const v = parseFloat(faceOffsetInput.replace(",", "."));
-                  if (!isNaN(v)) send({ t: "setFaceOffset", offset: v });
-                }
-              }}
-              onBlur={() => {
-                const v = parseFloat(faceOffsetInput.replace(",", "."));
-                if (!isNaN(v)) send({ t: "setFaceOffset", offset: v });
-              }}
-              className="w-20 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
-            />
-            <span className="text-[10px] text-muted-foreground">m</span>
-            <button
-              onClick={() => send({ t: "setFaceOffset", offset: (state.faceOffset ?? 0) + faceStep })}
-              className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-            ><ChevronRight size={13} /></button>
-            <select value={faceStep} onChange={e => setFaceStep(Number(e.target.value))}
-              className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground">
-              {[0.01, 0.05, 0.1, 0.25, 0.5, 1.0].map(s => <option key={s} value={s}>{s} m</option>)}
-            </select>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-0.5">
-              <button onClick={() => navigate(-step * 10)}
-                className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
-                title={`−${step * 10} m`}>◄◄</button>
-              <button onClick={() => navigate(-step)}
-                className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-                title={`−${step} m`}><ChevronLeft size={13} /></button>
-              <input
-                type="text" value={staInput}
-                onChange={e => setStaInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && submitSta()}
-                onBlur={submitSta}
-                className="w-28 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
-                placeholder="0+000.000"
-              />
-              <button onClick={() => navigate(step)}
-                className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-                title={`+${step} m`}><ChevronRight size={13} /></button>
-              <button onClick={() => navigate(step * 10)}
-                className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
-                title={`+${step * 10} m`}>►►</button>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] text-muted-foreground">Δ</span>
-              <select value={step} onChange={e => setStep(Number(e.target.value))}
-                className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground">
-                {[1, 5, 10, 25, 50, 100].map(s => <option key={s} value={s}>{s} m</option>)}
-              </select>
-            </div>
-          </>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {!state?.isFaceSection && (
-          <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
-            {(["vertical", "normal"] as const).map(m => (
-              <button key={m}
-                onClick={() => send({ t: "setMode", mode: m })}
-                className={cn("px-2 py-0.5 transition-colors",
-                  state?.mode === m ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {m === "vertical" ? "Vertikal" : "Normal"}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        <button
-          onClick={() => send({ t: "toggleSectionSurface" })}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            state?.showSectionSurface
-              ? "bg-sky-600 text-white"
-              : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Schnittfläche im 3D-Viewer anzeigen"
-        >
-          <Layers size={13} /> 3D-Fläche
-        </button>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Line type toggles: Schnittlinien / Ansichtslinien / Verdeckte Linien */}
-        <button
-          onClick={() => setShowCutLines(v => !v)}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            showCutLines ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Schnittlinien ein-/ausblenden (direkte Verschneidung mit der Schnittebene)"
-        >
-          <Eye size={13} /> Schnitt
-        </button>
-        <button
-          onClick={() => {
-            const next = !showViewLines;
-            setShowViewLines(next);
-            const depthOn = state?.depthView ?? false;
-            if (next && !depthOn) send({ t: "setDepthView", enabled: true });
-            else if (!next && !showHiddenLines && depthOn) send({ t: "setDepthView", enabled: false });
-          }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            showViewLines ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Ansichtslinien ein-/ausblenden (sichtbare Kanten hinter dem Schnitt, dünn)"
-        >
-          <Eye size={13} /> Ansicht
-        </button>
-        <button
-          onClick={() => {
-            const next = !showHiddenLines;
-            setShowHiddenLines(next);
-            const depthOn = state?.depthView ?? false;
-            if (next && !depthOn) send({ t: "setDepthView", enabled: true });
-            else if (!next && !showViewLines && depthOn) send({ t: "setDepthView", enabled: false });
-          }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            showHiddenLines ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Verdeckte Linien ein-/ausblenden (nicht sichtbare Kanten, gestrichelt)"
-        >
-          <Layers size={13} /> Verdeckt
-        </button>
-        {(state?.depthView) && (
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              min={0.1} max={100} step={0.5}
-              value={depthDistInput}
-              onChange={e => setDepthDistInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") {
-                  const v = parseFloat(depthDistInput.replace(",", "."));
-                  if (!isNaN(v) && v > 0) send({ t: "setDepthView", enabled: true, distance: v });
-                }
-              }}
-              onBlur={() => {
-                const v = parseFloat(depthDistInput.replace(",", "."));
-                if (!isNaN(v) && v > 0) send({ t: "setDepthView", enabled: true, distance: v });
-              }}
-              className="w-14 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
-            />
-            <span className="text-[10px] text-muted-foreground">m</span>
-          </div>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Measure */}
-        <button
-          onClick={() => { setMeasActive(a => !a); setPending(null); setPtLabelMode(false); setDimActive(false); setDimStep("p1"); setDimP1(null); setDimP2(null); }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            measActive ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Ruler size={13} /> Messen
-        </button>
-        {pending != null && (
-          <span className="text-[10px] text-amber-400 italic">2. Punkt klicken…</span>
-        )}
-        {measurements.length > 0 && (
-          <button onClick={() => { setMeasurements([]); setPending(null); }}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-red-400 transition-colors"
-            title="Alle Messungen löschen">
-            <Trash2 size={12} />
-          </button>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Dimensioning tool (Kote) */}
-        <button
-          onClick={() => {
-            setDimActive(a => !a);
-            setMeasActive(false); setPending(null); setPtLabelMode(false);
-            setDimStep("p1"); setDimP1(null); setDimP2(null);
-          }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            dimActive ? "bg-orange-500 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Bemaßung / Kote absetzen"
-        >
-          <Columns2 size={13} /> Kote
-        </button>
-        {dimActive && (
-          <span className="text-[10px] text-orange-400 italic">
-            {dimStep === "p1" ? "1. Punkt klicken" : dimStep === "p2" ? "2. Punkt klicken" : "Kote absetzen…"}
-          </span>
-        )}
-        {dimensions.length > 0 && (
-          <button onClick={() => { setDimensions([]); }}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-red-400 transition-colors"
-            title="Alle Koten löschen">
-            <Trash2 size={12} />
-          </button>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Point-label tool */}
-        <button
-          onClick={() => { setPtLabelMode(a => !a); setMeasActive(false); setPending(null); setDimActive(false); setDimStep("p1"); setDimP1(null); setDimP2(null); }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            ptLabelMode ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Punkt X/Y beschriften"
-        >
-          <MapPin size={13} /> Punkt
-        </button>
-        {pointLabels.length > 0 && (
-          <button onClick={() => setPointLabels([])}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-red-400 transition-colors"
-            title="Alle Punktbeschriftungen löschen">
-            <Trash2 size={12} />
-          </button>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Snap toggle */}
-        <button
-          onClick={() => setSnapActive(a => !a)}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            snapActive ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Fangmodus"
-        >
-          <Magnet size={13} /> Fang
-        </button>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Object labels toggle */}
-        <button
-          onClick={() => setObjLabelsVisible(a => !a)}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            objLabelsVisible ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Objekte beschriften"
-        >
-          <Tag size={13} />
-        </button>
-        {objLabelsVisible && availablePropKeys.length > 0 && (
-          <select
-            value={objLabelProp}
-            onChange={e => setObjLabelProp(e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground max-w-[120px]"
-            title="Beschriftungsattribut"
-          >
-            {availablePropKeys.map(k => (
-              <option key={k} value={k}>{k === "name" ? "Name" : k === "type" ? "Typ" : k}</option>
-            ))}
-          </select>
-        )}
-        {objLabelsVisible && (
-          <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium" title="Beschriftungsstil">
-            <button
-              onClick={() => setLabelStyle("leader")}
-              className={cn("px-2 py-0.5 transition-colors",
-                labelStyle === "leader" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Linie
-            </button>
-            <button
-              onClick={() => setLabelStyle("direct")}
-              className={cn("px-2 py-0.5 transition-colors",
-                labelStyle === "direct" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Direkt
-            </button>
-          </div>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* ISO hatch mode */}
-        <select
-          value={hatchMode}
-          onChange={e => setHatchMode(e.target.value as typeof hatchMode)}
-          className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground"
-          title="Schraffur-Modus"
-        >
-          <option value="none">Schraffur: Uniform</option>
-          <option value="auto">Schraffur: Auto (Typ)</option>
-          <option value="custom">Schraffur: Anpassen</option>
-        </select>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* SVG Export */}
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          title="Als SVG exportieren"
-        >
-          <Download size={13} /> SVG
-        </button>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {isZoomed && (
-          <button onClick={() => { setZoomFactor(1.0); setViewCenter(null); }}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground"
-            title="Zoom zurücksetzen">
-            <ZoomIn size={12} /> Reset
-          </button>
-        )}
-
-        {state?.computing && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
-
         {effW != null && (
-          <span className={cn("ml-auto text-[10px] font-mono",
+          <span className={cn("text-[10px] font-mono",
             snapActive && snapDisplay ? "text-amber-400" : "text-muted-foreground")}>
             {effW[0] >= 0 ? "R" : "L"}&nbsp;{Math.abs(effW[0]).toFixed(3)} m&nbsp;&nbsp;
             Δh&nbsp;{effW[1] >= 0 ? "+" : ""}{effW[1].toFixed(3)} m
@@ -1041,6 +742,262 @@ export function CrossSectionWindow() {
             )}
           </span>
         )}
+        {isZoomed && (
+          <button
+            onClick={() => { setZoomFactor(1.0); setViewCenter(null); }}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            title="Zoom zurücksetzen"
+          >
+            <ZoomIn size={11} /> Reset
+          </button>
+        )}
+        <div className="flex items-center gap-1 text-[10px]">
+          <div className={`w-1.5 h-1.5 rounded-full ${state != null ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+          <span className="text-muted-foreground">{state != null ? "Verbunden" : "Warte…"}</span>
+        </div>
+      </div>
+
+      {/* ── Ribbon bar ───────────────────────────────────────────────────── */}
+      <div className="shrink-0 flex items-stretch border-b border-border bg-card/40 overflow-x-auto" style={{ height: "52px" }}>
+
+        {/* Station */}
+        <XsGroup label="Station">
+          {state?.isFaceSection ? (
+            <>
+              <button onClick={() => send({ t: "setFaceOffset", offset: (state.faceOffset ?? 0) - faceStep })}
+                className="xs-btn" title={`−${faceStep} m`}><ChevronLeft size={12} /></button>
+              <input
+                type="number" step={faceStep} value={faceOffsetInput}
+                onChange={e => setFaceOffsetInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    const v = parseFloat(faceOffsetInput.replace(",", "."));
+                    if (!isNaN(v)) send({ t: "setFaceOffset", offset: v });
+                  }
+                }}
+                onBlur={() => {
+                  const v = parseFloat(faceOffsetInput.replace(",", "."));
+                  if (!isNaN(v)) send({ t: "setFaceOffset", offset: v });
+                }}
+                className="w-20 text-center text-[10px] font-mono bg-background border border-border rounded px-1 py-0.5 text-foreground"
+              />
+              <button onClick={() => send({ t: "setFaceOffset", offset: (state.faceOffset ?? 0) + faceStep })}
+                className="xs-btn" title={`+${faceStep} m`}><ChevronRight size={12} /></button>
+              <select value={faceStep} onChange={e => setFaceStep(Number(e.target.value))}
+                className="text-[10px] bg-muted border border-border rounded px-1 py-0.5 text-foreground">
+                {[0.01, 0.05, 0.1, 0.25, 0.5, 1.0].map(s => <option key={s} value={s}>{s} m</option>)}
+              </select>
+            </>
+          ) : (
+            <>
+              <button onClick={() => navigate(-step * 10)}
+                className="xs-btn text-[10px] font-mono" title={`−${step * 10} m`}>◄◄</button>
+              <button onClick={() => navigate(-step)}
+                className="xs-btn" title={`−${step} m`}><ChevronLeft size={12} /></button>
+              <input
+                type="text" value={staInput}
+                onChange={e => setStaInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submitSta()}
+                onBlur={submitSta}
+                className="w-24 text-center text-[10px] font-mono bg-background border border-border rounded px-1 py-0.5 text-foreground"
+                placeholder="0+000.000"
+              />
+              <button onClick={() => navigate(step)}
+                className="xs-btn" title={`+${step} m`}><ChevronRight size={12} /></button>
+              <button onClick={() => navigate(step * 10)}
+                className="xs-btn text-[10px] font-mono" title={`+${step * 10} m`}>►►</button>
+              <span className="text-[9px] text-muted-foreground ml-1">Δ</span>
+              <select value={step} onChange={e => setStep(Number(e.target.value))}
+                className="text-[10px] bg-muted border border-border rounded px-1 py-0.5 text-foreground">
+                {[1, 5, 10, 25, 50, 100].map(s => <option key={s} value={s}>{s} m</option>)}
+              </select>
+            </>
+          )}
+        </XsGroup>
+
+        {/* Modus (non-face only) */}
+        {!state?.isFaceSection && (
+          <XsGroup label="Modus">
+            <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
+              {(["vertical", "normal"] as const).map(m => (
+                <button key={m}
+                  onClick={() => send({ t: "setMode", mode: m })}
+                  className={cn("px-2 py-0.5 transition-colors",
+                    state?.mode === m
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {m === "vertical" ? "Vertikal" : "Normal"}
+                </button>
+              ))}
+            </div>
+          </XsGroup>
+        )}
+
+        {/* Linien */}
+        <XsGroup label="Linien">
+          <XsToolBtn icon={Eye} label="Schnitt" active={showCutLines}
+            onClick={() => setShowCutLines(v => !v)}
+            title="Schnittlinien (direkte Verschneidung)" color="bg-sky-600 text-white" />
+          <XsToolBtn icon={Eye} label="Ansicht" active={showViewLines}
+            onClick={() => {
+              const next = !showViewLines;
+              setShowViewLines(next);
+              const depthOn = state?.depthView ?? false;
+              if (next && !depthOn) send({ t: "setDepthView", enabled: true });
+              else if (!next && !showHiddenLines && depthOn) send({ t: "setDepthView", enabled: false });
+            }}
+            title="Ansichtslinien (sichtbare Tiefenkanten)" color="bg-emerald-600 text-white" />
+          <XsToolBtn icon={Layers} label="Verdeckt" active={showHiddenLines}
+            onClick={() => {
+              const next = !showHiddenLines;
+              setShowHiddenLines(next);
+              const depthOn = state?.depthView ?? false;
+              if (next && !depthOn) send({ t: "setDepthView", enabled: true });
+              else if (!next && !showViewLines && depthOn) send({ t: "setDepthView", enabled: false });
+            }}
+            title="Verdeckte Linien (gestrichelt)" color="bg-violet-600 text-white" />
+          {state?.depthView && (
+            <div className="flex items-center gap-0.5">
+              <input
+                type="number" min={0.1} max={100} step={0.5}
+                value={depthDistInput}
+                onChange={e => setDepthDistInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    const v = parseFloat(depthDistInput.replace(",", "."));
+                    if (!isNaN(v) && v > 0) send({ t: "setDepthView", enabled: true, distance: v });
+                  }
+                }}
+                onBlur={() => {
+                  const v = parseFloat(depthDistInput.replace(",", "."));
+                  if (!isNaN(v) && v > 0) send({ t: "setDepthView", enabled: true, distance: v });
+                }}
+                className="w-12 text-center text-[10px] font-mono bg-background border border-border rounded px-1 py-0.5 text-foreground"
+              />
+              <span className="text-[9px] text-muted-foreground">m</span>
+            </div>
+          )}
+        </XsGroup>
+
+        {/* Werkzeuge */}
+        <XsGroup label="Werkzeuge">
+          <div className="flex flex-col gap-0.5 justify-center">
+            <div className="flex items-center gap-1">
+              <XsToolBtn icon={Ruler} label="Messen" active={measActive}
+                onClick={() => { setMeasActive(a => !a); setPending(null); setPtLabelMode(false); setDimActive(false); setDimStep("p1"); setDimP1(null); setDimP2(null); }}
+                color="bg-amber-500 text-white" />
+              {measurements.length > 0 && (
+                <button onClick={() => { setMeasurements([]); setPending(null); }}
+                  className="xs-btn text-muted-foreground hover:text-red-400" title="Messungen löschen">
+                  <Trash2 size={10} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <XsToolBtn icon={Columns2} label="Kote" active={dimActive}
+                onClick={() => { setDimActive(a => !a); setMeasActive(false); setPending(null); setPtLabelMode(false); setDimStep("p1"); setDimP1(null); setDimP2(null); }}
+                title="Bemaßung / Kote absetzen" color="bg-orange-500 text-white" />
+              {dimensions.length > 0 && (
+                <button onClick={() => setDimensions([])}
+                  className="xs-btn text-muted-foreground hover:text-red-400" title="Koten löschen">
+                  <Trash2 size={10} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col gap-0.5 justify-center ml-1">
+            <div className="flex items-center gap-1">
+              <XsToolBtn icon={MapPin} label="Punkt" active={ptLabelMode}
+                onClick={() => { setPtLabelMode(a => !a); setMeasActive(false); setPending(null); setDimActive(false); setDimStep("p1"); setDimP1(null); setDimP2(null); }}
+                title="Punkt X/Y beschriften" color="bg-violet-600 text-white" />
+              {pointLabels.length > 0 && (
+                <button onClick={() => setPointLabels([])}
+                  className="xs-btn text-muted-foreground hover:text-red-400" title="Punkte löschen">
+                  <Trash2 size={10} />
+                </button>
+              )}
+            </div>
+            {measActive && pending != null && (
+              <span className="text-[9px] text-amber-400 italic">2. Punkt…</span>
+            )}
+            {dimActive && (
+              <span className="text-[9px] text-orange-400 italic">
+                {dimStep === "p1" ? "1. Punkt…" : dimStep === "p2" ? "2. Punkt…" : "Kote…"}
+              </span>
+            )}
+          </div>
+        </XsGroup>
+
+        {/* Fang */}
+        <XsGroup label="Fang">
+          <XsToolBtn icon={Magnet} label="Fang" active={snapActive}
+            onClick={() => setSnapActive(a => !a)}
+            title="Fangmodus" color="bg-sky-600 text-white" />
+        </XsGroup>
+
+        {/* Beschriftung */}
+        <XsGroup label="Beschriftung">
+          <XsToolBtn icon={Tag} active={objLabelsVisible}
+            onClick={() => setObjLabelsVisible(a => !a)}
+            title="Objekte beschriften" color="bg-emerald-600 text-white" />
+          {objLabelsVisible && availablePropKeys.length > 0 && (
+            <select
+              value={objLabelProp}
+              onChange={e => setObjLabelProp(e.target.value)}
+              className="text-[10px] bg-muted border border-border rounded px-1 py-0.5 text-foreground max-w-[90px]"
+              title="Beschriftungsattribut"
+            >
+              {availablePropKeys.map(k => (
+                <option key={k} value={k}>{k === "name" ? "Name" : k === "type" ? "Typ" : k}</option>
+              ))}
+            </select>
+          )}
+          {objLabelsVisible && (
+            <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
+              <button
+                onClick={() => setLabelStyle("leader")}
+                className={cn("px-1.5 py-0.5 transition-colors",
+                  labelStyle === "leader" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
+                )}
+              >Linie</button>
+              <button
+                onClick={() => setLabelStyle("direct")}
+                className={cn("px-1.5 py-0.5 transition-colors",
+                  labelStyle === "direct" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
+                )}
+              >Direkt</button>
+            </div>
+          )}
+        </XsGroup>
+
+        {/* Darstellung */}
+        <XsGroup label="Darstellung">
+          <select
+            value={hatchMode}
+            onChange={e => setHatchMode(e.target.value as typeof hatchMode)}
+            className="text-[10px] bg-muted border border-border rounded px-1 py-0.5 text-foreground"
+            title="Schraffur-Modus"
+          >
+            <option value="none">Uniform</option>
+            <option value="auto">Auto (Typ)</option>
+            <option value="custom">Anpassen</option>
+          </select>
+          <XsToolBtn icon={Layers} label="3D-Fläche"
+            active={!!state?.showSectionSurface}
+            onClick={() => send({ t: "toggleSectionSurface" })}
+            title="Schnittfläche im 3D-Viewer anzeigen"
+            color="bg-sky-600 text-white" />
+        </XsGroup>
+
+        {/* Export */}
+        <XsGroup label="Export">
+          <XsToolBtn icon={Download} label="SVG" active={false}
+            onClick={handleExport}
+            title="Als SVG exportieren" />
+        </XsGroup>
+
       </div>
 
       {/* ── Custom hatch assignment panel ──────────────────────────────────── */}
