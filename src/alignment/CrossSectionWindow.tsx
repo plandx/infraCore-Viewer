@@ -708,12 +708,12 @@ export function CrossSectionWindow() {
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-none">
 
       {/* ── Title bar ─────────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-2 h-7 px-2 border-b border-border bg-card">
-        <svg width="14" height="14" viewBox="0 0 32 32" className="shrink-0 rounded-[3px]">
+      <div className="shrink-0 flex items-center gap-2 px-3 border-b border-border/60 bg-card" style={{ height: '28px', fontSize: '14px' }}>
+        <svg width="16" height="16" viewBox="0 0 32 32" className="shrink-0 rounded-[3px]">
           <rect width="32" height="32" rx="5" fill="#E8312A"/>
           <text x="16" y="23" fontFamily="Arial" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle">iC</text>
         </svg>
-        <span className="font-bold text-[11px]">Querschnitt</span>
+        <span className="font-bold text-[11px] tracking-tight">Querschnitt</span>
         {state?.alignmentName && (
           <span className="text-[10px] text-muted-foreground truncate max-w-[180px]">— {state.alignmentName}</span>
         )}
@@ -758,7 +758,7 @@ export function CrossSectionWindow() {
       </div>
 
       {/* ── Ribbon bar ───────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-stretch border-b border-border bg-card/40 overflow-x-auto" style={{ height: "52px" }}>
+      <div className="shrink-0 flex items-stretch border-b border-border bg-card/40 overflow-x-auto" style={{ height: '52px', fontSize: '14px' }}>
 
         {/* Station */}
         <XsGroup label="Station">

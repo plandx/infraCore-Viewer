@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from "react";
+import type { ReactNode } from "react";
 import { Ruler, Trash2, ZoomIn, Loader2, Tag, Download, Eye, Layers } from "lucide-react";
 import { cn } from "../lib/utils";
 import { LS_CHANNEL } from "../utils/windowSync";
@@ -28,6 +29,34 @@ const M = { top: 12, right: 20, bottom: 44, left: 72 };
 
 type Meas     = { p1: [number, number]; p2: [number, number] };
 type SnapInfo = { pt: [number, number]; type: "vertex" | "edge" };
+
+// ── Ribbon helpers ────────────────────────────────────────────────────────────
+
+type LsIconComp = (props: { size: number }) => ReactNode;
+
+function XsGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col shrink-0 border-r border-border">
+      <div className="flex items-center gap-1 px-2 flex-1 min-w-0">{children}</div>
+      <div className="text-[9px] text-muted-foreground/60 font-medium tracking-wide text-center px-2 pb-0.5 shrink-0">{label}</div>
+    </div>
+  );
+}
+
+function XsToolBtn({ icon: Icon, label, onClick, active, title, color = "bg-sky-600 text-white" }: {
+  icon: LsIconComp; label?: string; onClick: () => void;
+  active?: boolean; title?: string; color?: string;
+}) {
+  return (
+    <button onClick={onClick} title={title}
+      className={cn("flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors whitespace-nowrap",
+        active ? color : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted"
+      )}>
+      <Icon size={12} />
+      {label && <span>{label}</span>}
+    </button>
+  );
+}
 
 // ── ISO hatch definitions ─────────────────────────────────────────────────────
 
