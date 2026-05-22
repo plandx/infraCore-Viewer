@@ -420,24 +420,6 @@ function MainApp() {
   const [loadStates, setLoadStates]           = useState<Map<string, LoadState>>(new Map());
   const [basketEditorOpen, setBasketEditorOpen] = useState(false);
   const [batchPanelOpen, setBatchPanelOpen]   = useState(false);
-  const [leftPanelVisible,  setLeftPanelVisible]  = useState(true);
-  const [rightPanelVisible, setRightPanelVisible] = useState(true);
-  const leftPanelRef  = usePanelRef();
-  const rightPanelRef = usePanelRef();
-
-  const handleToggleLeftPanel = useCallback(() => {
-    const p = leftPanelRef.current;
-    if (!p) return;
-    if (leftPanelVisible) { p.collapse(); setLeftPanelVisible(false); }
-    else                  { p.expand();   setLeftPanelVisible(true);  }
-  }, [leftPanelVisible, leftPanelRef]);
-
-  const handleToggleRightPanel = useCallback(() => {
-    const p = rightPanelRef.current;
-    if (!p) return;
-    if (rightPanelVisible) { p.collapse(); setRightPanelVisible(false); }
-    else                   { p.expand();   setRightPanelVisible(true);  }
-  }, [rightPanelVisible, rightPanelRef]);
   const {
     addModel, removeModel, updateModel, setWorldOrigin, setSelected,
     models, settings, activeTool, setActiveTool, sqlPanelOpen, setSqlPanelOpen,
@@ -751,10 +733,10 @@ function MainApp() {
         onFitAll={() => window.dispatchEvent(new Event("viewer:fitAll"))}
         loading={activeLoads > 0}
         onOpenBatch={() => setBatchPanelOpen(true)}
-        onToggleLeftPanel={handleToggleLeftPanel}
-        onToggleRightPanel={handleToggleRightPanel}
-        leftPanelVisible={leftPanelVisible}
-        rightPanelVisible={rightPanelVisible}
+        onToggleLeftPanel={() => leftCollapsed ? leftPanelRef.current?.expand() : leftPanelRef.current?.collapse()}
+        onToggleRightPanel={() => rightCollapsed ? rightPanelRef.current?.expand() : rightPanelRef.current?.collapse()}
+        leftPanelVisible={!leftCollapsed}
+        rightPanelVisible={!rightCollapsed}
       />
 
       {/* Loading bars */}
