@@ -174,6 +174,10 @@ Oberste Toolbar-Leiste. Enthält:
 
 **Ribbon-Strip:** Das innere `<div>` der Toolbar-Leiste verwendet `overflow-visible` (zuvor `overflow-x-auto overflow-y-hidden`), damit Dropdown-Menüs über den Rand der Leiste hinaus sichtbar bleiben.
 
+**Font-Size-Lock:** Der äußerste `<div>` trägt `style={{ fontSize: '14px' }}`. Damit sind alle rem-Berechnungen innerhalb der Toolbar von der Root-Schriftgröße (`data-font-size` sm/md/lg) entkoppelt.
+
+**Ribbon-Höhe:** `h-[60px]` (vorher 54px) — gibt Platz für alle Ribbon-Gruppen ohne Clipping bei größeren Schriften.
+
 ---
 
 ## HierarchyPanel
@@ -353,7 +357,25 @@ Scrollbare Liste aller Korb-Elemente. Pro Zeile: Modellfarbe, Name + Typ · Mode
 
 **Datei:** `src/components/BasketEditor.tsx`
 
-Modales Fenster für XLSX-Export und -Import der Korb-Eigenschaften. Export mit `GlobalId`-Schlüsselspalte, Import matched per `GlobalId` und schreibt `propertyOverrides`.
+Eigenschafts-Editor für den Auswahlkorb (XLSX-Export/-Import). Export mit `GlobalId`-Schlüsselspalte, Import matched per `GlobalId` und schreibt `propertyOverrides`.
+
+Props:
+```typescript
+interface Props {
+  onClose: () => void;
+  mode?: "modal" | "window";  // "modal" = fixed inset-0 Overlay, "window" = h-full (Fenster-Modus)
+}
+```
+
+Wird seit Fix 4 nicht mehr als Modal geöffnet, sondern als separates Browser-Fenster via `openBasketWindow()` (`?basket`-URL).
+
+## BasketWindow
+
+**Datei:** `src/components/BasketWindow.tsx`
+
+Standalone-Fenster-Wrapper für den `BasketEditor`. Synchronisiert Zustand via `BroadcastChannel` (gleiches Protokoll wie `SecondaryWindow`). Gesetzt wird `document.title = "Auswahlkorb — infraCore"`.
+
+Öffnen: `openBasketWindow()` aus `src/utils/windowSync.ts` → `window.open(...?basket...)` (1100×700 px).
 
 ---
 

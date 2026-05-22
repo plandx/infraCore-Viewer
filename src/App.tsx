@@ -17,7 +17,7 @@ import { LensRulesPanel } from "./components/LensRulesPanel";
 import { SmartViewsPanel } from "./components/SmartViewsPanel";
 import { QuantityListPanel } from "./components/QuantityListPanel";
 import { SelectionBasket } from "./components/SelectionBasket";
-import { BasketEditor } from "./components/BasketEditor";
+import { BasketWindow } from "./components/BasketWindow";
 import { ModelInfoPanel } from "./components/ModelInfoPanel";
 import { useBillingStore } from "./billing/billingStore";
 import { Billing5DOverlay } from "./billing/Billing5DOverlay";
@@ -33,7 +33,7 @@ import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifcLoader";
-import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow } from "./utils/windowSync";
+import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
 import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, ClashRule, ClashResult, XSSyncObjectLabel } from "./utils/windowSync";
 import { collectElements, runRuleBasedDetection } from "./utils/collisionUtils";
 import type { IFCModelEntry } from "./types/ifc";
@@ -46,6 +46,7 @@ const SECONDARY_PANEL = _params.get("panel") ?? "hierarchy";
 const IS_CROSS_SECTION = _params.has("cross-section");
 const IS_LONG_SECTION  = _params.has("longitudinal-section");
 const IS_COLLISION = _params.has("collision");
+const IS_BASKET = _params.has("basket");
 
 // ── root export (secondary windows skip the full app) ─────────────────────────
 
@@ -59,6 +60,7 @@ export default function App() {
   if (IS_SECONDARY) return <SecondaryWindow panel={SECONDARY_PANEL} />;
   if (IS_CROSS_SECTION) return <CrossSectionWindow />;
   if (IS_LONG_SECTION) return <LongitudinalSectionWindow />;
+  if (IS_BASKET) return <BasketWindow />;
   return <MainApp />;
 }
 
@@ -418,7 +420,6 @@ function useCollisionSync() {
 
 function MainApp() {
   const [loadStates, setLoadStates]           = useState<Map<string, LoadState>>(new Map());
-  const [basketEditorOpen, setBasketEditorOpen] = useState(false);
   const [batchPanelOpen, setBatchPanelOpen]   = useState(false);
   const {
     addModel, removeModel, updateModel, setWorldOrigin, setSelected,
@@ -843,7 +844,7 @@ function MainApp() {
 
                 {/* Selection basket — floating top-left */}
                 <div className="absolute top-3 left-3 z-30 pointer-events-auto">
-                  <SelectionBasket onOpenEditor={() => setBasketEditorOpen(true)} />
+                  <SelectionBasket onOpenEditor={openBasketWindow} />
                 </div>
 
                 {/* Face cross-section controls */}
@@ -928,10 +929,6 @@ function MainApp() {
       </div>
 
       <StatusBar />
-
-      {basketEditorOpen && (
-        <BasketEditor onClose={() => setBasketEditorOpen(false)} />
-      )}
 
       {batchPanelOpen && (
         <BatchPanel onClose={() => setBatchPanelOpen(false)} />

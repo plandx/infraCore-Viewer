@@ -35,10 +35,11 @@ Sekundär:   http://localhost:5173/?secondary&panel=hierarchy
 Billing:    http://localhost:5173/?billing
 QS-Viewer:  http://localhost:5173/?cross-section
 Kollision:  http://localhost:5173/?collision
+Korb:       http://localhost:5173/?basket
 ```
 
 `main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
-`App.tsx` erkennt (in Reihenfolge) `?collision`, `?secondary`, `?cross-section` und rendert die jeweilige Ansicht.
+`App.tsx` erkennt (in Reihenfolge) `?collision`, `?secondary`, `?cross-section`, `?long-section`, `?basket` und rendert die jeweilige Ansicht.
 
 ---
 

@@ -716,280 +716,23 @@ export function LongitudinalSectionWindow() {
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-none">
 
-      {/* ── Title bar ──────────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-2 h-10 px-3 border-b border-border bg-card">
+      {/* ── Row 1: Identity bar ───────────────────────────────────────────── */}
+      <div className="shrink-0 flex items-center gap-2 px-3 border-b border-border/60 bg-card" style={{ height: '28px', fontSize: '14px' }}>
         <svg width="16" height="16" viewBox="0 0 32 32" className="shrink-0 rounded-[3px]">
           <rect width="32" height="32" rx="5" fill="#E8312A"/>
           <text x="16" y="23" fontFamily="Arial" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle">iC</text>
         </svg>
-        <span className="font-bold text-sm">Längenschnitt</span>
+        <span className="font-bold text-[11px] tracking-tight">Längenschnitt</span>
         {state?.alignmentName && (
-          <span className="text-xs text-muted-foreground">— {state.alignmentName}</span>
+          <span className="text-[10px] text-muted-foreground">— {state.alignmentName}</span>
         )}
         {state?.staStart != null && state?.staEnd != null && (
-          <span className="text-xs font-mono text-sky-400 ml-1">
-            {fmtSta(state.staStart)} – {fmtSta(state.staEnd)}
-          </span>
+          <span className="text-[10px] font-mono text-sky-400">{fmtSta(state.staStart)} – {fmtSta(state.staEnd)}</span>
         )}
         <div className="flex-1" />
-        <div className="flex items-center gap-1 text-[10px]">
-          <div className={`w-1.5 h-1.5 rounded-full ${state != null ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
-          <span className="text-muted-foreground">{state != null ? "Verbunden" : "Warte auf Hauptfenster…"}</span>
-        </div>
-      </div>
-
-      {/* ── Controls bar ──────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/40 flex-wrap">
-
-        {/* Range inputs */}
-        <span className="text-[10px] text-muted-foreground">Von</span>
-        <input
-          value={rangeInput.start}
-          onChange={e => setRangeInput(r => ({ ...r, start: e.target.value }))}
-          onBlur={applyRange}
-          onKeyDown={e => { if (e.key === "Enter") applyRange(); }}
-          className="w-20 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
-          placeholder="0"
-        />
-        <span className="text-[10px] text-muted-foreground">Bis</span>
-        <input
-          value={rangeInput.end}
-          onChange={e => setRangeInput(r => ({ ...r, end: e.target.value }))}
-          onBlur={applyRange}
-          onKeyDown={e => { if (e.key === "Enter") applyRange(); }}
-          className="w-20 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
-          placeholder="1000"
-        />
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Measure */}
-        <button
-          onClick={() => { setMeasActive(a => !a); setPending(null); }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            measActive ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Ruler size={13} /> Messen
-        </button>
-        {pending != null && (
-          <span className="text-[10px] text-amber-400 italic">2. Punkt klicken…</span>
-        )}
-        {measurements.length > 0 && (
-          <button onClick={() => { setMeasurements([]); setPending(null); }}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-red-400 transition-colors"
-            title="Alle Messungen löschen">
-            <Trash2 size={12} />
-          </button>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Snap */}
-        <button
-          onClick={() => setSnapActive(a => !a)}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            snapActive ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Fangmodus"
-        >
-          <Eye size={13} /> Fang
-        </button>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Object labels */}
-        <button
-          onClick={() => setObjLabelsVisible(a => !a)}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            objLabelsVisible ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Objekte beschriften"
-        >
-          <Tag size={13} />
-        </button>
-        {objLabelsVisible && availablePropKeys.length > 0 && (
-          <select
-            value={objLabelProp}
-            onChange={e => setObjLabelProp(e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground max-w-[120px]"
-          >
-            {availablePropKeys.map(k => (
-              <option key={k} value={k}>{k === "name" ? "Name" : k === "type" ? "Typ" : k}</option>
-            ))}
-          </select>
-        )}
-        {objLabelsVisible && (
-          <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
-            <button
-              onClick={() => setLabelStyle("leader")}
-              className={cn("px-2 py-0.5 transition-colors",
-                labelStyle === "leader" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
-              )}
-            >Linie</button>
-            <button
-              onClick={() => setLabelStyle("direct")}
-              className={cn("px-2 py-0.5 transition-colors",
-                labelStyle === "direct" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
-              )}
-            >Direkt</button>
-          </div>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* ISO hatch mode */}
-        <select
-          value={hatchMode}
-          onChange={e => setHatchMode(e.target.value as typeof hatchMode)}
-          className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground"
-          title="Schraffur-Modus"
-        >
-          <option value="none">Schraffur: Uniform</option>
-          <option value="auto">Schraffur: Auto (Typ)</option>
-          <option value="custom">Schraffur: Anpassen</option>
-        </select>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Line type toggles: Schnittlinien / Ansichtslinien / Verdeckte Linien */}
-        <button
-          onClick={() => setShowCutLines(v => !v)}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            showCutLines ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Schnittlinien ein-/ausblenden (direkte Verschneidung)"
-        >
-          <Eye size={13} /> Schnitt
-        </button>
-        <button
-          onClick={() => {
-            const next = !showViewLines;
-            setShowViewLines(next);
-            if (next && !depthViewActive) sendDepthView(true);
-            else if (!next && !showHiddenLines && depthViewActive) sendDepthView(false);
-          }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            showViewLines ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Ansichtslinien ein-/ausblenden (sichtbare Kanten hinter dem Schnitt, dünn)"
-        >
-          <Eye size={13} /> Ansicht
-        </button>
-        <button
-          onClick={() => {
-            const next = !showHiddenLines;
-            setShowHiddenLines(next);
-            if (next && !depthViewActive) sendDepthView(true);
-            else if (!next && !showViewLines && depthViewActive) sendDepthView(false);
-          }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            showHiddenLines ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Verdeckte Linien ein-/ausblenden (nicht sichtbare Kanten, gestrichelt)"
-        >
-          <Layers size={13} /> Verdeckt
-        </button>
-        {depthViewActive && (
-          <input
-            type="number"
-            min={0.1} max={50} step={0.5}
-            value={depthDistInput}
-            onChange={e => setDepthDistInput(e.target.value)}
-            onBlur={() => {
-              const v = parseFloat(depthDistInput);
-              if (isFinite(v) && v > 0) sendDepthView(true, v);
-            }}
-            onKeyDown={e => {
-              if (e.key === "Enter") {
-                const v = parseFloat(depthDistInput);
-                if (isFinite(v) && v > 0) sendDepthView(true, v);
-              }
-            }}
-            className="w-14 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
-            title="Tiefendistanz in Metern"
-          />
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* SVG Export */}
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          title="Als SVG exportieren"
-        >
-          <Download size={13} /> SVG
-        </button>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Axis lock */}
-        <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
-          <button
-            onClick={() => setLockX(a => !a)}
-            className={cn("px-2 py-0.5 transition-colors",
-              lockX ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
-            )}
-            title={lockX ? "Station fixiert — nur Höhe zoomen/pannen" : "Station fixieren"}
-          >
-            Sta {lockX ? "↔" : "⟷"}
-          </button>
-          <button
-            onClick={() => setLockY(a => !a)}
-            className={cn("px-2 py-0.5 transition-colors",
-              lockY ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
-            )}
-            title={lockY ? "Höhe fixiert — nur Station zoomen/pannen" : "Höhe fixieren"}
-          >
-            Höhe {lockY ? "↕" : "⟺"}
-          </button>
-        </div>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Vertical exaggeration (Überhöhung) */}
-        <span className="text-[10px] text-muted-foreground">Überhöhung</span>
-        <div className="flex items-center gap-0.5">
-          {[1, 2, 5, 10, 20].map(v => (
-            <button
-              key={v}
-              onClick={() => { setVExag(v); setVExagInput(String(v)); }}
-              className={cn("px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors",
-                vExag === v
-                  ? "bg-indigo-600 text-white"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-              )}
-            >{v}×</button>
-          ))}
-          <input
-            type="number"
-            min={0.1} max={500} step={1}
-            value={vExagInput}
-            onChange={e => setVExagInput(e.target.value)}
-            onBlur={() => applyVExag(vExagInput)}
-            onKeyDown={e => { if (e.key === "Enter") applyVExag(vExagInput); }}
-            className="w-12 text-center text-[10px] font-mono bg-muted border border-border rounded px-1 py-0.5 text-foreground"
-            title="Benutzerdefinierte Überhöhung"
-            placeholder="1"
-          />
-        </div>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {isZoomed && (
-          <button onClick={() => { setViewSta(null); setViewElev(null); }}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground"
-            title="Zoom zurücksetzen">
-            <ZoomIn size={12} /> Reset
-          </button>
-        )}
-
-        {state?.computing && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
-
-        {/* Coordinate display */}
+        {state?.computing && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
         {effW != null && (
-          <span className={cn("ml-auto text-[10px] font-mono",
+          <span className={cn("text-[10px] font-mono",
             snapActive && snapDisplay ? "text-amber-400" : "text-muted-foreground")}>
             Sta:&nbsp;{fmtSta(effW[0])}&nbsp;&nbsp;
             H:&nbsp;{effW[1].toFixed(3)}&nbsp;m&nbsp;ü.NHN
@@ -1000,6 +743,184 @@ export function LongitudinalSectionWindow() {
             )}
           </span>
         )}
+        <div className={`w-1.5 h-1.5 rounded-full ${state != null ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+      </div>
+
+      {/* ── Row 2: Ribbon ─────────────────────────────────────────────────── */}
+      <div className="shrink-0 flex items-stretch border-b border-border bg-card/40 overflow-x-auto" style={{ height: '52px', fontSize: '14px' }}>
+
+        <XsGroup label="Station">
+          <span className="text-[9px] text-muted-foreground">Von</span>
+          <input
+            value={rangeInput.start}
+            onChange={e => setRangeInput(r => ({ ...r, start: e.target.value }))}
+            onBlur={applyRange}
+            onKeyDown={e => { if (e.key === "Enter") applyRange(); }}
+            className="w-16 text-center text-[10px] font-mono bg-background border border-border rounded px-1 py-0.5 text-foreground"
+            placeholder="0"
+          />
+          <span className="text-[9px] text-muted-foreground">Bis</span>
+          <input
+            value={rangeInput.end}
+            onChange={e => setRangeInput(r => ({ ...r, end: e.target.value }))}
+            onBlur={applyRange}
+            onKeyDown={e => { if (e.key === "Enter") applyRange(); }}
+            className="w-16 text-center text-[10px] font-mono bg-background border border-border rounded px-1 py-0.5 text-foreground"
+            placeholder="1000"
+          />
+        </XsGroup>
+
+        <XsGroup label="Überhöhung">
+          {[1, 2, 5, 10, 20].map(v => (
+            <button
+              key={v}
+              onClick={() => { setVExag(v); setVExagInput(String(v)); }}
+              className={cn("px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors",
+                vExag === v ? "bg-indigo-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+              )}
+            >{v}×</button>
+          ))}
+          <input
+            type="number"
+            min={0.1} max={500} step={1}
+            value={vExagInput}
+            onChange={e => setVExagInput(e.target.value)}
+            onBlur={() => applyVExag(vExagInput)}
+            onKeyDown={e => { if (e.key === "Enter") applyVExag(vExagInput); }}
+            className="w-10 text-center text-[10px] font-mono bg-background border border-border rounded px-1 py-0.5 text-foreground"
+            title="Benutzerdefinierte Überhöhung"
+            placeholder="1"
+          />
+        </XsGroup>
+
+        <XsGroup label="Werkzeuge">
+          <XsToolBtn icon={Ruler} label="Messen" active={measActive} onClick={() => { setMeasActive(a => !a); setPending(null); }} color="bg-amber-500 text-white" />
+          {measurements.length > 0 && (
+            <button onClick={() => { setMeasurements([]); setPending(null); }}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground hover:text-red-400 transition-colors"
+              title="Alle Messungen löschen">
+              <Trash2 size={12} />
+            </button>
+          )}
+          <XsToolBtn icon={Eye} label="Fang" active={snapActive} onClick={() => setSnapActive(a => !a)} color="bg-sky-600 text-white" />
+        </XsGroup>
+
+        <XsGroup label="Beschriftung">
+          <XsToolBtn icon={Tag} active={objLabelsVisible} onClick={() => setObjLabelsVisible(a => !a)} color="bg-emerald-600 text-white" />
+          {objLabelsVisible && availablePropKeys.length > 0 && (
+            <select
+              value={objLabelProp}
+              onChange={e => setObjLabelProp(e.target.value)}
+              className="text-[10px] bg-muted border border-border rounded px-1 py-0.5 text-foreground max-w-[120px]"
+            >
+              {availablePropKeys.map(k => (
+                <option key={k} value={k}>{k === "name" ? "Name" : k === "type" ? "Typ" : k}</option>
+              ))}
+            </select>
+          )}
+          {objLabelsVisible && (
+            <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
+              <button
+                onClick={() => setLabelStyle("leader")}
+                className={cn("px-1.5 py-0.5 transition-colors",
+                  labelStyle === "leader" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
+                )}
+              >Linie</button>
+              <button
+                onClick={() => setLabelStyle("direct")}
+                className={cn("px-1.5 py-0.5 transition-colors",
+                  labelStyle === "direct" ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
+                )}
+              >Direkt</button>
+            </div>
+          )}
+        </XsGroup>
+
+        <XsGroup label="Linien">
+          <XsToolBtn icon={Eye} label="Schnitt" active={showCutLines} onClick={() => setShowCutLines(v => !v)} color="bg-sky-600 text-white" />
+          <XsToolBtn icon={Eye} label="Ansicht" active={showViewLines} onClick={() => {
+            const next = !showViewLines;
+            setShowViewLines(next);
+            if (next && !depthViewActive) sendDepthView(true);
+            else if (!next && !showHiddenLines && depthViewActive) sendDepthView(false);
+          }} color="bg-emerald-600 text-white" />
+          <XsToolBtn icon={Layers} label="Verdeckt" active={showHiddenLines} onClick={() => {
+            const next = !showHiddenLines;
+            setShowHiddenLines(next);
+            if (next && !depthViewActive) sendDepthView(true);
+            else if (!next && !showViewLines && depthViewActive) sendDepthView(false);
+          }} color="bg-violet-600 text-white" />
+          {depthViewActive && (
+            <input
+              type="number"
+              min={0.1} max={50} step={0.5}
+              value={depthDistInput}
+              onChange={e => setDepthDistInput(e.target.value)}
+              onBlur={() => {
+                const v = parseFloat(depthDistInput);
+                if (isFinite(v) && v > 0) sendDepthView(true, v);
+              }}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  const v = parseFloat(depthDistInput);
+                  if (isFinite(v) && v > 0) sendDepthView(true, v);
+                }
+              }}
+              className="w-12 text-center text-[10px] font-mono bg-background border border-border rounded px-1 py-0.5 text-foreground"
+              title="Tiefendistanz in Metern"
+            />
+          )}
+        </XsGroup>
+
+        <XsGroup label="Schraffur">
+          <select
+            value={hatchMode}
+            onChange={e => setHatchMode(e.target.value as typeof hatchMode)}
+            className="text-[10px] bg-muted border border-border rounded px-1 py-0.5 text-foreground"
+            title="Schraffur-Modus"
+          >
+            <option value="none">Uniform</option>
+            <option value="auto">Auto (Typ)</option>
+            <option value="custom">Anpassen</option>
+          </select>
+        </XsGroup>
+
+        <XsGroup label="Ansicht">
+          <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
+            <button
+              onClick={() => setLockX(a => !a)}
+              className={cn("px-2 py-0.5 transition-colors",
+                lockX ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
+              )}
+              title={lockX ? "Station fixiert — nur Höhe zoomen/pannen" : "Station fixieren"}
+            >Sta</button>
+            <button
+              onClick={() => setLockY(a => !a)}
+              className={cn("px-2 py-0.5 transition-colors",
+                lockY ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
+              )}
+              title={lockY ? "Höhe fixiert — nur Station zoomen/pannen" : "Höhe fixieren"}
+            >Höhe</button>
+          </div>
+          {isZoomed && (
+            <button onClick={() => { setViewSta(null); setViewElev(null); }}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground hover:text-foreground"
+              title="Zoom zurücksetzen">
+              <ZoomIn size={11} />
+            </button>
+          )}
+        </XsGroup>
+
+        <XsGroup label="Export">
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            title="Als SVG exportieren"
+          >
+            <Download size={12} /><span>SVG</span>
+          </button>
+        </XsGroup>
+
       </div>
 
       {/* ── Custom hatch panel ─────────────────────────────────────────────── */}

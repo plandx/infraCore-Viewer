@@ -43,7 +43,7 @@ const PRIO_DIRECT = ["Name", "Description", "ObjectType", "Tag", "GlobalId"];
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function BasketEditor({ onClose }: { onClose: () => void }) {
+export function BasketEditor({ onClose, mode = "modal" }: { onClose: () => void; mode?: "modal" | "window" }) {
   const models             = useModelStore((s) => s.models);
   const selectionBasket    = useModelStore((s) => s.selectionBasket);
   const applyPropertyEdits = useModelStore((s) => s.applyPropertyEdits);
@@ -310,12 +310,14 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
 
   const hasImportedChanges = (importResult?.edits.length ?? 0) > 0;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm bg-black/60">
-      <div
-        className="flex flex-col w-full max-w-[92vw] h-[85vh] bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+  const inner = (
+    <div
+      className={mode === "window"
+        ? "flex flex-col h-full w-full bg-card overflow-hidden"
+        : "flex flex-col w-full max-w-[92vw] h-[85vh] bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
+      }
+      onMouseDown={(e) => e.stopPropagation()}
+    >
         {/* ── Header ───────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
           <Table2 size={16} className="text-primary shrink-0" />
@@ -503,6 +505,12 @@ export function BasketEditor({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
+  );
+
+  if (mode === "window") return inner;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm bg-black/60">
+      {inner}
     </div>
   );
 }

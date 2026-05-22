@@ -152,6 +152,11 @@ export function openBillingWindow() {
   window.open(url, "infracore-billing", "width=1100,height=760,resizable=yes");
 }
 
+export function openBasketWindow() {
+  const url = `${window.location.pathname}?basket`;
+  window.open(url, "infracore-basket", "width=1100,height=700,resizable=yes");
+}
+
 // ── Longitudinal section window ───────────────────────────────────────────────
 
 export const LS_CHANNEL = "infracore-longitudinal-section";
