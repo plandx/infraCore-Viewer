@@ -30,6 +30,11 @@ A fully client-side web IFC viewer — no backend, no server, no data leaves the
 - Right-click context menu: add to 5D, set completion degree (10 % steps with colour coding)
 - Isolate tracked elements in viewer
 
+### LandXML / Alignment
+- **Achsen-Panel** — load LandXML files, toggle individual alignments on/off with custom colours, stationing tool, resolution selector, longitudinal profile chart
+- Accessible via the **Achsen** tab; the panel is no longer embedded as a sub-panel in the left sidebar
+- Annotation sub-panel: automatic stationing labels, place named points on the alignment, compute horizontal offset to IFC geometry
+
 ### Batch Changes Module
 - **Batch-Änderungen** — modal panel for bulk property editing across many elements at once
 - **6 operation types**: set property, template formula (`{Name}`, `{Pset.Prop}`), copy property, find & replace (regex), name → property, property → name
@@ -50,6 +55,7 @@ A fully client-side web IFC viewer — no backend, no server, no data leaves the
 - **Multi-window sync** — open any panel in a separate browser window; state syncs via BroadcastChannel
 - **IFC export** — write modified IFC file with all property overrides applied
 - **Theme** — dark/light toggle
+- **Collapsible sidebars** — left and right panels can be collapsed via chevron buttons; floating expand buttons appear in the center viewport when a sidebar is hidden
 
 ## Stack
 
@@ -130,7 +136,9 @@ src/
 | `L` | Toggle Lens Rules panel |
 | `V` | Toggle Smart Views panel |
 | `T` | Toggle Quantity Take-Off panel |
-| `H` | Hide selected element |
+| `H` → `H` | Hide selected element (H-chord) |
+| `H` → `I` | Isolate selected element (H-chord) |
+| `H` → `R` | Reset hide/isolate (H-chord) |
 | `Shift+A` | Show all hidden elements |
 | `Delete / Backspace` | Hide selected element |
 | `Esc` | Cancel active tool / clear selection + highlight |

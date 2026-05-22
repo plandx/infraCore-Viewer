@@ -42,7 +42,7 @@ function useSimpleVirtualizer(
   return { items, totalSize: count * itemHeight };
 }
 import {
-  ChevronRight, ChevronDown, Eye, EyeOff,
+  ChevronRight, ChevronDown, ChevronLeft, Eye, EyeOff,
   Trash2, Focus, Layers, LayoutList, Search, X,
   ScanEye, ScanLine, RefreshCw,
 } from "lucide-react";
@@ -66,9 +66,10 @@ interface Props {
   onHideOverride?: (modelId: string, expressId: number) => void;
   onShowAllOverride?: () => void;
   onIsolateOverride?: (modelId: string, expressId: number) => void;
+  onToggleCollapse?: () => void;
 }
 
-export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverride, onShowAllOverride, onIsolateOverride }: Props) {
+export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverride, onShowAllOverride, onIsolateOverride, onToggleCollapse }: Props) {
   const models = useModelStore((s) => s.models);
   const hiddenElements = useModelStore((s) => s.hiddenElements);
   const isolatedElements = useModelStore((s) => s.isolatedElements);
@@ -327,7 +328,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   if (arr.length === 0) {
     return (
       <div className="flex flex-col h-full">
-        <Header view={view} onView={handleSetView} search={inputValue} onSearch={handleSearch} />
+        <Header view={view} onView={handleSetView} search={inputValue} onSearch={handleSearch} onToggleCollapse={onToggleCollapse} />
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground p-6 text-center">
           <div className="w-14 h-14 rounded-xl border-2 border-dashed border-border flex items-center justify-center">
             <Layers size={22} className="opacity-30" />
@@ -343,7 +344,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
 
   return (
     <div className="flex flex-col h-full">
-      <Header view={view} onView={setView} search={inputValue} onSearch={handleSearch} />
+      <Header view={view} onView={setView} search={inputValue} onSearch={handleSearch} onToggleCollapse={onToggleCollapse} />
 
       {(hasIsolation || hasHidden) && (
         <div className="shrink-0 flex items-center gap-1.5 px-2 py-1 bg-primary/10 border-b border-primary/20 text-[11px]">
@@ -835,14 +836,24 @@ const TypeGroup = memo(function TypeGroup({ typeName, elements, modelId, multiSe
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
-function Header({ view, onView, search, onSearch }: {
+function Header({ view, onView, search, onSearch, onToggleCollapse }: {
   view: View; onView: (v: View) => void; search: string; onSearch: (s: string) => void;
+  onToggleCollapse?: () => void;
 }) {
   return (
     <div className="shrink-0 border-b border-border">
       <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
         <Layers size={13} className="text-muted-foreground" />
         <span className="text-xs font-semibold text-foreground flex-1">Projektstruktur</span>
+        {onToggleCollapse && (
+          <button
+            onClick={onToggleCollapse}
+            className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors shrink-0"
+            title="Leiste ausblenden"
+          >
+            <ChevronLeft size={12} />
+          </button>
+        )}
       </div>
       <div className="px-2 py-1.5 border-b border-border/60">
         <div className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1">

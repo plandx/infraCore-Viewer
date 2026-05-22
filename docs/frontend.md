@@ -20,6 +20,17 @@ URL-Erkennung (in Reihenfolge):
 
 `MainApp` enthält das 3-spaltige Layout (HierarchyPanel | Viewport | PropertiesPanel) mit react-resizable-panels.
 
+**Sidebar-Collapse-UX:** Beide Seitenbereiche können ein- und ausgeklappt werden:
+- `leftCollapsed` / `rightCollapsed` — lokale State-Variablen
+- `leftPanelRef` / `rightPanelRef` — `PanelImperativeHandle`-Refs (importiert aus `react-resizable-panels`), ermöglichen imperatives `collapse()` / `expand()`
+- Jedes `<Panel>` erhält `panelRef={...}` und `onResize` zum Tracking des Collapse-Status
+- Die linke Seitenleiste zeigt oben einen `ChevronLeft`-Button (lucide-react); die rechte Seitenleiste entsprechend einen `ChevronRight`-Button
+- Wenn eine Seitenleiste eingeklappt ist, erscheinen im Center-Panel floating Expand-Buttons (`ChevronRight` links / `ChevronLeft` rechts), die die jeweilige Seite wieder aufklappen
+
+**Linke Seitenleiste:** Wird angezeigt, wenn `listPanelOpen || smartViewsPanelOpen`. `AlignmentPanel` ist nicht mehr Teil der linken Sidebar-Gruppe in `App.tsx` (wird separat eingebunden).
+
+**Bisheriges Verhalten (vor Refactor):** Die linke Seitenleiste hatte die Bedingung `listPanelOpen || smartViewsPanelOpen || alignmentPanelOpen`; `AlignmentPanel` war direkt als Sub-Panel in der inneren `PanelGroup` enthalten. Beides wurde entfernt.
+
 `main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
 
 `MainApp` betreibt einen `BroadcastChannel("infracore-billing")`-Listener: antwortet auf `{ t: "ready" }` mit der aktuellen Elementliste und sendet bei Modellwechsel automatisch `{ t: "elements", list }`.
@@ -159,6 +170,10 @@ Oberste Toolbar-Leiste. Enthält:
 - **Batch**-Button (`Sliders`-Icon) — öffnet `BatchPanel`-Modal über `onOpenBatch`-Prop
 - Sekundär-Fenster öffnen (Dropdown mit 5 Panel-Typen)
 
+**Stacking-Kontext:** Der äußere `<div>` trägt `relative z-[100]`, damit Dropdowns (z.B. Kamera-Presets, Sekundärfenster-Menü) korrekt über dem Three.js-Canvas gerendert werden.
+
+**Ribbon-Strip:** Das innere `<div>` der Toolbar-Leiste verwendet `overflow-visible` (zuvor `overflow-x-auto overflow-y-hidden`), damit Dropdown-Menüs über den Rand der Leiste hinaus sichtbar bleiben.
+
 ---
 
 ## HierarchyPanel
@@ -179,8 +194,11 @@ interface Props {
   onHideOverride?: (modelId: string, expressId: number) => void;
   onShowAllOverride?: () => void;
   onIsolateOverride?: (modelId: string, expressId: number) => void;
+  onToggleCollapse?: () => void;
 }
 ```
+
+Der interne `Header`-Sub-Komponent akzeptiert dieselbe `onToggleCollapse`-Prop und zeigt einen `ChevronLeft`-Button (lucide-react), der beim Klick den linken Sidebar-Bereich einklappt.
 
 Interne Features:
 - Suchfeld (filtert Namen)
@@ -524,13 +542,57 @@ Unterste Zeile: Anzahl Modelle, Gesamt-Dreiecke, JS-Heap, FPS-Zähler (farbcodie
 
 ---
 
+## HelpPanel
+
+**Datei:** `src/components/HelpPanel.tsx`
+
+Vollständige In-App-Hilfe. Ersetzt das frühere `InfoModal` in `MainToolbar`.
+Wird über den **ⓘ**-Button in der Toolbar geöffnet.
+
+### Aufbau
+
+Linke Navigation (8 Abschnitte) + scrollbarer Inhaltsbereich rechts:
+
+| Abschnitt | Inhalt |
+|---|---|
+| Schnellstart | Step-by-Step: IFC laden, navigieren, auswählen, ausblenden |
+| 3D-Navigation | Mausbelegung, Kamera-Presets, Fly-Mode, Drohne |
+| Werkzeuge | Auswahl, Messen, Schnittebene, Flächen-QS, Fly, Drohne, H-Chord |
+| Panels & Leisten | Projektstruktur, Eigenschaften, SQL, Lens, SmartViews, Mengen, Auswahlkorb |
+| Achsen & Trassen | LandXML laden, Längenschnitt, Querschnitt, Stationierung, Absetzmass |
+| 5D-Abrechnung | 5D-Fenster, Elemente, Fertigstellungsgrade, Visualisierung, Export |
+| Tastenkürzel | Vollständige Referenztabelle aller Kürzel |
+| Tipps & Tricks | Multi-Window, SmartViews-Workflow, SQL-Beispiele, Batch, Koordinaten |
+
+### Props
+
+| Prop | Typ | Beschreibung |
+|---|---|---|
+| `onClose` | `() => void` | Schließt das Panel |
+
+### Helper-Komponenten (intern)
+
+`Step`, `Kbd`, `NoteBox`, `TipBox`, `Row`, `Table` — rein darstellend, keine externe State-Abhängigkeit.
+
+---
+
 ## AlignmentPanel
 
 **Datei:** `src/alignment/AlignmentPanel.tsx`
 
-Seitenleisten-Panel für LandXML-Trassen. Anzeige von Dateien, einzelnen Achsen (ein-/ausblendbar, farbig), Stationierungswerkzeug, Auflösungswähler, Längsprofil-Chart. Enthält `<AlignmentAnnotations />` als Unterabschnitt.
+Panel für LandXML-Trassen. Öffnet sich als **vollständiger Ersatz** der linken Leiste (nicht als Sub-Panel),
+wenn `alignmentPanelOpen` im `useAlignmentStore` `true` ist. Enthält:
+- Drag-&-Drop-Upload für `.xml`/`.landxml`
+- Achsen-Liste pro Datei (ein-/ausblendbar, farbig, Stationierungsbereich)
+- Stationierungswerkzeug + Auflösungswähler
+- Profil-Mini-Chart für die ausgewählte Achse
+- `<AlignmentAnnotations />` Unterabschnitt
 
-Props: keine (liest aus `useAlignmentStore`).
+| Prop | Typ | Beschreibung |
+|---|---|---|
+| `onClose?` | `() => void` | Optional — zeigt X-Button im Header zum Schließen des Panels |
+
+> **Hinweis:** `AlignmentPanel` ist nicht mehr direkt in der linken Sidebar-Gruppe von `App.tsx` eingebunden. Es wird über den **Achsen**-Tab zugänglich gemacht (wird in einem späteren Refactor-Schritt wieder eingehängt). `alignmentPanelOpen` aus dem `useAlignmentStore` wird in `App.tsx` nicht mehr für die Sidebar-Sichtbarkeitsbedingung verwendet.
 
 ---
 

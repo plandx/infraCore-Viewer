@@ -211,7 +211,7 @@ function FileGroup({ fileId, fileName, alignments, colors, visibleIds, selectedI
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
-export function AlignmentPanel() {
+export function AlignmentPanel({ onClose }: { onClose?: () => void }) {
   const files          = useAlignmentStore(s => s.files);
   const selectedId     = useAlignmentStore(s => s.selectedId);
   const visibleIds     = useAlignmentStore(s => s.visibleIds);
@@ -260,6 +260,15 @@ export function AlignmentPanel() {
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
         <Navigation2 size={15} className="text-sky-400 shrink-0" />
         <span className="flex-1 text-sm font-semibold">Achsen (LandXML)</span>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors shrink-0"
+            title="Achsen-Panel schließen"
+          >
+            <X size={12} />
+          </button>
+        )}
       </div>
 
       <div className="overflow-y-auto flex-1 min-h-0">
