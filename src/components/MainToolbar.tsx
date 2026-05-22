@@ -9,6 +9,7 @@ import {
   Settings, AlertTriangle, Gamepad2, Grid3x3, BoxSelect,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, PANEL_META } from "../utils/windowSync";
+import { HelpPanel } from "./HelpPanel";
 import type { PanelType } from "../utils/windowSync";
 import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
 import { cn } from "../lib/utils";
@@ -883,7 +884,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         </div>
       </div>
 
-      {infoOpen && <InfoModal onClose={() => setInfoOpen(false)} />}
+      {infoOpen && <HelpPanel onClose={() => setInfoOpen(false)} />}
     </>
   );
 }
@@ -1048,55 +1049,6 @@ function DropdownItem({ children, onClick, icon, disabled }: {
       {icon && <span className="text-muted-foreground shrink-0">{icon}</span>}
       {children}
     </button>
-  );
-}
-
-// ── Info modal ────────────────────────────────────────────────────────────────
-
-function InfoModal({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card border border-border rounded-xl shadow-2xl p-6 w-[420px] max-w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2.5">
-            <svg width="24" height="24" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[4px]">
-              <rect width="32" height="32" rx="5" fill="#E8312A"/>
-              <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
-            </svg>
-            <div>
-              <div className="font-bold text-sm">infraCore IFC Viewer</div>
-              <div className="text-[10px] text-muted-foreground">by iC consulenten ZT GmbH · VDC</div>
-            </div>
-          </div>
-          <button className="toolbar-button p-1.5" onClick={onClose}><X size={14} /></button>
-        </div>
-
-        <div className="text-xs text-muted-foreground mb-5 space-y-1">
-          <p>Basierend auf web-ifc 0.0.77 + Three.js</p>
-          <p>Multi-Modell, große Koordinatensysteme (bis 20 km), BroadcastChannel-Sync</p>
-        </div>
-
-        <div className="border-t border-border pt-4">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Tastenkürzel</p>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
-            {[
-              ["F","Alle einpassen"], ["S","Auswahl-Tool"],
-              ["M","Messen"], ["C","Schnittebene"],
-              ["N","Fly-Mode"], ["B","Drohnen-Kamera"],
-              ["Q","SQL-Panel"], ["L","Lens Rules"],
-              ["V","SmartViews"], ["T","Mengen / QTO"],
-              ["H → H","Auswahl ausblenden"], ["H → I","Auswahl isolieren"],
-              ["H → R","Ausblenden zurücksetzen"], ["Esc","Abbrechen"],
-            ].map(([key, desc]) => (
-              <div key={key} className="flex items-center gap-2">
-                <kbd className="bg-muted border border-border rounded px-1.5 py-0.5 text-[10px] font-mono shrink-0 leading-none">{key}</kbd>
-                <span className="text-muted-foreground text-[11px]">{desc}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
