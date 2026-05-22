@@ -6,7 +6,7 @@ import {
   Box, ChevronDown, LayoutGrid, Rotate3D,
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
   Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
-  Settings, AlertTriangle, Columns3, PanelLeftClose, PanelLeftOpen,
+  Settings, AlertTriangle, PanelLeftClose, PanelLeftOpen, Grid3x3, BoxSelect,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, openCollisionWindow, PANEL_META } from "../utils/windowSync";
 import type { PanelType } from "../utils/windowSync";
@@ -28,6 +28,10 @@ interface Props {
   leftPanelVisible: boolean;
   rightPanelVisible: boolean;
 }
+
+type RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras";
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onToggleLeftPanel, onToggleRightPanel, leftPanelVisible, rightPanelVisible }: Props) {
   const inputRef    = useRef<HTMLInputElement>(null);
@@ -83,7 +87,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   const setStationLabelInterval = useAlignmentStore((s) => s.setStationLabelInterval);
   const toggleOffsetTool      = useAlignmentStore((s) => s.toggleOffsetTool);
 
-  // All alignments visible when every loaded alignment is in visibleIds
   const allAlignmentsVisible = alignmentFiles.length > 0 &&
     alignmentFiles.every(f => f.alignments.every(a => alignmentVisibleIds.has(a.id)));
   const toggleAllAlignments  = () => {
@@ -95,6 +98,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     }
   };
 
+  const [activeTab, setActiveTab] = useState<RibbonTab>("start");
   const [exportOpen, setExportOpen]         = useState(false);
   const [ifcExporting, setIfcExporting]     = useState(false);
   const [viewOpen, setViewOpen]             = useState(false);
@@ -124,7 +128,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     }
   }, [models, propertyOverrides, ifcExporting]);
 
-  // ── 5D JSON export ────────────────────────────────────────────────────────
   const handleExport5DJson = useCallback(() => {
     const data = useBillingStore.getState().exportData();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -136,7 +139,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     setExportOpen(false);
   }, []);
 
-  // ── Monthly XLSX export ───────────────────────────────────────────────────
   const handleExportMonthlyXLSX = useCallback(() => {
     const entries = useBillingStore.getState().entries;
     const now = new Date();
@@ -183,7 +185,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     setExportOpen(false);
   }, []);
 
-  // ── 5D: isolate tracked elements ──────────────────────────────────────────
   const handleIsolate5D = useCallback(() => {
     const entries = useBillingStore.getState().entries;
     const models  = useModelStore.getState().models;
@@ -203,12 +204,10 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     if (toIsolate.length > 0) useModelStore.getState().isolateEntries(toIsolate);
   }, []);
 
-  // ── 5D: toggle visualization overlay ─────────────────────────────────────
   const handleToggleVisualize5D = useCallback(() => {
     useBillingStore.getState().setModuleActive(!useBillingStore.getState().moduleActive);
   }, []);
 
-  // ── App reset ─────────────────────────────────────────────────────────────
   const handleResetApp = useCallback(() => {
     if (!window.confirm("Alle geladenen Modelle entfernen und App zurücksetzen?\n\nAchsen, Schnitte, Anmerkungen und 5D-Abrechnungsdaten werden ebenfalls gelöscht.")) return;
     const st = useModelStore.getState();
@@ -237,7 +236,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     window.dispatchEvent(new Event("viewer:fitAll"));
   }, []);
 
-  // ── Misc ──────────────────────────────────────────────────────────────────
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(f => f.name.toLowerCase().endsWith(".ifc"));
     if (files.length) onOpenFiles(files);
@@ -266,521 +264,466 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   const handlePreset = (preset: string) =>
     window.dispatchEvent(new CustomEvent("viewer:preset", { detail: preset }));
 
+  const tabs: { id: RibbonTab; label: string; badge?: number }[] = [
+    { id: "start",     label: "Start" },
+    { id: "analyse",   label: "Analyse" },
+    { id: "achsen",    label: "Achsen",  badge: alignmentFileCount > 0 ? alignmentFileCount : undefined },
+    { id: "billing5d", label: "5D",      badge: billing5DCount > 0 ? billing5DCount : undefined },
+    { id: "extras",    label: "Extras" },
+  ];
+
   return (
     <>
-      <div className="flex items-center h-11 px-3 gap-1 border-b bg-card text-card-foreground shrink-0 select-none">
+      <input ref={inputRef}    type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
+      <input ref={addInputRef} type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
 
-        {/* Logo */}
-        <div className="flex items-center gap-2 pr-3 mr-1 border-r border-border">
-          <svg width="20" height="20" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[4px]">
-            <rect width="32" height="32" rx="5" fill="#E8312A"/>
-            <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
-          </svg>
-          <span className="font-bold text-sm tracking-tight text-foreground">infraCore</span>
-          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-medium">IFC Viewer</span>
-        </div>
+      <div className="flex flex-col shrink-0 border-b border-border bg-card text-card-foreground select-none">
 
-        {/* ── File group: Öffnen · Hinzufügen · Batch ── */}
-        <input ref={inputRef}    type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
-        <input ref={addInputRef} type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
-        <button
-          className={cn("toolbar-button flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded",
-            "bg-primary text-primary-foreground hover:opacity-90")}
-          onClick={() => inputRef.current?.click()}
-          disabled={loading}
-          title="IFC-Datei öffnen"
-        >
-          <FolderOpen size={14} />
-          <span>Öffnen</span>
-        </button>
-        <button
-          className="toolbar-button"
-          onClick={() => addInputRef.current?.click()}
-          disabled={loading}
-          title="Modell hinzufügen"
-        >
-          <Plus size={16} />
-        </button>
-        <button
-          className="toolbar-button flex items-center gap-1 px-2 py-1 text-xs"
-          onClick={onOpenBatch}
-          title="Batch-Änderungen"
-        >
-          <Sliders size={14} />
-          <span className="text-[11px]">Batch</span>
-        </button>
+        {/* ── Row 1: Tab strip + utilities ──────────────────────────────── */}
+        <div className="flex items-stretch h-7 border-b border-border/60">
 
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* ── Camera ── */}
-        <button className="toolbar-button" onClick={onFitAll} title="Auf alle Modelle zoomen [F]">
-          <Maximize2 size={16} />
-        </button>
-        <button
-          className={cn("toolbar-button", orthographic && "active text-primary")}
-          title={orthographic ? "Perspektivisch" : "Orthogonal"}
-          onClick={() => updateSettings({ orthographic: !orthographic })}
-        >
-          {orthographic ? <Box size={16} /> : <Rotate3D size={16} />}
-        </button>
-        <div className="relative">
-          <button
-            className={cn("toolbar-button flex items-center gap-0.5", viewOpen && "active text-primary")}
-            title="Ansicht wählen"
-            onClick={() => { setViewOpen((v) => !v); setExportOpen(false); }}
-          >
-            <LayoutGrid size={15} />
-            <ChevronDown size={10} />
-          </button>
-          {viewOpen && (
-            <DropdownMenu onClose={() => setViewOpen(false)}>
-              <div className="p-1 text-[10px] text-muted-foreground px-2 py-1 uppercase tracking-wide">Ansicht</div>
-              {[
-                { label: "Draufsicht",   preset: "top"    },
-                { label: "Untersicht",   preset: "bottom" },
-                { label: "Vorderansicht",preset: "front"  },
-                { label: "Rückansicht",  preset: "back"   },
-                { label: "Links",        preset: "left"   },
-                { label: "Rechts",       preset: "right"  },
-              ].map((v) => (
-                <DropdownItem key={v.preset} onClick={() => { handlePreset(v.preset); setViewOpen(false); }}>
-                  {v.label}
-                </DropdownItem>
-              ))}
-            </DropdownMenu>
-          )}
-        </div>
-
-        <button
-          className={cn("toolbar-button", activeTool === "fly" && "active text-primary")}
-          title="Fly-Mode [N] · WASD fliegen · Maus umsehen · Scroll Geschwindigkeit · Esc beenden"
-          onClick={() => handleToolClick("fly")}
-        >
-          <Navigation2 size={16} />
-        </button>
-
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* ── Interaction tools ── */}
-        <button
-          className={cn("toolbar-button", activeTool === "select" && "active text-primary")}
-          title="Auswahl [S]"
-          onClick={() => handleToolClick("select")}
-        >
-          <MousePointer2 size={16} />
-        </button>
-        <button
-          className={cn("toolbar-button", activeTool === "measure" && "active text-primary")}
-          title="Messen [M] · erneut klicken zum Löschen"
-          onClick={() => handleToolClick("measure")}
-        >
-          <Ruler size={16} />
-          {measurements.length > 0 && activeTool === "measure" && (
-            <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-primary text-primary-foreground text-[8px] flex items-center justify-center font-bold">
-              {measurements.length}
-            </span>
-          )}
-        </button>
-        <button
-          className={cn("toolbar-button", sectionActive && "active text-primary")}
-          title="Schnittebene [C] · Fläche anklicken zum Positionieren"
-          onClick={() => {
-            const st = useModelStore.getState();
-            if (st.activeTool === "section" || st.sectionPlanes.length > 0) {
-              st.clearSectionPlanes(); st.setActiveTool("select");
-            } else {
-              st.setActiveTool("section");
-            }
-          }}
-        >
-          <Scissors size={16} />
-        </button>
-
-        <button
-          className={cn("toolbar-button text-[10px] font-bold px-1.5", activeTool === "face-section" && "active text-primary")}
-          title="Flächen-Querschnitt · Auf eine Fläche klicken für Querschnitt senkrecht zur Fläche"
-          onClick={() => setActiveTool(activeTool === "face-section" ? "select" : "face-section")}
-        >
-          QS
-        </button>
-
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* ── Visibility ── */}
-        <button
-          className={cn("toolbar-button", !leftPanelVisible && "active text-primary")}
-          title={leftPanelVisible ? "Projekthierarchie ausblenden" : "Projekthierarchie einblenden"}
-          onClick={onToggleLeftPanel}
-        >
-          {leftPanelVisible ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-        </button>
-        <button
-          className={cn("toolbar-button", !rightPanelVisible && "active text-primary")}
-          title={rightPanelVisible ? "Eigenschaften ausblenden" : "Eigenschaften einblenden"}
-          onClick={onToggleRightPanel}
-        >
-          <span className="inline-flex scale-x-[-1]">
-            {rightPanelVisible ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-          </span>
-        </button>
-        <button
-          className={cn("toolbar-button", !showSpaces && "opacity-50")}
-          title="Räume ein/ausblenden"
-          onClick={() => updateSettings({ showSpaces: !showSpaces })}
-        >
-          {showSpaces ? <Eye size={16} /> : <EyeOff size={16} />}
-        </button>
-        <button
-          className={cn("toolbar-button text-[9px] font-bold", !grid && "opacity-40")}
-          title="Raster ein/ausblenden"
-          onClick={() => updateSettings({ grid: !grid })}
-        >
-          <span style={{ fontFamily: "monospace", fontSize: 12 }}>#</span>
-        </button>
-        <button
-          className={cn("toolbar-button", !edges && "opacity-40")}
-          title="Kanten ein/ausblenden"
-          onClick={() => updateSettings({ edges: !edges })}
-        >
-          <Box size={16} />
-        </button>
-
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* ── Load all properties ── */}
-        <button
-          onClick={() => loadAllProperties()}
-          disabled={loadingPropertiesProgress !== null || models.size === 0}
-          title={
-            loadedProperties
-              ? `Properties neu laden (${loadedPropKeys.length} Attribute geladen)`
-              : "Alle Properties aller Modelle laden"
-          }
-          className={cn(
-            "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors",
-            loadedProperties
-              ? "bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30"
-              : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80",
-            (loadingPropertiesProgress !== null || models.size === 0) && "opacity-50 cursor-not-allowed",
-          )}
-        >
-          {loadingPropertiesProgress !== null ? (
-            <>
-              <Loader2 size={13} className="animate-spin shrink-0" />
-              <span>{loadingPropertiesProgress}%</span>
-            </>
-          ) : (
-            <>
-              <Database size={13} className="shrink-0" />
-              <span>{loadedProperties ? `${loadedPropKeys.length} Attr.` : "Properties laden"}</span>
-            </>
-          )}
-        </button>
-
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* ── Analysis panels ── */}
-        <PopoutPanelButton active={sqlPanelOpen} title="SQL-Abfrage [Q]" panel="sql"
-          onClick={() => setSqlPanelOpen(!sqlPanelOpen)}>
-          <Database size={16} />
-        </PopoutPanelButton>
-        <PopoutPanelButton active={listPanelOpen} title="Lens Rules [L]" panel="lists"
-          onClick={() => setListPanelOpen(!listPanelOpen)}>
-          <List size={16} />
-        </PopoutPanelButton>
-        <PopoutPanelButton active={smartViewsPanelOpen} title="SmartViews [V]" panel="smartviews"
-          onClick={() => setSmartViewsPanelOpen(!smartViewsPanelOpen)}>
-          <Glasses size={16} />
-        </PopoutPanelButton>
-        <PopoutPanelButton active={qtoPanelOpen} title="Listen / Mengen [T]" panel="qto"
-          onClick={() => setQTOPanelOpen(!qtoPanelOpen)}>
-          <Table2 size={16} />
-        </PopoutPanelButton>
-
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* ── Alignment / Trassen ── */}
-        <button
-          onClick={toggleAlignmentPanel}
-          className={cn("toolbar-button flex items-center gap-1 px-2 py-1 text-xs", alignmentPanelOpen && "active text-primary")}
-          title="Trassen-Viewer (LandXML)"
-        >
-          <Navigation2 size={14} />
-          <span className="text-[11px]">Achsen</span>
-          {alignmentFileCount > 0 && (
-            <span className="bg-muted text-muted-foreground text-[8px] px-1 rounded-full">{alignmentFileCount}</span>
-          )}
-        </button>
-        {alignmentFileCount > 0 && (
-          <button
-            onClick={toggleAllAlignments}
-            className={cn("toolbar-button p-1", !allAlignmentsVisible && "opacity-40")}
-            title={allAlignmentsVisible ? "Achsen ausblenden" : "Achsen einblenden"}
-          >
-            {allAlignmentsVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-          </button>
-        )}
-        {alignmentFileCount > 0 && (
-          <button
-            onClick={() => setProfilePanelOpen(!profilePanelOpen)}
-            className={cn("toolbar-button p-1", profilePanelOpen && "active text-primary")}
-            title="Längenschnitt (P)"
-          >
-            <TrendingUp size={14} />
-          </button>
-        )}
-        {/* Achsenbeschriftung: toggle + interval dropdown */}
-        {alignmentFileCount > 0 && (
-          <div className="relative flex items-center">
-            <button
-              onClick={toggleStationLabels}
-              className={cn(
-                "toolbar-button flex items-center gap-1 px-2 py-1 text-xs rounded-r-none border-r-0",
-                stationLabelVisible && "active text-primary",
-              )}
-              title="Stationierung beschriften"
-            >
-              <Tag size={13} />
-              <span className="text-[11px]">Beschriftung</span>
-              {stationLabelVisible && (
-                <span className="text-[9px] bg-primary/20 text-primary px-1 rounded font-mono">
-                  {stationLabelInterval} m
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setLabelIntervalOpen(v => !v)}
-              className={cn(
-                "toolbar-button px-0.5 py-1 rounded-l-none",
-                stationLabelVisible && "active text-primary",
-              )}
-              title="Stationsintervall wählen"
-            >
-              <ChevronDown size={10} />
-            </button>
-            {labelIntervalOpen && (
-              <DropdownMenu onClose={() => setLabelIntervalOpen(false)}>
-                <div className="p-1 text-[10px] text-muted-foreground px-2 py-1 uppercase tracking-wide">
-                  Stationsintervall
-                </div>
-                {[10, 25, 50, 100, 250, 500, 1000].map(v => (
-                  <DropdownItem
-                    key={v}
-                    onClick={() => { setStationLabelInterval(v); setLabelIntervalOpen(false); }}
-                  >
-                    <span className={cn(
-                      "flex items-center gap-2 font-mono",
-                      stationLabelInterval === v && "text-primary font-semibold",
-                    )}>
-                      {stationLabelInterval === v ? "✓" : <span className="w-3" />}
-                      {v} m
-                    </span>
-                  </DropdownItem>
-                ))}
-              </DropdownMenu>
-            )}
+          {/* Logo */}
+          <div className="flex items-center gap-1.5 px-3 border-r border-border">
+            <svg width="16" height="16" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[3px]">
+              <rect width="32" height="32" rx="5" fill="#E8312A"/>
+              <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
+            </svg>
+            <span className="font-bold text-[11px] tracking-tight text-foreground whitespace-nowrap">infraCore</span>
           </div>
-        )}
-        {/* Absetzmass */}
-        {alignmentFileCount > 0 && (
-          <button
-            onClick={toggleOffsetTool}
-            className={cn("toolbar-button p-1", offsetToolActive && "active text-primary")}
-            title="Absetzmass messen"
-          >
-            <Crosshair size={14} />
-          </button>
-        )}
 
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* ── 5D-Abrechnung ── */}
-        <div className="relative group/popout5d">
-          <button
-            onClick={() => setBilling5DPanelOpen(!billing5DPanelOpen)}
-            className={cn("toolbar-button flex items-center gap-1 px-2 py-1 text-xs", billing5DPanelOpen && "active text-primary")}
-            title="5D-Abrechnung (Overlay)"
-          >
-            <BarChart2 size={14} />
-            <span className="text-[11px]">5D</span>
-            {billing5DCount > 0 && (
-              <span className="bg-muted text-muted-foreground text-[8px] px-1 rounded-full">
-                {billing5DCount}
-              </span>
-            )}
-          </button>
-          <button
-            className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-card border border-border flex items-center justify-center opacity-0 group-hover/popout5d:opacity-100 hover:!opacity-100 hover:bg-primary hover:border-primary hover:text-primary-foreground text-muted-foreground transition-all z-10"
-            title="5D-Abrechnung in neuem Fenster öffnen"
-            onClick={(e) => { e.stopPropagation(); openBillingWindow(); }}
-          >
-            <ExternalLink size={8} />
-          </button>
-        </div>
-        <button
-          onClick={handleIsolate5D}
-          disabled={billing5DCount === 0}
-          className={cn("toolbar-button", billing5DCount === 0 && "opacity-30 cursor-not-allowed")}
-          title={billing5DCount > 0 ? `5D-Elemente isolieren (${billing5DCount} erfasst)` : "Keine 5D-Elemente erfasst"}
-        >
-          <Target size={15} />
-        </button>
-        <button
-          onClick={handleToggleVisualize5D}
-          disabled={billing5DCount === 0}
-          className={cn(
-            "toolbar-button",
-            billingModuleActive && "active text-primary",
-            billing5DCount === 0 && "opacity-30 cursor-not-allowed"
-          )}
-          title={billingModuleActive ? "5D-Visualisierung ausschalten" : "5D-Visualisierung einschalten"}
-        >
-          <Layers size={15} />
-        </button>
-
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* ── Tools: Collision ── */}
-        <button
-          className="toolbar-button flex items-center gap-1 px-2 py-1 text-xs"
-          title="Kollisionsprüfung (Solibri-Style)"
-          onClick={() => openCollisionWindow()}
-          disabled={models.size === 0}
-        >
-          <AlertTriangle size={14} />
-          <span className="text-[11px]">Kollision</span>
-        </button>
-
-        {/* ── Spacer ── */}
-        <div className="flex-1" />
-
-        {/* Loading indicator */}
-        {loading && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mr-2">
-            <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-            <span>Lädt…</span>
+          {/* Tab buttons */}
+          <div className="flex items-stretch">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "relative flex items-center gap-1 px-3 text-[11px] font-semibold tracking-wide transition-all border-b-2 whitespace-nowrap",
+                  activeTab === tab.id
+                    ? "text-primary border-primary bg-muted/40"
+                    : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
+                )}
+              >
+                {tab.label}
+                {tab.badge !== undefined && (
+                  <span className="text-[9px] bg-primary/20 text-primary px-1 rounded-full font-mono leading-none py-0.5">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
-        )}
 
-        {/* Window opener */}
-        <div className="relative">
-          <button
-            className={cn("toolbar-button", windowOpen && "active text-primary")}
-            title="Neues Fenster öffnen"
-            onClick={() => { setWindowOpen((v) => !v); setExportOpen(false); setViewOpen(false); }}
-          >
-            <AppWindow size={16} />
-          </button>
-          {windowOpen && (
-            <DropdownMenu onClose={() => setWindowOpen(false)} align="right">
-              <div className="p-1 text-[10px] text-muted-foreground px-2 py-1 uppercase tracking-wide">Fenster öffnen</div>
-              {(Object.keys(PANEL_META) as PanelType[]).map((p) => (
-                <DropdownItem key={p} icon={<AppWindow size={13} />}
-                  onClick={() => { openSecondaryWindow(p); setWindowOpen(false); }}>
-                  {PANEL_META[p].label}
-                </DropdownItem>
-              ))}
-            </DropdownMenu>
-          )}
-        </div>
+          <div className="flex-1" />
 
-        {/* Export */}
-        <div className="relative">
-          <button
-            className="toolbar-button"
-            title="Exportieren"
-            onClick={() => { setExportOpen((v) => !v); setViewOpen(false); setWindowOpen(false); }}
-          >
-            <Download size={16} />
-          </button>
-          {exportOpen && (
-            <DropdownMenu onClose={() => setExportOpen(false)} align="right">
-              <div className="p-1 text-[10px] text-muted-foreground px-2 py-1 uppercase tracking-wide">Export</div>
-              {(() => {
-                const hasModels = models.size > 0;
-                const totalOverrides = Array.from(propertyOverrides.values())
-                  .reduce((s, m) => s + Array.from(m.values()).reduce((a, o) => a + Object.keys(o).length, 0), 0);
-                return (
-                  <DropdownItem
-                    icon={ifcExporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-                    onClick={hasModels && !ifcExporting ? handleIFCExport : undefined}
-                    disabled={!hasModels || ifcExporting}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      IFC exportieren
-                      {totalOverrides > 0 && (
-                        <span className="bg-amber-500/20 text-amber-400 text-[9px] px-1 rounded">
-                          {totalOverrides} Änd.
+          {/* Right utility strip — always visible */}
+          <div className="flex items-center gap-0.5 px-2 border-l border-border/60">
+            {loading && (
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground mr-1">
+                <Loader2 size={11} className="animate-spin" />
+                <span>Lädt…</span>
+              </div>
+            )}
+
+            {/* Secondary windows */}
+            <div className="relative">
+              <UtilBtn active={windowOpen} title="Panel in neuem Fenster öffnen"
+                onClick={() => { setWindowOpen(v => !v); setExportOpen(false); setViewOpen(false); }}>
+                <AppWindow size={13} />
+              </UtilBtn>
+              {windowOpen && (
+                <DropdownMenu onClose={() => setWindowOpen(false)} align="right">
+                  <div className="px-2 py-1.5 text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Fenster öffnen</div>
+                  {(Object.keys(PANEL_META) as PanelType[]).map((p) => (
+                    <DropdownItem key={p} icon={<ExternalLink size={12} />}
+                      onClick={() => { openSecondaryWindow(p); setWindowOpen(false); }}>
+                      {PANEL_META[p].label}
+                    </DropdownItem>
+                  ))}
+                </DropdownMenu>
+              )}
+            </div>
+
+            {/* Export */}
+            <div className="relative">
+              <UtilBtn active={exportOpen} title="Exportieren"
+                onClick={() => { setExportOpen(v => !v); setViewOpen(false); setWindowOpen(false); }}>
+                <Download size={13} />
+              </UtilBtn>
+              {exportOpen && (
+                <DropdownMenu onClose={() => setExportOpen(false)} align="right">
+                  <div className="px-2 py-1.5 text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Export</div>
+                  {(() => {
+                    const hasModels = models.size > 0;
+                    const totalOverrides = Array.from(propertyOverrides.values())
+                      .reduce((s, m) => s + Array.from(m.values()).reduce((a, o) => a + Object.keys(o).length, 0), 0);
+                    return (
+                      <DropdownItem
+                        icon={ifcExporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                        onClick={hasModels && !ifcExporting ? handleIFCExport : undefined}
+                        disabled={!hasModels || ifcExporting}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          IFC exportieren
+                          {totalOverrides > 0 && (
+                            <span className="bg-amber-500/20 text-amber-400 text-[9px] px-1 rounded">{totalOverrides} Änd.</span>
+                          )}
                         </span>
-                      )}
-                    </span>
-                  </DropdownItem>
-                );
-              })()}
-              <div className="h-px bg-border/50 my-0.5 mx-2" />
-              {(() => {
-                const has5D = billing5DCount > 0;
-                return (<>
-                  <DropdownItem icon={<BarChart2 size={13} />}
-                    onClick={has5D ? handleExport5DJson : undefined} disabled={!has5D}>
+                      </DropdownItem>
+                    );
+                  })()}
+                  <div className="h-px bg-border/50 my-0.5 mx-2" />
+                  <DropdownItem icon={<BarChart2 size={12} />}
+                    onClick={billing5DCount > 0 ? handleExport5DJson : undefined} disabled={billing5DCount === 0}>
                     <span className="flex items-center gap-1.5">
                       5D-Daten als JSON
-                      {has5D && <span className="bg-primary/20 text-primary text-[9px] px-1 rounded">{billing5DCount}</span>}
+                      {billing5DCount > 0 && <span className="bg-primary/20 text-primary text-[9px] px-1 rounded">{billing5DCount}</span>}
                     </span>
                   </DropdownItem>
-                  <DropdownItem icon={<Table2 size={13} />}
-                    onClick={has5D ? handleExportMonthlyXLSX : undefined} disabled={!has5D}>
+                  <DropdownItem icon={<Table2 size={12} />}
+                    onClick={billing5DCount > 0 ? handleExportMonthlyXLSX : undefined} disabled={billing5DCount === 0}>
                     Monatsbericht als XLSX
                   </DropdownItem>
-                </>);
-              })()}
-              <div className="h-px bg-border/50 my-0.5 mx-2" />
-              <DropdownItem icon={<Box size={13} />}
-                onClick={() => { window.dispatchEvent(new Event("viewer:exportGLTF")); setExportOpen(false); }}>
-                Modell als GLB
-              </DropdownItem>
-              <DropdownItem icon={<Camera size={13} />}
-                onClick={() => { window.dispatchEvent(new Event("viewer:screenshot")); setExportOpen(false); }}>
-                Screenshot (PNG)
-              </DropdownItem>
-              <DropdownItem icon={<FileDown size={13} />}
-                onClick={() => { exportElementsCSV(); setExportOpen(false); }}>
-                Elemente als CSV
-              </DropdownItem>
-            </DropdownMenu>
-          )}
+                  <div className="h-px bg-border/50 my-0.5 mx-2" />
+                  <DropdownItem icon={<Box size={12} />}
+                    onClick={() => { window.dispatchEvent(new Event("viewer:exportGLTF")); setExportOpen(false); }}>
+                    Modell als GLB
+                  </DropdownItem>
+                  <DropdownItem icon={<Camera size={12} />}
+                    onClick={() => { window.dispatchEvent(new Event("viewer:screenshot")); setExportOpen(false); }}>
+                    Screenshot (PNG)
+                  </DropdownItem>
+                  <DropdownItem icon={<FileDown size={12} />}
+                    onClick={() => { exportElementsCSV(); setExportOpen(false); }}>
+                    Elemente als CSV
+                  </DropdownItem>
+                </DropdownMenu>
+              )}
+            </div>
+
+            <UtilBtn title="Tastenkürzel & Info" onClick={() => setInfoOpen(true)}>
+              <Info size={13} />
+            </UtilBtn>
+
+            <div className="w-px h-4 bg-border/60 mx-0.5" />
+
+            <UtilBtn title="Einstellungen (Schriftgröße, Tastenkürzel, …)" onClick={() => setSettingsPanelOpen(true)}>
+              <Settings size={13} />
+            </UtilBtn>
+            <UtilBtn title="Hell/Dunkel" onClick={toggleTheme}>
+              {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+            </UtilBtn>
+            <UtilBtn
+              title="App zurücksetzen — alle Modelle entfernen"
+              className="hover:text-destructive hover:bg-destructive/10"
+              onClick={handleResetApp}
+            >
+              <RotateCcw size={13} />
+            </UtilBtn>
+          </div>
         </div>
 
-        {/* Info */}
-        <button className="toolbar-button" title="Info" onClick={() => setInfoOpen(true)}>
-          <Info size={16} />
-        </button>
+        {/* ── Row 2: Ribbon tool strip ──────────────────────────────────── */}
+        <div className="flex items-stretch h-[54px] overflow-x-auto overflow-y-hidden">
 
-        <div className="w-px h-5 bg-border mx-1" />
+          {activeTab === "start" && (
+            <>
+              {/* DATEI */}
+              <RibbonGroup label="Datei">
+                <RibbonLargeBtn
+                  icon={<FolderOpen size={18} />}
+                  label="Öffnen"
+                  onClick={() => inputRef.current?.click()}
+                  disabled={loading}
+                  title="IFC-Datei öffnen"
+                  primary
+                />
+                <div className="flex flex-col gap-0.5 justify-center">
+                  <RibbonSmBtn icon={<Plus size={14} />} label="Hinzufügen"
+                    onClick={() => addInputRef.current?.click()} disabled={loading}
+                    title="Weiteres Modell hinzufügen" />
+                  <RibbonSmBtn icon={<Sliders size={14} />} label="Batch"
+                    onClick={onOpenBatch} title="Batch-Änderungen" />
+                </div>
+              </RibbonGroup>
 
-        {/* Settings */}
-        <button
-          className="toolbar-button"
-          onClick={() => setSettingsPanelOpen(true)}
-          title="Einstellungen (Schriftgröße, Tastenkürzel, …)"
-        >
-          <Settings size={16} />
-        </button>
+              {/* KAMERA */}
+              <RibbonGroup label="Kamera">
+                <RibbonLargeBtn icon={<Maximize2 size={18} />} label="Einpassen"
+                  onClick={onFitAll} title="Auf alle Modelle zoomen [F]" />
+                <div className="flex flex-col gap-0.5 justify-center">
+                  <RibbonSmBtn
+                    icon={orthographic ? <Box size={14} /> : <Rotate3D size={14} />}
+                    label={orthographic ? "Ortho" : "Perspektive"}
+                    onClick={() => updateSettings({ orthographic: !orthographic })}
+                    active={orthographic}
+                    title={orthographic ? "Perspektivisch umschalten" : "Orthogonal umschalten"} />
+                  <div className="relative">
+                    <RibbonSmBtn icon={<LayoutGrid size={14} />} label="Ansicht ▾"
+                      onClick={() => setViewOpen(v => !v)} active={viewOpen}
+                      title="Kamera-Preset wählen" />
+                    {viewOpen && (
+                      <DropdownMenu onClose={() => setViewOpen(false)}>
+                        <div className="px-2 py-1.5 text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Kameraansicht</div>
+                        {[
+                          { label: "Draufsicht",    preset: "top"    },
+                          { label: "Untersicht",    preset: "bottom" },
+                          { label: "Vorderansicht", preset: "front"  },
+                          { label: "Rückansicht",   preset: "back"   },
+                          { label: "Links",         preset: "left"   },
+                          { label: "Rechts",        preset: "right"  },
+                        ].map((v) => (
+                          <DropdownItem key={v.preset} onClick={() => { handlePreset(v.preset); setViewOpen(false); }}>
+                            {v.label}
+                          </DropdownItem>
+                        ))}
+                      </DropdownMenu>
+                    )}
+                  </div>
+                </div>
+              </RibbonGroup>
 
-        {/* Theme */}
-        <button className="toolbar-button" onClick={toggleTheme} title="Hell/Dunkel">
-          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
+              {/* WERKZEUGE */}
+              <RibbonGroup label="Werkzeuge">
+                <RibbonLargeBtn icon={<MousePointer2 size={18} />} label="Auswahl"
+                  onClick={() => handleToolClick("select")} active={activeTool === "select"}
+                  title="Auswahl [S]" kbd="S" />
+                <RibbonLargeBtn icon={<Ruler size={18} />}
+                  label={measurements.length > 0 && activeTool === "measure" ? `Messen (${measurements.length})` : "Messen"}
+                  onClick={() => handleToolClick("measure")} active={activeTool === "measure"}
+                  title="Abstandsmessung [M] · erneut klicken zum Löschen" kbd="M" />
+                <RibbonLargeBtn icon={<Scissors size={18} />} label="Schnitt"
+                  onClick={() => {
+                    const st = useModelStore.getState();
+                    if (st.activeTool === "section" || st.sectionPlanes.length > 0) {
+                      st.clearSectionPlanes(); st.setActiveTool("select");
+                    } else {
+                      st.setActiveTool("section");
+                    }
+                  }}
+                  active={sectionActive} title="Schnittebene [C] · Fläche anklicken" kbd="C" />
+                <div className="flex flex-col gap-0.5 justify-center">
+                  <RibbonSmBtn icon={<Navigation2 size={14} />} label="Fly"
+                    onClick={() => handleToolClick("fly")} active={activeTool === "fly"}
+                    title="Fly-Mode [N] · WASD + Maus · Scroll Geschwindigkeit" kbd="N" />
+                  <RibbonSmBtn icon={<BoxSelect size={14} />} label="Flächen-QS"
+                    onClick={() => setActiveTool(activeTool === "face-section" ? "select" : "face-section")}
+                    active={activeTool === "face-section"}
+                    title="Flächen-Querschnitt · Fläche anklicken für senkrechten QS" />
+                </div>
+              </RibbonGroup>
 
-        {/* App reset */}
-        <button
-          className="toolbar-button text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
-          onClick={handleResetApp}
-          title="App zurücksetzen — alle Modelle entfernen"
-        >
-          <RotateCcw size={15} />
-        </button>
+              {/* SICHTBARKEIT */}
+              <RibbonGroup label="Sichtbarkeit">
+                <div className="flex flex-col gap-0.5 justify-center">
+                  <RibbonSmBtn
+                    icon={leftPanelVisible ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+                    label="Hierarchie"
+                    onClick={onToggleLeftPanel}
+                    active={!leftPanelVisible}
+                    title={leftPanelVisible ? "Projekthierarchie ausblenden" : "Projekthierarchie einblenden"} />
+                  <RibbonSmBtn
+                    icon={<span className="inline-flex scale-x-[-1]">{rightPanelVisible ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}</span>}
+                    label="Eigenschaften"
+                    onClick={onToggleRightPanel}
+                    active={!rightPanelVisible}
+                    title={rightPanelVisible ? "Eigenschaften ausblenden" : "Eigenschaften einblenden"} />
+                </div>
+                <div className="flex flex-col gap-0.5 justify-center">
+                  <RibbonSmBtn
+                    icon={showSpaces ? <Eye size={14} /> : <EyeOff size={14} />}
+                    label="Räume" onClick={() => updateSettings({ showSpaces: !showSpaces })}
+                    active={showSpaces} title="Räume ein-/ausblenden" />
+                  <RibbonSmBtn icon={<Grid3x3 size={14} />} label="Raster"
+                    onClick={() => updateSettings({ grid: !grid })} active={grid}
+                    title="Raster ein-/ausblenden" />
+                </div>
+                <RibbonSmBtn icon={<Box size={14} />} label="Kanten"
+                  onClick={() => updateSettings({ edges: !edges })} active={edges}
+                  title="Kanten ein-/ausblenden" className="self-center" />
+              </RibbonGroup>
+            </>
+          )}
 
+          {activeTab === "analyse" && (
+            <>
+              {/* PROPERTIES */}
+              <RibbonGroup label="Properties">
+                <button
+                  onClick={() => loadAllProperties()}
+                  disabled={loadingPropertiesProgress !== null || models.size === 0}
+                  title={loadedProperties
+                    ? `Properties neu laden (${loadedPropKeys.length} Attribute geladen)`
+                    : "Alle Properties aller Modelle laden"}
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-1 px-3 h-full rounded text-center transition-all min-w-[72px]",
+                    loadedProperties
+                      ? "bg-emerald-600/15 text-emerald-400 hover:bg-emerald-600/25"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground",
+                    (loadingPropertiesProgress !== null || models.size === 0) && "opacity-40 cursor-not-allowed",
+                  )}
+                >
+                  {loadingPropertiesProgress !== null ? (
+                    <><Loader2 size={18} className="animate-spin shrink-0" /><span className="text-[10px] font-medium">{loadingPropertiesProgress}%</span></>
+                  ) : (
+                    <><Database size={18} className="shrink-0" /><span className="text-[10px] font-medium leading-tight">{loadedProperties ? `${loadedPropKeys.length} Attr.` : "Properties\nladen"}</span></>
+                  )}
+                </button>
+              </RibbonGroup>
+
+              {/* FILTER & ANALYSE */}
+              <RibbonGroup label="Filter & Analyse">
+                <RibbonLargeBtn icon={<Database size={18} />} label="SQL"
+                  onClick={() => setSqlPanelOpen(!sqlPanelOpen)} active={sqlPanelOpen}
+                  title="SQL-Abfragen [Q]" kbd="Q" popout={() => openSecondaryWindow("sql")} />
+                <RibbonLargeBtn icon={<List size={18} />} label="Lens"
+                  onClick={() => setListPanelOpen(!listPanelOpen)} active={listPanelOpen}
+                  title="Lens Rules [L]" kbd="L" popout={() => openSecondaryWindow("lists")} />
+                <RibbonLargeBtn icon={<Glasses size={18} />} label="SmartViews"
+                  onClick={() => setSmartViewsPanelOpen(!smartViewsPanelOpen)} active={smartViewsPanelOpen}
+                  title="SmartViews [V]" kbd="V" popout={() => openSecondaryWindow("smartviews")} />
+                <RibbonLargeBtn icon={<Table2 size={18} />} label="Mengen"
+                  onClick={() => setQTOPanelOpen(!qtoPanelOpen)} active={qtoPanelOpen}
+                  title="Mengenermittlung [T]" kbd="T" popout={() => openSecondaryWindow("qto")} />
+              </RibbonGroup>
+
+              {/* PRÜFUNG */}
+              <RibbonGroup label="Prüfung">
+                <RibbonLargeBtn icon={<AlertTriangle size={18} />} label="Kollision"
+                  onClick={() => openCollisionWindow()} disabled={models.size === 0}
+                  title="Kollisionsprüfung (Solibri-Style)" />
+              </RibbonGroup>
+            </>
+          )}
+
+          {activeTab === "achsen" && (
+            <>
+              {/* ACHSEN */}
+              <RibbonGroup label="Achsen">
+                <RibbonLargeBtn
+                  icon={<Navigation2 size={18} />}
+                  label={alignmentFileCount > 0 ? `Achsen (${alignmentFileCount})` : "Achsen"}
+                  onClick={toggleAlignmentPanel} active={alignmentPanelOpen}
+                  title="Trassen-Panel (LandXML)" />
+                {alignmentFileCount > 0 && (
+                  <RibbonLargeBtn
+                    icon={allAlignmentsVisible ? <Eye size={18} /> : <EyeOff size={18} />}
+                    label={allAlignmentsVisible ? "Sichtbar" : "Ausgeblendet"}
+                    onClick={toggleAllAlignments} active={allAlignmentsVisible}
+                    title={allAlignmentsVisible ? "Achsen ausblenden" : "Achsen einblenden"} />
+                )}
+              </RibbonGroup>
+
+              {alignmentFileCount > 0 && (
+                <RibbonGroup label="Schnitte">
+                  <RibbonLargeBtn icon={<TrendingUp size={18} />} label="Längsschnitt"
+                    onClick={() => setProfilePanelOpen(!profilePanelOpen)} active={profilePanelOpen}
+                    title="Längenschnitt / Profil [P]" kbd="P" />
+                  <RibbonLargeBtn icon={<BoxSelect size={18} />} label="Querschnitt"
+                    onClick={() => setActiveTool(activeTool === "face-section" ? "select" : "face-section")}
+                    active={activeTool === "face-section"}
+                    title="Flächen-Querschnitt — Fläche anklicken" />
+                </RibbonGroup>
+              )}
+
+              {alignmentFileCount > 0 && (
+                <RibbonGroup label="Beschriftung">
+                  <RibbonLargeBtn
+                    icon={<Tag size={18} />}
+                    label={stationLabelVisible ? `Station ${stationLabelInterval} m` : "Stationierung"}
+                    onClick={toggleStationLabels} active={stationLabelVisible}
+                    title="Stationierungsbeschriftung ein-/ausblenden" />
+                  <div className="relative flex flex-col justify-center">
+                    <RibbonSmBtn icon={<ChevronDown size={14} />} label="Intervall"
+                      onClick={() => setLabelIntervalOpen(v => !v)} title="Stationsintervall wählen" />
+                    {labelIntervalOpen && (
+                      <DropdownMenu onClose={() => setLabelIntervalOpen(false)}>
+                        <div className="px-2 py-1.5 text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Stationsintervall</div>
+                        {[10, 25, 50, 100, 250, 500, 1000].map(v => (
+                          <DropdownItem key={v} onClick={() => { setStationLabelInterval(v); setLabelIntervalOpen(false); }}>
+                            <span className={cn("flex items-center gap-2 font-mono", stationLabelInterval === v && "text-primary font-semibold")}>
+                              {stationLabelInterval === v ? "✓" : <span className="w-3" />}{v} m
+                            </span>
+                          </DropdownItem>
+                        ))}
+                      </DropdownMenu>
+                    )}
+                  </div>
+                </RibbonGroup>
+              )}
+
+              {alignmentFileCount > 0 && (
+                <RibbonGroup label="Messen">
+                  <RibbonLargeBtn icon={<Crosshair size={18} />} label="Absetzmass"
+                    onClick={toggleOffsetTool} active={offsetToolActive}
+                    title="Absetzmass messen" />
+                </RibbonGroup>
+              )}
+
+              {alignmentFileCount === 0 && (
+                <div className="flex items-center px-6 text-muted-foreground text-xs gap-2">
+                  <Navigation2 size={15} className="opacity-40" />
+                  <span className="opacity-60">Keine LandXML-Achsen geladen — Achsen-Panel öffnen um Dateien zu laden</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === "billing5d" && (
+            <>
+              {/* 5D-ABRECHNUNG */}
+              <RibbonGroup label="5D-Abrechnung">
+                <div className="relative group/popout5d flex flex-col items-center">
+                  <RibbonLargeBtn
+                    icon={<BarChart2 size={18} />}
+                    label={billing5DCount > 0 ? `5D-Panel (${billing5DCount})` : "5D-Panel"}
+                    onClick={() => setBilling5DPanelOpen(!billing5DPanelOpen)}
+                    active={billing5DPanelOpen}
+                    title="5D-Abrechnung (Inline-Overlay)"
+                    primary={!billing5DPanelOpen}
+                  />
+                  <button
+                    className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-card border border-border flex items-center justify-center opacity-0 group-hover/popout5d:opacity-100 hover:!opacity-100 hover:bg-primary hover:border-primary hover:text-primary-foreground text-muted-foreground transition-all z-10"
+                    title="5D-Abrechnung in neuem Fenster öffnen"
+                    onClick={(e) => { e.stopPropagation(); openBillingWindow(); }}
+                  >
+                    <ExternalLink size={7} />
+                  </button>
+                </div>
+              </RibbonGroup>
+
+              {/* VISUALISIERUNG */}
+              <RibbonGroup label="Visualisierung">
+                <RibbonLargeBtn icon={<Target size={18} />} label="Isolieren"
+                  onClick={handleIsolate5D} disabled={billing5DCount === 0}
+                  title={billing5DCount > 0 ? `5D-Elemente isolieren (${billing5DCount} erfasst)` : "Keine 5D-Elemente erfasst"} />
+                <RibbonLargeBtn icon={<Layers size={18} />}
+                  label={billingModuleActive ? "Overlay AN" : "Overlay AUS"}
+                  onClick={handleToggleVisualize5D} active={billingModuleActive}
+                  disabled={billing5DCount === 0}
+                  title={billingModuleActive ? "5D-Farbvisualisierung ausschalten" : "5D-Farbvisualisierung einschalten"} />
+              </RibbonGroup>
+
+              {billing5DCount === 0 && (
+                <div className="flex items-center px-6 text-muted-foreground text-xs gap-2">
+                  <BarChart2 size={15} className="opacity-40" />
+                  <span className="opacity-60">Noch keine 5D-Elemente erfasst — 5D-Panel öffnen und Elemente auswählen</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === "extras" && (
+            <RibbonGroup label="Modellverwaltung">
+              <RibbonLargeBtn icon={<Sliders size={18} />} label="Batch"
+                onClick={onOpenBatch} title="Batch-Änderungen an Eigenschaften" />
+              <RibbonLargeBtn icon={<AlertTriangle size={18} />} label="Kollision"
+                onClick={() => openCollisionWindow()} disabled={models.size === 0}
+                title="Kollisionsprüfung (Solibri-Style)" />
+            </RibbonGroup>
+          )}
+
+        </div>
       </div>
 
       {infoOpen && <InfoModal onClose={() => setInfoOpen(false)} />}
@@ -788,32 +731,105 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   );
 }
 
-// ── Panel button with pop-out ─────────────────────────────────────────────────
+// ── Ribbon building blocks ────────────────────────────────────────────────────
 
-function PopoutPanelButton({ children, active, title, panel, onClick }: {
-  children: React.ReactNode;
-  active: boolean;
-  title: string;
-  panel: PanelType;
-  onClick: () => void;
+function RibbonGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-stretch border-r border-border/50 last:border-r-0">
+      <div className="flex flex-col min-w-0">
+        <div className="flex items-center gap-0.5 px-1.5 pt-1.5 pb-0.5 flex-1">
+          {children}
+        </div>
+        <div className="px-2 pb-1 text-[8.5px] font-semibold uppercase tracking-wider text-muted-foreground/60 text-center leading-none whitespace-nowrap">
+          {label}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RibbonLargeBtn({
+  icon, label, onClick, active, disabled, title, primary, kbd, popout, className,
+}: {
+  icon: React.ReactNode; label: string; onClick?: () => void;
+  active?: boolean; disabled?: boolean; title?: string;
+  primary?: boolean; kbd?: string; popout?: () => void; className?: string;
 }) {
   return (
-    <div className="relative group/popout">
+    <div className="relative group/lbtn flex flex-col items-center">
       <button
-        className={cn("toolbar-button", active && "active text-primary")}
-        title={title}
-        onClick={onClick}
+        onClick={onClick} disabled={disabled} title={title}
+        className={cn(
+          "flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded transition-all min-w-[44px] h-full text-center",
+          primary && !active && "bg-primary text-primary-foreground hover:bg-primary/90",
+          !primary && active && "bg-primary/15 text-primary",
+          !primary && !active && "text-foreground/80 hover:bg-muted hover:text-foreground",
+          disabled && "opacity-35 cursor-not-allowed pointer-events-none",
+          className,
+        )}
       >
-        {children}
+        <span className={cn("shrink-0", active && !primary && "text-primary")}>{icon}</span>
+        <span className="text-[9.5px] font-medium leading-tight max-w-[60px] text-center whitespace-nowrap overflow-hidden text-ellipsis">
+          {label}
+        </span>
+        {kbd && (
+          <span className="text-[7px] opacity-0 group-hover/lbtn:opacity-60 transition-opacity text-muted-foreground font-mono leading-none">
+            [{kbd}]
+          </span>
+        )}
       </button>
-      <button
-        className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-card border border-border flex items-center justify-center opacity-0 group-hover/popout:opacity-100 hover:!opacity-100 hover:bg-primary hover:border-primary hover:text-primary-foreground text-muted-foreground transition-all z-10"
-        title={`${PANEL_META[panel].label} in neuem Fenster öffnen`}
-        onClick={(e) => { e.stopPropagation(); openSecondaryWindow(panel); }}
-      >
-        <ExternalLink size={8} />
-      </button>
+      {popout && (
+        <button
+          className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-card border border-border flex items-center justify-center opacity-0 group-hover/lbtn:opacity-100 hover:!opacity-100 hover:bg-primary hover:border-primary hover:text-primary-foreground text-muted-foreground transition-all z-10"
+          title="In neuem Fenster öffnen"
+          onClick={(e) => { e.stopPropagation(); popout(); }}
+        >
+          <ExternalLink size={7} />
+        </button>
+      )}
     </div>
+  );
+}
+
+function RibbonSmBtn({
+  icon, label, onClick, active, disabled, title, kbd, className,
+}: {
+  icon: React.ReactNode; label?: string; onClick?: () => void;
+  active?: boolean; disabled?: boolean; title?: string; kbd?: string; className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick} disabled={disabled} title={title}
+      className={cn(
+        "flex items-center gap-1 px-1.5 py-0.5 rounded transition-all text-left",
+        active ? "bg-primary/15 text-primary" : "text-foreground/70 hover:bg-muted hover:text-foreground",
+        disabled && "opacity-35 cursor-not-allowed pointer-events-none",
+        className,
+      )}
+    >
+      <span className="shrink-0">{icon}</span>
+      {label && <span className="text-[9.5px] font-medium whitespace-nowrap">{label}</span>}
+      {kbd && <span className="text-[7px] opacity-40 font-mono">[{kbd}]</span>}
+    </button>
+  );
+}
+
+function UtilBtn({
+  children, onClick, title, active, className,
+}: {
+  children: React.ReactNode; onClick?: () => void;
+  title?: string; active?: boolean; className?: string;
+}) {
+  return (
+    <button onClick={onClick} title={title}
+      className={cn(
+        "flex items-center justify-center w-6 h-6 rounded transition-all",
+        active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted",
+        className,
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -826,7 +842,7 @@ function DropdownMenu({ children, onClose, align = "left" }: {
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div className={cn(
-        "absolute top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-xl min-w-[180px]",
+        "absolute top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-2xl min-w-[180px] py-1",
         align === "right" ? "right-0" : "left-0"
       )}>
         {children}
@@ -836,21 +852,17 @@ function DropdownMenu({ children, onClose, align = "left" }: {
 }
 
 function DropdownItem({ children, onClick, icon, disabled }: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  icon?: React.ReactNode;
-  disabled?: boolean;
+  children: React.ReactNode; onClick?: () => void; icon?: React.ReactNode; disabled?: boolean;
 }) {
   return (
     <button
       className={cn(
-        "w-full flex items-center gap-2 text-left px-3 py-2 text-xs text-foreground",
+        "w-full flex items-center gap-2 text-left px-3 py-1.5 text-xs text-foreground",
         disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/60"
       )}
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
+      onClick={disabled ? undefined : onClick} disabled={disabled}
     >
-      {icon && <span className="text-muted-foreground">{icon}</span>}
+      {icon && <span className="text-muted-foreground shrink-0">{icon}</span>}
       {children}
     </button>
   );
@@ -861,34 +873,39 @@ function DropdownItem({ children, onClick, icon, disabled }: {
 function InfoModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card border border-border rounded-xl shadow-2xl p-6 w-[400px] max-w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <svg width="22" height="22" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[4px]">
+      <div className="bg-card border border-border rounded-xl shadow-2xl p-6 w-[420px] max-w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2.5">
+            <svg width="24" height="24" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[4px]">
               <rect width="32" height="32" rx="5" fill="#E8312A"/>
               <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
             </svg>
-            <span className="font-bold text-sm">infraCore IFC Viewer</span>
+            <div>
+              <div className="font-bold text-sm">infraCore IFC Viewer</div>
+              <div className="text-[10px] text-muted-foreground">by iC consulenten ZT GmbH · VDC</div>
+            </div>
           </div>
-          <button className="toolbar-button p-1" onClick={onClose}><X size={15} /></button>
+          <button className="toolbar-button p-1.5" onClick={onClose}><X size={14} /></button>
         </div>
-        <div className="text-xs text-muted-foreground space-y-1 mb-4">
-          <p className="font-medium text-foreground">IFC Viewer by iC consulenten ZT GmbH</p>
-          <p className="text-[11px]">Kompetenzbereich VDC</p>
-          <p className="pt-1">Basierend auf web-ifc 0.0.77 + Three.js</p>
-          <p>Unterstützt Multi-Modell-Ansichten und große Koordinatensysteme (bis 20 km)</p>
+        <div className="text-xs text-muted-foreground mb-5 space-y-1">
+          <p>Basierend auf web-ifc 0.0.77 + Three.js</p>
+          <p>Multi-Modell, große Koordinatensysteme (bis 20 km), BroadcastChannel-Sync</p>
         </div>
-        <div className="border-t border-border pt-3">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Tastenkürzel</p>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <div className="border-t border-border pt-4">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Tastenkürzel</p>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
             {[
-              ["F","Alle einpassen"], ["S","Auswahl-Tool"], ["M","Mess-Tool"], ["C","Schnittebene"],
-              ["Q","SQL-Panel"], ["L","Lens Rules"], ["V","SmartViews"], ["T","Listen / Mengen"],
-              ["Esc","Abbrechen / Deselektieren"], ["Entf","Auswahl ausblenden"],
+              ["F","Alle einpassen"], ["S","Auswahl-Tool"],
+              ["M","Messen"], ["C","Schnittebene"],
+              ["N","Fly-Mode"], ["Q","SQL-Panel"],
+              ["L","Lens Rules"], ["V","SmartViews"],
+              ["T","Mengen / QTO"], ["H → H","Auswahl ausblenden"],
+              ["H → I","Auswahl isolieren"], ["H → R","Zurücksetzen"],
+              ["Esc","Abbrechen"], ["Entf","Auswahl ausblenden"],
             ].map(([key, desc]) => (
               <div key={key} className="flex items-center gap-2">
-                <kbd className="bg-muted border border-border rounded px-1.5 py-0.5 text-[10px] font-mono shrink-0">{key}</kbd>
-                <span className="text-muted-foreground">{desc}</span>
+                <kbd className="bg-muted border border-border rounded px-1.5 py-0.5 text-[10px] font-mono shrink-0 leading-none">{key}</kbd>
+                <span className="text-muted-foreground text-[11px]">{desc}</span>
               </div>
             ))}
           </div>
