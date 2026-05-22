@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import * as THREE from "three";
-import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle, type PanelImperativeHandle } from "react-resizable-panels";
 
 import { MainToolbar } from "./components/MainToolbar";
 import { HierarchyPanel } from "./components/HierarchyPanel";
@@ -23,7 +24,6 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { CollisionPanel } from "./components/CollisionPanel";
 import { DroneOverlay } from "./components/DroneOverlay";
 
-import { AlignmentPanel } from "./alignment/AlignmentPanel";
 import { ProfileViewer } from "./alignment/ProfileViewer";
 import { CrossSectionWindow } from "./alignment/CrossSectionWindow";
 import { FaceCrossSectionPanel } from "./alignment/FaceCrossSectionPanel";
@@ -207,7 +207,10 @@ function MainApp() {
     keyBindings,
   } = useModelStore();
 
-  const alignmentPanelOpen = useAlignmentStore(s => s.panelOpen);
+  const leftPanelRef  = useRef<PanelImperativeHandle | null>(null);
+  const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const [leftCollapsed, setLeftCollapsed]   = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
 
   const activeLoads = loadStates.size;
   const hasModels = models.size > 0;
@@ -493,9 +496,13 @@ function MainApp() {
       <div className="flex-1 min-h-0">
         <PanelGroup orientation="horizontal" className="h-full">
 
-          <Panel defaultSize={20} minSize={12} collapsible>
+          <Panel
+            defaultSize={20} minSize={12} collapsible
+            panelRef={leftPanelRef}
+            onResize={(s) => setLeftCollapsed(s.asPercentage === 0)}
+          >
             <div className="h-full overflow-hidden border-r border-border">
-              {(listPanelOpen || smartViewsPanelOpen || alignmentPanelOpen) ? (
+              {(listPanelOpen || smartViewsPanelOpen) ? (
                 <PanelGroup orientation="vertical" className="h-full">
                   <Panel defaultSize={50} minSize={15}>
                     <div className="h-full overflow-hidden">
@@ -503,11 +510,11 @@ function MainApp() {
                         onFitTo={handleFitTo}
                         onRemove={handleRemove}
                         onSelectElement={handleElementClick}
+                        onToggleCollapse={() => leftPanelRef.current?.collapse()}
                       />
                     </div>
                   </Panel>
                   <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
-                  {/* Stack all open sub-panels; each gets an equal share */}
                   <Panel defaultSize={50} minSize={20}>
                     <PanelGroup orientation="vertical" className="h-full">
                       {listPanelOpen && (
@@ -517,27 +524,15 @@ function MainApp() {
                               <LensRulesPanel />
                             </div>
                           </Panel>
-                          {(smartViewsPanelOpen || alignmentPanelOpen) && (
+                          {smartViewsPanelOpen && (
                             <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
                           )}
                         </>
                       )}
                       {smartViewsPanelOpen && (
-                        <>
-                          <Panel defaultSize={34} minSize={15}>
-                            <div className="h-full overflow-hidden">
-                              <SmartViewsPanel />
-                            </div>
-                          </Panel>
-                          {alignmentPanelOpen && (
-                            <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
-                          )}
-                        </>
-                      )}
-                      {alignmentPanelOpen && (
                         <Panel defaultSize={34} minSize={15}>
                           <div className="h-full overflow-hidden">
-                            <AlignmentPanel />
+                            <SmartViewsPanel />
                           </div>
                         </Panel>
                       )}
@@ -549,6 +544,7 @@ function MainApp() {
                   onFitTo={handleFitTo}
                   onRemove={handleRemove}
                   onSelectElement={handleElementClick}
+                  onToggleCollapse={() => leftPanelRef.current?.collapse()}
                 />
               )}
             </div>
@@ -561,6 +557,25 @@ function MainApp() {
               {/* 3D Viewport */}
               <div className="flex-1 relative overflow-hidden min-h-0">
                 <ViewportContainer onElementClick={handleElementClick} />
+                {/* Floating sidebar expand buttons */}
+                {leftCollapsed && (
+                  <button
+                    className="absolute left-2 top-2 z-20 bg-card/80 backdrop-blur-sm border border-border rounded p-1 text-muted-foreground hover:text-foreground hover:bg-card shadow-md transition-colors"
+                    onClick={() => leftPanelRef.current?.expand()}
+                    title="Linke Leiste einblenden"
+                  >
+                    <ChevronRight size={13} />
+                  </button>
+                )}
+                {rightCollapsed && (
+                  <button
+                    className="absolute right-2 top-2 z-20 bg-card/80 backdrop-blur-sm border border-border rounded p-1 text-muted-foreground hover:text-foreground hover:bg-card shadow-md transition-colors"
+                    onClick={() => rightPanelRef.current?.expand()}
+                    title="Rechte Leiste einblenden"
+                  >
+                    <ChevronLeft size={13} />
+                  </button>
+                )}
                 <ClipPlaneControl />
 
                 {/* Selection basket — floating top-left */}
@@ -619,8 +634,21 @@ function MainApp() {
 
           <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-          <Panel defaultSize={22} minSize={14} collapsible>
+          <Panel
+            defaultSize={22} minSize={14} collapsible
+            panelRef={rightPanelRef}
+            onResize={(s) => setRightCollapsed(s.asPercentage === 0)}
+          >
             <div className="h-full overflow-hidden border-l border-border panel-container flex flex-col">
+              <div className="shrink-0 flex items-center justify-end px-2 py-0.5 border-b border-border/30 bg-muted/10">
+                <button
+                  onClick={() => rightPanelRef.current?.collapse()}
+                  className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors"
+                  title="Leiste ausblenden"
+                >
+                  <ChevronRight size={11} />
+                </button>
+              </div>
               <ModelInfoPanel />
               <div className="flex-1 min-h-0 overflow-hidden">
                 <PropertiesPanel />

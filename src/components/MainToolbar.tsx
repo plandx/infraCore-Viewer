@@ -292,7 +292,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
       <input ref={inputRef}    type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
       <input ref={addInputRef} type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
 
-      <div className="flex flex-col shrink-0 border-b border-border bg-card text-card-foreground select-none">
+      <div className="flex flex-col shrink-0 border-b border-border bg-card text-card-foreground select-none relative z-[100]">
 
         {/* ── Row 1: Tab strip ──────────────────────────────────────────── */}
         <div className="flex items-stretch h-7 border-b border-border/60">
@@ -452,7 +452,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch }: Pro
         </div>
 
         {/* ── Row 2: Ribbon tool strip ──────────────────────────────────── */}
-        <div className="flex items-stretch h-[54px] overflow-x-auto overflow-y-hidden">
+        <div className="flex items-stretch h-[54px] overflow-visible">
 
           {activeTab === "start" && (
             <>
