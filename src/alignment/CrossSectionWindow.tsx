@@ -474,197 +474,185 @@ export function CrossSectionWindow() {
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-none">
 
-      {/* ── Title bar ─────────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-2 h-10 px-3 border-b border-border bg-card">
-        <svg width="16" height="16" viewBox="0 0 32 32" className="shrink-0 rounded-[3px]">
+      {/* ── Row 1: Title / identity bar ───────────────────────────────────── */}
+      <div className="shrink-0 flex items-center gap-2 h-7 px-3 border-b border-border/60 bg-card">
+        <svg width="14" height="14" viewBox="0 0 32 32" className="shrink-0 rounded-[3px]">
           <rect width="32" height="32" rx="5" fill="#E8312A"/>
           <text x="16" y="23" fontFamily="Arial" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle">iC</text>
         </svg>
-        <span className="font-bold text-sm">Querschnitt</span>
+        <span className="font-bold text-[11px] tracking-tight text-foreground">Querschnitt</span>
         {state?.alignmentName && (
-          <span className="text-xs text-muted-foreground">— {state.alignmentName}</span>
+          <span className="text-[11px] text-muted-foreground">—&nbsp;{state.alignmentName}</span>
         )}
         {state?.station != null && (
-          <span className="text-xs font-mono text-sky-400 ml-1">{fmtSta(state.station)}</span>
+          <span className="text-[11px] font-mono text-primary font-semibold tabular-nums">
+            {fmtSta(state.station)}
+          </span>
         )}
         <div className="flex-1" />
-        <div className="flex items-center gap-1 text-[10px]">
-          <div className={`w-1.5 h-1.5 rounded-full ${state != null ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
-          <span className="text-muted-foreground">{state != null ? "Verbunden" : "Warte auf Hauptfenster…"}</span>
-        </div>
-      </div>
-
-      {/* ── Controls bar ─────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/40 flex-wrap">
-
-        {/* Station navigation */}
-        <div className="flex items-center gap-0.5">
-          <button onClick={() => navigate(-step * 10)}
-            className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
-            title={`−${step * 10} m`}>◄◄</button>
-          <button onClick={() => navigate(-step)}
-            className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-            title={`−${step} m`}><ChevronLeft size={13} /></button>
-          <input
-            type="text" value={staInput}
-            onChange={e => setStaInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && submitSta()}
-            onBlur={submitSta}
-            className="w-28 text-center text-xs font-mono bg-muted border border-border rounded px-1.5 py-0.5 text-foreground"
-            placeholder="0+000.000"
-          />
-          <button onClick={() => navigate(step)}
-            className="flex items-center px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-            title={`+${step} m`}><ChevronRight size={13} /></button>
-          <button onClick={() => navigate(step * 10)}
-            className="px-1.5 py-0.5 rounded text-xs bg-muted hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors font-mono"
-            title={`+${step * 10} m`}>►►</button>
-        </div>
-
-        {/* Step selector */}
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] text-muted-foreground">Δ</span>
-          <select value={step} onChange={e => setStep(Number(e.target.value))}
-            className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground">
-            {[1, 5, 10, 25, 50, 100].map(s => <option key={s} value={s}>{s} m</option>)}
-          </select>
-        </div>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Mode */}
-        <div className="flex bg-muted rounded overflow-hidden text-[10px] font-medium">
-          {(["vertical", "normal"] as const).map(m => (
-            <button key={m}
-              onClick={() => send({ t: "setMode", mode: m })}
-              className={cn("px-2 py-0.5 transition-colors",
-                state?.mode === m ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {m === "vertical" ? "Vertikal" : "Normal"}
-            </button>
-          ))}
-        </div>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* 3D section surface toggle */}
-        <button
-          onClick={() => send({ t: "toggleSectionSurface" })}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            state?.showSectionSurface
-              ? "bg-sky-600 text-white"
-              : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Schnittfläche im 3D-Viewer anzeigen"
-        >
-          <Layers size={13} /> 3D-Fläche
-        </button>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Measure */}
-        <button
-          onClick={() => { setMeasActive(a => !a); setPending(null); setPtLabelMode(false); }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            measActive ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Ruler size={13} /> Messen
-        </button>
-        {pending != null && (
-          <span className="text-[10px] text-amber-400 italic">2. Punkt klicken…</span>
-        )}
-        {measurements.length > 0 && (
-          <button onClick={() => { setMeasurements([]); setPending(null); }}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-red-400 transition-colors"
-            title="Alle Messungen löschen">
-            <Trash2 size={12} />
-          </button>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Point-label tool */}
-        <button
-          onClick={() => { setPtLabelMode(a => !a); setMeasActive(false); setPending(null); }}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            ptLabelMode ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Punkt X/Y beschriften (gemessen vom Achspunkt)"
-        >
-          <MapPin size={13} /> Punkt
-        </button>
-        {pointLabels.length > 0 && (
-          <button onClick={() => setPointLabels([])}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-red-400 transition-colors"
-            title="Alle Punktbeschriftungen löschen">
-            <Trash2 size={12} />
-          </button>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Snap toggle */}
-        <button
-          onClick={() => setSnapActive(a => !a)}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            snapActive ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Fangmodus: Punkt- und Linienfang"
-        >
-          <Magnet size={13} /> Fang
-        </button>
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {/* Object labels toggle + property selector */}
-        <button
-          onClick={() => setObjLabelsVisible(a => !a)}
-          className={cn("flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors",
-            objLabelsVisible ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title="Objekte beschriften"
-        >
-          <Tag size={13} /> Objekte
-        </button>
-        {objLabelsVisible && availablePropKeys.length > 0 && (
-          <select
-            value={objLabelProp}
-            onChange={e => setObjLabelProp(e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-1 py-0.5 text-foreground max-w-[120px]"
-            title="Beschriftungsattribut"
-          >
-            {availablePropKeys.map(k => (
-              <option key={k} value={k}>{k === "name" ? "Name" : k === "type" ? "Typ" : k}</option>
-            ))}
-          </select>
-        )}
-
-        <div className="w-px h-5 bg-border mx-0.5" />
-
-        {isZoomed && (
-          <button onClick={() => { setZoomFactor(1.0); setViewCenter(null); }}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:text-foreground"
-            title="Zoom zurücksetzen">
-            <ZoomIn size={12} /> Reset
-          </button>
-        )}
-
-        {state?.computing && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
-
+        {state?.computing && <Loader2 size={11} className="animate-spin text-muted-foreground" />}
         {effW != null && (
-          <span className={cn("ml-auto text-[10px] font-mono",
+          <span className={cn("text-[10px] font-mono tabular-nums",
             snapActive && snapDisplay ? "text-amber-400" : "text-muted-foreground")}>
-            {effW[0] >= 0 ? "R" : "L"}&nbsp;{Math.abs(effW[0]).toFixed(3)} m&nbsp;&nbsp;
-            Δh&nbsp;{effW[1] >= 0 ? "+" : ""}{effW[1].toFixed(3)} m
+            {effW[0] >= 0 ? "R" : "L"}&nbsp;{Math.abs(effW[0]).toFixed(3)}&nbsp;m
+            &nbsp;&nbsp;Δh&nbsp;{effW[1] >= 0 ? "+" : ""}{effW[1].toFixed(3)}&nbsp;m
             {snapActive && snapDisplay && (
-              <span className="ml-1 text-[9px] opacity-70">
+              <span className="ml-1 text-[9px] opacity-60">
                 {snapDisplay.type === "vertex" ? "●" : "—"}
               </span>
             )}
           </span>
         )}
+        <div className="flex items-center gap-1 text-[10px] pl-2 border-l border-border/60 ml-1">
+          <div className={cn("w-1.5 h-1.5 rounded-full", state != null ? "bg-emerald-500" : "bg-muted-foreground/30")} />
+          <span className="text-muted-foreground">{state != null ? "Verbunden" : "Warte…"}</span>
+        </div>
+      </div>
+
+      {/* ── Row 2: Ribbon toolbar ─────────────────────────────────────────── */}
+      <div className="shrink-0 flex items-center gap-0 px-1 h-9 border-b border-border bg-card/60 overflow-x-auto">
+
+        {/* ── STATION group ── */}
+        <XsGroup label="Station">
+          <button onClick={() => navigate(-step * 10)}
+            className="xs-btn font-mono text-[11px] px-1"
+            title={`−${step * 10} m`}>◄◄</button>
+          <button onClick={() => navigate(-step)}
+            className="xs-btn" title={`−${step} m`}>
+            <ChevronLeft size={13} />
+          </button>
+          <input
+            type="text" value={staInput}
+            onChange={e => setStaInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && submitSta()}
+            onBlur={submitSta}
+            className="w-[108px] text-center text-[11px] font-mono tabular-nums bg-muted border border-border rounded px-1.5 py-0.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            placeholder="0+000.000"
+          />
+          <button onClick={() => navigate(step)}
+            className="xs-btn" title={`+${step} m`}>
+            <ChevronRight size={13} />
+          </button>
+          <button onClick={() => navigate(step * 10)}
+            className="xs-btn font-mono text-[11px] px-1"
+            title={`+${step * 10} m`}>►►</button>
+          <div className="flex items-center gap-1 ml-1">
+            <span className="text-[9px] text-muted-foreground font-semibold">Δ</span>
+            <select value={step} onChange={e => setStep(Number(e.target.value))}
+              className="text-[10px] bg-muted border border-border rounded px-1 py-0.5 text-foreground">
+              {[1, 5, 10, 25, 50, 100].map(s => <option key={s} value={s}>{s} m</option>)}
+            </select>
+          </div>
+        </XsGroup>
+
+        {/* ── MODUS group ── */}
+        <XsGroup label="Modus">
+          <div className="flex rounded overflow-hidden border border-border">
+            {(["vertical", "normal"] as const).map((m, i) => (
+              <button key={m}
+                onClick={() => send({ t: "setMode", mode: m })}
+                className={cn(
+                  "px-2.5 py-0.5 text-[10px] font-medium transition-colors",
+                  i > 0 && "border-l border-border",
+                  state?.mode === m
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {m === "vertical" ? "Vertikal" : "Normal"}
+              </button>
+            ))}
+          </div>
+        </XsGroup>
+
+        {/* ── WERKZEUGE group ── */}
+        <XsGroup label="Werkzeuge">
+          <XsToolBtn
+            active={measActive}
+            title="Abstand messen — 2 Punkte klicken"
+            onClick={() => { setMeasActive(a => !a); setPending(null); setPtLabelMode(false); }}
+          >
+            <Ruler size={13} />
+            <span>Messen</span>
+            {pending != null && <span className="text-[9px] italic opacity-70">2. Pkt…</span>}
+            {measurements.length > 0 && (
+              <span className="bg-primary/20 text-primary text-[8px] px-1 rounded-full font-mono">{measurements.length}</span>
+            )}
+          </XsToolBtn>
+          {measurements.length > 0 && (
+            <button onClick={() => { setMeasurements([]); setPending(null); }}
+              className="xs-btn text-muted-foreground hover:text-destructive"
+              title="Messungen löschen">
+              <Trash2 size={12} />
+            </button>
+          )}
+          <XsToolBtn
+            active={ptLabelMode}
+            title="Punkt beschriften — X/Y vom Achspunkt"
+            onClick={() => { setPtLabelMode(a => !a); setMeasActive(false); setPending(null); }}
+          >
+            <MapPin size={13} />
+            <span>Punkt</span>
+            {pointLabels.length > 0 && (
+              <span className="bg-primary/20 text-primary text-[8px] px-1 rounded-full font-mono">{pointLabels.length}</span>
+            )}
+          </XsToolBtn>
+          {pointLabels.length > 0 && (
+            <button onClick={() => setPointLabels([])}
+              className="xs-btn text-muted-foreground hover:text-destructive"
+              title="Punktbeschriftungen löschen">
+              <Trash2 size={12} />
+            </button>
+          )}
+        </XsGroup>
+
+        {/* ── OPTIONEN group ── */}
+        <XsGroup label="Optionen">
+          <XsToolBtn
+            active={snapActive}
+            title="Fangmodus: Punkt- und Linienfang"
+            onClick={() => setSnapActive(a => !a)}
+          >
+            <Magnet size={13} />
+            <span>Fang</span>
+          </XsToolBtn>
+          <XsToolBtn
+            active={!!state?.showSectionSurface}
+            title="Schnittfläche im 3D-Viewer anzeigen"
+            onClick={() => send({ t: "toggleSectionSurface" })}
+          >
+            <Layers size={13} />
+            <span>3D-Fläche</span>
+          </XsToolBtn>
+          <XsToolBtn
+            active={objLabelsVisible}
+            title="Objekte beschriften"
+            onClick={() => setObjLabelsVisible(a => !a)}
+          >
+            <Tag size={13} />
+            <span>Objekte</span>
+          </XsToolBtn>
+          {objLabelsVisible && availablePropKeys.length > 0 && (
+            <select
+              value={objLabelProp}
+              onChange={e => setObjLabelProp(e.target.value)}
+              className="text-[10px] bg-muted border border-border rounded px-1 py-0.5 text-foreground max-w-[100px]"
+              title="Beschriftungsattribut"
+            >
+              {availablePropKeys.map(k => (
+                <option key={k} value={k}>{k === "name" ? "Name" : k === "type" ? "Typ" : k}</option>
+              ))}
+            </select>
+          )}
+          {isZoomed && (
+            <button onClick={() => { setZoomFactor(1.0); setViewCenter(null); }}
+              className="xs-btn gap-1 text-muted-foreground hover:text-foreground"
+              title="Zoom zurücksetzen">
+              <ZoomIn size={12} />
+              <span className="text-[10px]">Reset</span>
+            </button>
+          )}
+        </XsGroup>
       </div>
 
       {/* ── Chart + measurements sidebar ─────────────────────────────────── */}
@@ -937,5 +925,39 @@ export function CrossSectionWindow() {
         )}
       </div>
     </div>
+  );
+}
+
+// ── CrossSection toolbar helpers ──────────────────────────────────────────────
+
+function XsGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-0.5 px-1.5 h-full border-r border-border/50 last:border-r-0">
+      {children}
+    </div>
+  );
+}
+
+function XsToolBtn({
+  children, active, onClick, title,
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+  onClick: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={cn(
+        "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all",
+        active
+          ? "bg-primary/15 text-primary"
+          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+      )}
+    >
+      {children}
+    </button>
   );
 }
