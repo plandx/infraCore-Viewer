@@ -682,7 +682,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
             <>
               {/* 5D-ABRECHNUNG */}
               <RibbonGroup label="5D-Abrechnung">
-                <div className="relative group/popout5d flex flex-col items-center">
+                <div className="relative group/popout5d h-full">
                   <RibbonLargeBtn
                     icon={<BarChart2 size={18} />}
                     label={billing5DCount > 0 ? `5D-Panel (${billing5DCount})` : "5D-Panel"}
@@ -745,11 +745,11 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 function RibbonGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-stretch border-r border-border/40 last:border-r-0">
-      <div className="flex flex-col min-w-0">
-        <div className="flex items-center gap-1 px-2 pt-2 pb-0.5 flex-1">
+      <div className="flex flex-col">
+        <div className="flex items-stretch gap-1 px-2 flex-1">
           {children}
         </div>
-        <div className="px-2 pb-1.5 text-[8.5px] font-semibold uppercase tracking-wider text-muted-foreground/80 text-center leading-none whitespace-nowrap">
+        <div className="flex items-center justify-center h-[18px] px-2 text-[8px] font-semibold uppercase tracking-wider text-muted-foreground/60 whitespace-nowrap border-t border-border/25">
           {label}
         </div>
       </div>
@@ -765,11 +765,11 @@ function RibbonLargeBtn({
   primary?: boolean; kbd?: string; popout?: () => void; className?: string;
 }) {
   return (
-    <div className="relative group/lbtn flex flex-col items-center">
+    <div className="relative group/lbtn h-full">
       <button
         onClick={onClick} disabled={disabled} title={title}
         className={cn(
-          "flex flex-col items-center justify-center gap-1 px-2.5 py-1.5 rounded-md transition-all min-w-[48px] h-full text-center",
+          "flex flex-col items-center justify-center gap-0.5 px-2.5 rounded-md transition-all min-w-[48px] h-full w-full text-center",
           primary && !active && "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
           !primary && active && "bg-primary/15 text-primary ring-1 ring-primary/30",
           !primary && !active && "text-foreground/80 hover:bg-muted/70 hover:text-foreground",
