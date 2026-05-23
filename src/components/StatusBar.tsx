@@ -54,7 +54,10 @@ export function StatusBar() {
   }, 0);
 
   return (
-    <div className="flex items-center h-7 px-3 gap-4 border-t border-border bg-card text-[11px] text-muted-foreground shrink-0 select-none">
+    <div
+      className="flex items-center h-8 px-3 gap-4 border-t border-border text-[11px] text-muted-foreground shrink-0 select-none"
+      style={{ background: 'var(--toolbar-bg)' }}
+    >
       {/* Left */}
       <div className="flex items-center gap-1.5">
         <Layers size={11} />

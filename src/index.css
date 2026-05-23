@@ -24,6 +24,9 @@
   --tokyo-teal:         #73daca;
   --tokyo-red:          #f7768e;
 
+  /* Toolbar background */
+  --toolbar-bg: hsl(220 13% 94%);
+
   /* Hierarchy – light */
   --hierarchy-selected-bg:   #e4e4e7;
   --hierarchy-selected-text: #18181b;
@@ -48,6 +51,7 @@
   --tab-text:        #565f89;
   --tab-active-bg:   #16161e;
   --tab-active-text: #a9b1d6;
+  --toolbar-bg:      var(--tokyo-bg-dark);
 }
 
 /* ── Tailwind theme tokens ─────────────────────────────────────────── */
