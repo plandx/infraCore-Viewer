@@ -29,26 +29,18 @@ function isWorldVisLS(obj: THREE.Object3D): boolean {
   return true;
 }
 
-function shouldSkipMesh(obj: THREE.Mesh): boolean {
-  if (obj.userData.isAlignment || obj.userData.isEdge ||
-      (obj.name ?? "").startsWith("__")) return true;
-  if (obj.userData.isHighlight || obj.userData.isSectionVisual ||
-      obj.userData.isSectionCap || obj.userData.isBillingOverlay ||
-      obj.userData.isXSSurface) return true;
-  if (obj.userData.expressId == null) return true;
-  return false;
-}
-
 /**
  * Slices the scene with a series of vertical planes, one per alignment polyline
- * segment, in a single scene traversal.
+ * segment, in a single pass over the pre-filtered mesh list.
+ *
+ * Pass pickableMeshesRef.current (or equivalent); invisible elements are
+ * skipped internally via isWorldVisLS.
  *
  * Performance: each mesh's vertices are projected to world space once as a
- * Float32Array; the inner segment×triangle loop uses only raw arithmetic,
- * avoiding repeated applyMatrix4 and Vector3 allocations.
+ * Float32Array; the inner segment×triangle loop uses only raw arithmetic.
  */
 export function sliceSceneLS(
-  scene: THREE.Scene,
+  meshes: THREE.Mesh[],
   segs: LSSegmentPlane[],
   staStart: number,
   staEnd: number,
@@ -58,19 +50,19 @@ export function sliceSceneLS(
   const EPS = 1e-5;
   const result: LSLine[] = [];
 
-  scene.traverse(obj => {
-    if (!(obj instanceof THREE.Mesh)) return;
-    if (!isWorldVisLS(obj)) return;
-    if (shouldSkipMesh(obj)) return;
+  for (const obj of meshes) {
+    if (!isWorldVisLS(obj)) continue;
 
     const geom = obj.geometry as THREE.BufferGeometry;
-    if (!geom?.attributes?.position) return;
+    if (!geom?.attributes?.position) continue;
     if (!geom.boundingSphere) geom.computeBoundingSphere();
 
     const bs = geom.boundingSphere!;
-    const bsC = bs.center.clone().applyMatrix4(obj.matrixWorld);
+    const me = obj.matrixWorld.elements;
+    // Transform bounding sphere center (no Vector3 allocation)
+    const bsX = me[0]*bs.center.x + me[4]*bs.center.y + me[8]*bs.center.z + me[12];
+    const bsZ = me[2]*bs.center.x + me[6]*bs.center.y + me[10]*bs.center.z + me[14];
     const radius = bs.radius * (obj.matrixWorld.getMaxScaleOnAxis?.() ?? 1);
-    const cX = bsC.x, cZ = bsC.z;
 
     const mat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
     const col = (mat as THREE.MeshStandardMaterial)?.color;
@@ -82,10 +74,9 @@ export function sliceSceneLS(
     const eid = obj.userData.expressId as number | undefined;
     const objectKey = (modelId && eid != null) ? `${modelId}:${eid}` : undefined;
 
-    // Project all vertices to world space once
+    // Pre-transform all vertices to world space (Float32Array)
     const pos = geom.attributes.position as THREE.BufferAttribute;
     const idx = geom.index;
-    const me  = obj.matrixWorld.elements;
     const m11 = me[0], m12 = me[4], m13 = me[8],  m14 = me[12];
     const m21 = me[1], m22 = me[5], m23 = me[9],  m24 = me[13];
     const m31 = me[2], m32 = me[6], m33 = me[10], m34 = me[14];
@@ -107,7 +98,7 @@ export function sliceSceneLS(
       const hLen = seg.hLen;
 
       // Fast bounding-sphere reject (horizontal axes only — normal is horizontal)
-      const cdx = cX - so_x, cdz = cZ - so_z;
+      const cdx = bsX - so_x, cdz = bsZ - so_z;
       const distN = cdx * sn_x + cdz * sn_z;
       if (Math.abs(distN) > radius + EPS) continue;
       const distR = cdx * sr_x + cdz * sr_z;
@@ -164,7 +155,7 @@ export function sliceSceneLS(
         result.push({ sta1, elev1: y1, sta2, elev2: y2, color, objectKey });
       }
     }
-  });
+  }
 
   return result;
 }
@@ -172,51 +163,60 @@ export function sliceSceneLS(
 /**
  * Computes depth-view lines for the longitudinal section.
  *
- * Each mesh near the alignment plane series is classified as:
- *   hidden = false  →  Ansichtslinie  (no geometry between the cut plane and this mesh)
- *   hidden = true   →  Verdeckte Linie (another mesh occludes the view from the cut plane)
+ * Occlusion is tested per edge using 2D axis-aligned bounding boxes:
+ *   1. Phase 1 — collect world-space AABB for every candidate mesh (8-corner
+ *      transform, correct for any rotation).  No raycasting.
+ *   2. Phase 2 — for each edge midpoint, test whether any other mesh whose AABB
+ *      center is closer to the cut plane laterally covers that midpoint.
  *
- * Occlusion is tested per mesh: a horizontal ray is cast from the mesh-center
- * projected onto the closest segment plane; if any other mesh is hit closer than
- * the mesh center, the whole mesh is treated as hidden.
+ * This replaces the previous per-edge raycaster (O(E×M×T)) with an O(E×M)
+ * AABB test, eliminating the dominant cost entirely.
  */
 export function computeLSDepthLines(
-  scene: THREE.Scene,
+  meshes: THREE.Mesh[],
   segs: LSSegmentPlane[],
   staStart: number,
   staEnd: number,
   maxDist: number,
 ): LSDepthLine[] {
-  if (segs.length === 0) return [];
+  if (segs.length === 0 || meshes.length === 0) return [];
 
-  // First pass: collect all candidate meshes (needed for raycasting)
-  const allMeshes: THREE.Mesh[] = [];
-  scene.traverse(obj => {
-    if (obj instanceof THREE.Mesh && isWorldVisLS(obj) && !shouldSkipMesh(obj))
-      allMeshes.push(obj);
-  });
-  if (allMeshes.length === 0) return [];
+  // ── Phase 1: Build per-mesh metadata (world AABB, best segment, edge buffer) ─
 
-  const rc  = new THREE.Raycaster();
-  const p1w = new THREE.Vector3();
-  const p2w = new THREE.Vector3();
-  const result: LSDepthLine[] = [];
+  interface MeshInfo {
+    mesh:     THREE.Mesh;
+    seg:      LSSegmentPlane;
+    absN:     number;       // distance from seg.normal (for segment assignment only)
+    color:    string;
+    // World-space AABB (8-corner transform — correct even for rotated meshes)
+    wxMin: number; wxMax: number;
+    wyMin: number; wyMax: number;
+    wzMin: number; wzMax: number;
+    // XZ center for signed-depth projection
+    wxCenter: number; wzCenter: number;
+    edgePos:  THREE.BufferAttribute;
+    tempGeo:  THREE.EdgesGeometry | null;
+  }
 
-  for (const obj of allMeshes) {
+  const infos: MeshInfo[] = [];
+
+  for (const obj of meshes) {
+    if (!isWorldVisLS(obj)) continue;
+
     const geom = obj.geometry as THREE.BufferGeometry;
     if (!geom?.attributes?.position) continue;
     if (!geom.boundingSphere) geom.computeBoundingSphere();
 
-    const bs     = geom.boundingSphere!;
-    const center = bs.center.clone().applyMatrix4(obj.matrixWorld);
+    const bs  = geom.boundingSphere!;
+    const me  = obj.matrixWorld.elements;
+    // Transform bounding sphere center to world XZ (no Vector3 allocation)
+    const cX  = me[0]*bs.center.x + me[4]*bs.center.y + me[8]*bs.center.z + me[12];
+    const cZ  = me[2]*bs.center.x + me[6]*bs.center.y + me[10]*bs.center.z + me[14];
     const radius = bs.radius * (obj.matrixWorld.getMaxScaleOnAxis?.() ?? 1);
-    const cX = center.x, cZ = center.z;
 
-    // Find closest segment within maxDist; track signed horizontal distance
+    // Find closest segment that covers this mesh
     let bestSeg: LSSegmentPlane | null = null;
-    let bestDistN = 0;
-    let bestAbsN  = Infinity;
-
+    let bestAbsN = Infinity;
     for (const seg of segs) {
       const cdx = cX - seg.origin.x, cdz = cZ - seg.origin.z;
       const dn   = cdx * seg.normal.x + cdz * seg.normal.z;
@@ -224,18 +224,40 @@ export function computeLSDepthLines(
       if (absN - radius > maxDist) continue;
       const distR = cdx * seg.right.x + cdz * seg.right.z;
       if (distR + radius < -1 || distR - radius > seg.hLen + 1) continue;
-      if (absN < bestAbsN) { bestAbsN = absN; bestSeg = seg; bestDistN = dn; }
+      if (absN < bestAbsN) { bestAbsN = absN; bestSeg = seg; }
     }
     if (!bestSeg) continue;
-
-    const seg   = bestSeg;
-    const distN = bestDistN;           // signed horizontal distance from segment plane
-    const absN  = Math.abs(distN);
 
     const mat   = Array.isArray(obj.material) ? obj.material[0] : obj.material;
     const col   = (mat as THREE.MeshStandardMaterial)?.color;
     const color = col ? `#${col.getHexString()}` : "#888888";
 
+    // Exact world-space AABB via 8-corner transform (handles arbitrary rotation)
+    if (!geom.boundingBox) geom.computeBoundingBox();
+    const bb   = geom.boundingBox!;
+    const m11 = me[0], m12 = me[4], m13 = me[8],  m14 = me[12];
+    const m21 = me[1], m22 = me[5], m23 = me[9],  m24 = me[13];
+    const m31 = me[2], m32 = me[6], m33 = me[10], m34 = me[14];
+    let wxMin = Infinity, wxMax = -Infinity;
+    let wyMin = Infinity, wyMax = -Infinity;
+    let wzMin = Infinity, wzMax = -Infinity;
+    for (let bx = 0; bx < 2; bx++) {
+      for (let by = 0; by < 2; by++) {
+        for (let bz = 0; bz < 2; bz++) {
+          const lx = bx ? bb.max.x : bb.min.x;
+          const ly = by ? bb.max.y : bb.min.y;
+          const lz = bz ? bb.max.z : bb.min.z;
+          const wx = m11*lx + m12*ly + m13*lz + m14;
+          const wy = m21*lx + m22*ly + m23*lz + m24;
+          const wz = m31*lx + m32*ly + m33*lz + m34;
+          if (wx < wxMin) wxMin = wx; if (wx > wxMax) wxMax = wx;
+          if (wy < wyMin) wyMin = wy; if (wy > wyMax) wyMax = wy;
+          if (wz < wzMin) wzMin = wz; if (wz > wzMax) wzMax = wz;
+        }
+      }
+    }
+
+    // Edge buffer: prefer pre-built edge child, otherwise compute temporarily
     const edgeChild = obj.children.find(c => c.userData.isEdge) as THREE.LineSegments | undefined;
     let edgePos: THREE.BufferAttribute;
     let tempGeo: THREE.EdgesGeometry | null = null;
@@ -246,15 +268,32 @@ export function computeLSDepthLines(
       edgePos = tempGeo.attributes.position as THREE.BufferAttribute;
     }
 
-    const wm = obj.matrixWorld;
+    infos.push({
+      mesh: obj, seg: bestSeg, absN: bestAbsN, color,
+      wxMin, wxMax, wyMin, wyMax, wzMin, wzMax,
+      wxCenter: (wxMin + wxMax) * 0.5,
+      wzCenter: (wzMin + wzMax) * 0.5,
+      edgePos, tempGeo,
+    });
+  }
+
+  // ── Phase 2: Per-edge with AABB occlusion test (no raycasting) ───────────────
+
+  const p1w = new THREE.Vector3();
+  const p2w = new THREE.Vector3();
+  const result: LSDepthLine[] = [];
+
+  for (const info of infos) {
+    const { edgePos, tempGeo, color } = info;
+    const wm = info.mesh.matrixWorld;
 
     for (let i = 0; i < edgePos.count; i += 2) {
       p1w.fromBufferAttribute(edgePos, i).applyMatrix4(wm);
       p2w.fromBufferAttribute(edgePos, i + 1).applyMatrix4(wm);
 
+      // Find edge's closest segment plane
       let edgeSeg: LSSegmentPlane | null = null;
-      let edgeBestAbsN = Infinity;
-
+      let edgeBestAvg = Infinity;
       for (const s of segs) {
         const dx1 = p1w.x - s.origin.x, dz1 = p1w.z - s.origin.z;
         const dx2 = p2w.x - s.origin.x, dz2 = p2w.z - s.origin.z;
@@ -264,39 +303,62 @@ export function computeLSDepthLines(
         const r1 = dx1 * s.right.x + dz1 * s.right.z;
         const r2 = dx2 * s.right.x + dz2 * s.right.z;
         if (Math.min(r1, r2) > s.hLen + 1 || Math.max(r1, r2) < -1) continue;
-        const avg = (d1 + d2) / 2;
-        if (avg < edgeBestAbsN) { edgeBestAbsN = avg; edgeSeg = s; }
+        const avg = (d1 + d2) * 0.5;
+        if (avg < edgeBestAvg) { edgeBestAvg = avg; edgeSeg = s; }
       }
       if (!edgeSeg) continue;
 
       const s    = edgeSeg;
-      const dx1  = p1w.x - s.origin.x, dz1 = p1w.z - s.origin.z;
-      const dx2  = p2w.x - s.origin.x, dz2 = p2w.z - s.origin.z;
-      const r1   = dx1 * s.right.x + dz1 * s.right.z;
-      const r2   = dx2 * s.right.x + dz2 * s.right.z;
+      const snx  = s.normal.x, snz = s.normal.z;
+      const sox  = s.origin.x, soz = s.origin.z;
+      const srx  = s.right.x,  srz = s.right.z;
+      const dx1  = p1w.x - sox, dz1 = p1w.z - soz;
+      const dx2  = p2w.x - sox, dz2 = p2w.z - soz;
+      const r1   = dx1 * srx + dz1 * srz;
+      const r2   = dx2 * srx + dz2 * srz;
       const scale = s.staDiff / (s.hLen || 1);
       const sta1 = s.staA + r1 * scale;
       const sta2 = s.staA + r2 * scale;
 
       if (Math.max(sta1, sta2) < staStart || Math.min(sta1, sta2) > staEnd) continue;
 
-      // Per-edge occlusion test: cast a ray from the edge midpoint's projection
-      // onto the nearest segment plane toward the 3D midpoint itself.
+      // Midpoint in edge's segment frame
       const mx = (p1w.x + p2w.x) * 0.5;
-      const my = (p1w.y + p2w.y) * 0.5;
       const mz = (p1w.z + p2w.z) * 0.5;
-      const mdx = mx - s.origin.x, mdz = mz - s.origin.z;
-      const mDistN = mdx * s.normal.x + mdz * s.normal.z;
-      const mAbsN  = Math.abs(mDistN);
-      const mSign  = mDistN >= 0 ? 1 : -1;
-      const rayOx  = mx - s.normal.x * mDistN;
-      const rayOz  = mz - s.normal.z * mDistN;
-      rc.set(
-        new THREE.Vector3(rayOx, my, rayOz),
-        new THREE.Vector3(s.normal.x * mSign, 0, s.normal.z * mSign),
-      );
-      const hits = rc.intersectObjects(allMeshes as THREE.Object3D[], false);
-      const isHidden = hits.length > 0 && hits[0].distance < mAbsN - 0.05;
+      const mElev     = (p1w.y + p2w.y) * 0.5;
+      const mrMid     = (r1 + r2) * 0.5;
+      // Signed depth from cut plane (positive = element side)
+      const mSignedN  = (mx - sox) * snx + (mz - soz) * snz;
+      const mAbsN     = Math.abs(mSignedN);
+
+      // AABB occlusion: check if any other mesh's world AABB, projected onto
+      // the edge's segment coordinate frame, covers the edge midpoint AND is
+      // closer to the cut plane than the edge.
+      let isHidden = false;
+      for (const other of infos) {
+        if (other === info) continue;
+
+        // Occluder must be on the same side of the cut plane and strictly closer
+        const oSignedN = (other.wxCenter - sox) * snx + (other.wzCenter - soz) * snz;
+        if (oSignedN * mSignedN <= 0) continue;          // opposite side
+        if (Math.abs(oSignedN) >= mAbsN - 0.05) continue; // not closer
+
+        // Fast elevation check
+        if (mElev < other.wyMin || mElev > other.wyMax) continue;
+
+        // Project occluder's XZ bounding box onto edge's right direction for r-range
+        // (correct for any alignment curvature — all projections in edgeSeg frame)
+        const dxMin = other.wxMin - sox, dzMin = other.wzMin - soz;
+        const dxMax = other.wxMax - sox, dzMax = other.wzMax - soz;
+        const rA = dxMin*srx + dzMin*srz;
+        const rB = dxMax*srx + dzMin*srz;
+        const rC = dxMax*srx + dzMax*srz;
+        const rD = dxMin*srx + dzMax*srz;
+        const oRMin = Math.min(rA, rB, rC, rD);
+        const oRMax = Math.max(rA, rB, rC, rD);
+
+        if (mrMid >= oRMin && mrMid <= oRMax) { isHidden = true; break; }
+      }
 
       result.push({ sta1, elev1: p1w.y, sta2, elev2: p2w.y, hidden: isHidden, color });
     }

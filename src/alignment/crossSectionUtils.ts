@@ -12,6 +12,8 @@ export interface SectionPolygon {
   points: Array<[number, number]>;
   color: string;
   objectKey?: string;
+  /** 2D bounding box for fast rejection before full point-in-polygon test */
+  minX: number; minY: number; maxX: number; maxY: number;
 }
 
 function qKey(x: number, y: number, eps: number): string {
@@ -38,15 +40,15 @@ export function buildSectionPolygons(lines: SectionLine[], eps = 1e-3): SectionP
 
     // Build adjacency: quantized endpoint key → [(lineIdx, endIdx)]
     const adj = new Map<string, Array<[number, number]>>();
-    const push = (key: string, li: number, ei: number) => {
+    const pushAdj = (key: string, li: number, ei: number) => {
       let a = adj.get(key);
       if (!a) { a = []; adj.set(key, a); }
       a.push([li, ei]);
     };
     for (let i = 0; i < group.length; i++) {
       const l = group[i];
-      push(qKey(l.x1, l.y1, eps), i, 0);
-      push(qKey(l.x2, l.y2, eps), i, 1);
+      pushAdj(qKey(l.x1, l.y1, eps), i, 0);
+      pushAdj(qKey(l.x2, l.y2, eps), i, 1);
     }
 
     for (let start = 0; start < group.length; start++) {
@@ -80,14 +82,20 @@ export function buildSectionPolygons(lines: SectionLine[], eps = 1e-3): SectionP
 
       if (nextKey !== startKey || chain.length < 3) continue;
 
-      // Shoelace area test
+      // Shoelace area + AABB in one pass
       let area = 0;
       const n = chain.length;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
         area += chain[i][0] * chain[j][1] - chain[j][0] * chain[i][1];
+        if (chain[i][0] < minX) minX = chain[i][0];
+        if (chain[i][1] < minY) minY = chain[i][1];
+        if (chain[i][0] > maxX) maxX = chain[i][0];
+        if (chain[i][1] > maxY) maxY = chain[i][1];
       }
-      if (Math.abs(area) / 2 >= 0.01) results.push({ points: chain, color, objectKey });
+      if (Math.abs(area) / 2 >= 0.01)
+        results.push({ points: chain, color, objectKey, minX, minY, maxX, maxY });
     }
   }
 
@@ -111,23 +119,6 @@ export function pointInPolygon(px: number, py: number, polygon: Array<[number, n
   return inside;
 }
 
-// Pre-allocated to avoid GC pressure in the hot loop
-const _vA = new THREE.Vector3();
-const _vB = new THREE.Vector3();
-const _vC = new THREE.Vector3();
-const _pt = new THREE.Vector3();
-const _dq = new THREE.Vector3();
-
-function project2d(
-  p: THREE.Vector3,
-  origin: THREE.Vector3,
-  right: THREE.Vector3,
-  up: THREE.Vector3,
-): [number, number] {
-  _dq.copy(p).sub(origin);
-  return [_dq.dot(right), _dq.dot(up)];
-}
-
 function isWorldVisible(obj: THREE.Object3D): boolean {
   let n: THREE.Object3D | null = obj;
   while (n) { if (!n.visible) return false; n = n.parent; }
@@ -135,8 +126,15 @@ function isWorldVisible(obj: THREE.Object3D): boolean {
 }
 
 /**
- * Slices all visible meshes in the scene with the given plane and returns
+ * Slices a pre-filtered array of IFC meshes with the given plane and returns
  * the intersection line segments projected into 2D cross-section space.
+ *
+ * Pass pickableMeshesRef.current (or equivalent) — invisible (hidden/isolated)
+ * elements are skipped via isWorldVisible.
+ *
+ * All vertex-to-world transforms are done once per mesh as a flat Float32Array;
+ * edge intersections are fully inlined (no per-triangle closures, no Vector3
+ * allocations) so the hot triangle loop is JIT-friendly.
  *
  * origin  – world-space point on the plane
  * normal  – unit vector perpendicular to the plane (= alignment tangent direction)
@@ -144,7 +142,7 @@ function isWorldVisible(obj: THREE.Object3D): boolean {
  * up      – unit vector pointing "up" in the cross-section (positive Y)
  */
 export function sliceScene(
-  scene: THREE.Scene,
+  meshes: THREE.Mesh[],
   origin: THREE.Vector3,
   normal: THREE.Vector3,
   right: THREE.Vector3,
@@ -152,75 +150,100 @@ export function sliceScene(
 ): SectionLine[] {
   const lines: SectionLine[] = [];
   const EPS = 1e-5;
+  const ox = origin.x, oy = origin.y, oz = origin.z;
+  const nx = normal.x, ny = normal.y, nz = normal.z;
+  const rx = right.x,  ry = right.y,  rz = right.z;
+  const ux = up.x,     uy = up.y,     uz = up.z;
 
-  scene.traverse(obj => {
-    if (!(obj instanceof THREE.Mesh)) return;
-    if (!isWorldVisible(obj)) return;
-    // Skip helper objects (alignment lines, edge overlays, grid, axes, section indicator)
-    if (obj.userData.isAlignment || obj.userData.isEdge || (obj.name ?? "").startsWith("__")) return;
+  for (const obj of meshes) {
+    if (!isWorldVisible(obj)) continue;
 
     const geom = obj.geometry as THREE.BufferGeometry;
-    if (!geom?.attributes?.position) return;
+    if (!geom?.attributes?.position) continue;
 
     // Bounding sphere pre-filter: skip meshes fully on one side of the plane
     if (!geom.boundingSphere) geom.computeBoundingSphere();
     if (geom.boundingSphere) {
-      const radius = geom.boundingSphere.radius * (obj.matrixWorld.getMaxScaleOnAxis?.() ?? 1);
-      _pt.copy(geom.boundingSphere.center).applyMatrix4(obj.matrixWorld);
-      _dq.copy(_pt).sub(origin);
-      if (Math.abs(_dq.dot(normal)) > radius + EPS) return;
+      const bs  = geom.boundingSphere;
+      const me  = obj.matrixWorld.elements;
+      // Transform sphere center to world space (no Vector3 allocation)
+      const bcx = me[0]*bs.center.x + me[4]*bs.center.y + me[8]*bs.center.z + me[12];
+      const bcy = me[1]*bs.center.x + me[5]*bs.center.y + me[9]*bs.center.z + me[13];
+      const bcz = me[2]*bs.center.x + me[6]*bs.center.y + me[10]*bs.center.z + me[14];
+      const rad = bs.radius * (obj.matrixWorld.getMaxScaleOnAxis?.() ?? 1);
+      if (Math.abs((bcx-ox)*nx + (bcy-oy)*ny + (bcz-oz)*nz) > rad + EPS) continue;
     }
 
     const mat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
     const col = (mat as THREE.MeshStandardMaterial)?.color;
     const color = col ? `#${col.getHexString()}` : "#888";
 
-    // Resolve objectKey once per mesh (walk parent chain for modelId)
-    let _mid: string | undefined;
+    let _mid = "";
     let _n: THREE.Object3D | null = obj.parent;
     while (_n) { if (_n.userData.modelId) { _mid = _n.userData.modelId as string; break; } _n = _n.parent; }
     const _eid = obj.userData.expressId as number | undefined;
-    const objectKey = (_mid != null && _eid != null) ? `${_mid}:${_eid}` : undefined;
+    const objectKey = (_mid && _eid != null) ? `${_mid}:${_eid}` : undefined;
 
-    const pos = geom.attributes.position as THREE.BufferAttribute;
-    const idx = geom.index;
-    const mx  = obj.matrixWorld;
-    const triCount = idx ? idx.count / 3 : Math.floor(pos.count / 3);
+    // Pre-transform all vertices to world space (Float32Array, cache-friendly)
+    const pos    = geom.attributes.position as THREE.BufferAttribute;
+    const idx    = geom.index;
+    const me     = obj.matrixWorld.elements;
+    const m11 = me[0], m12 = me[4], m13 = me[8],  m14 = me[12];
+    const m21 = me[1], m22 = me[5], m23 = me[9],  m24 = me[13];
+    const m31 = me[2], m32 = me[6], m33 = me[10], m34 = me[14];
+    const vCount = pos.count;
+    const wp = new Float32Array(vCount * 3);
+    for (let v = 0; v < vCount; v++) {
+      const lx = pos.getX(v), ly = pos.getY(v), lz = pos.getZ(v);
+      const vi = v * 3;
+      wp[vi]   = m11*lx + m12*ly + m13*lz + m14;
+      wp[vi+1] = m21*lx + m22*ly + m23*lz + m24;
+      wp[vi+2] = m31*lx + m32*ly + m33*lz + m34;
+    }
 
-    for (let t = 0; t < triCount; t++) {
+    const nTri = idx ? idx.count / 3 : Math.floor(vCount / 3);
+    for (let t = 0; t < nTri; t++) {
       const i0 = idx ? idx.getX(t * 3)     : t * 3;
       const i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1;
       const i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+      const a3 = i0 * 3, b3 = i1 * 3, c3 = i2 * 3;
 
-      _vA.fromBufferAttribute(pos, i0).applyMatrix4(mx);
-      _vB.fromBufferAttribute(pos, i1).applyMatrix4(mx);
-      _vC.fromBufferAttribute(pos, i2).applyMatrix4(mx);
+      const ax = wp[a3], ay = wp[a3+1], az = wp[a3+2];
+      const bx = wp[b3], by = wp[b3+1], bz = wp[b3+2];
+      const cx = wp[c3], cy = wp[c3+1], cz = wp[c3+2];
 
-      _dq.copy(_vA).sub(origin); const dA = _dq.dot(normal);
-      _dq.copy(_vB).sub(origin); const dB = _dq.dot(normal);
-      _dq.copy(_vC).sub(origin); const dC = _dq.dot(normal);
+      const dA = (ax-ox)*nx + (ay-oy)*ny + (az-oz)*nz;
+      const dB = (bx-ox)*nx + (by-oy)*ny + (bz-oz)*nz;
+      const dC = (cx-ox)*nx + (cy-oy)*ny + (cz-oz)*nz;
 
-      // Skip triangles entirely on one side of the plane
       if (dA > -EPS && dB > -EPS && dC > -EPS) continue;
       if (dA <  EPS && dB <  EPS && dC <  EPS) continue;
 
-      const pts: [number, number][] = [];
-      const edge = (va: THREE.Vector3, da: number, vb: THREE.Vector3, db: number) => {
-        if ((da > EPS && db < -EPS) || (da < -EPS && db > EPS)) {
-          _pt.lerpVectors(va, vb, da / (da - db));
-          pts.push(project2d(_pt, origin, right, up));
-        }
-      };
+      // Inline edge intersections — no closure, no array allocation per triangle
+      let p1r = 0, p1u = 0, p2r = 0, p2u = 0, nc = 0;
 
-      edge(_vA, dA, _vB, dB);
-      edge(_vB, dB, _vC, dC);
-      edge(_vC, dC, _vA, dA);
-
-      if (pts.length >= 2) {
-        lines.push({ x1: pts[0][0], y1: pts[0][1], x2: pts[1][0], y2: pts[1][1], color, objectKey });
+      if ((dA > EPS && dB < -EPS) || (dA < -EPS && dB > EPS)) {
+        const tt = dA / (dA - dB);
+        const ix = ax+tt*(bx-ax)-ox, iy = ay+tt*(by-ay)-oy, iz = az+tt*(bz-az)-oz;
+        p1r = ix*rx+iy*ry+iz*rz; p1u = ix*ux+iy*uy+iz*uz; nc = 1;
       }
+      if ((dB > EPS && dC < -EPS) || (dB < -EPS && dC > EPS)) {
+        const tt = dB / (dB - dC);
+        const ix = bx+tt*(cx-bx)-ox, iy = by+tt*(cy-by)-oy, iz = bz+tt*(cz-bz)-oz;
+        if (nc === 0) { p1r = ix*rx+iy*ry+iz*rz; p1u = ix*ux+iy*uy+iz*uz; nc = 1; }
+        else          { p2r = ix*rx+iy*ry+iz*rz; p2u = ix*ux+iy*uy+iz*uz; nc = 2; }
+      }
+      if (nc < 2 && ((dC > EPS && dA < -EPS) || (dC < -EPS && dA > EPS))) {
+        const tt = dC / (dC - dA);
+        const ix = cx+tt*(ax-cx)-ox, iy = cy+tt*(ay-cy)-oy, iz = cz+tt*(az-cz)-oz;
+        if (nc === 0) { p1r = ix*rx+iy*ry+iz*rz; p1u = ix*ux+iy*uy+iz*uz; }
+        else          { p2r = ix*rx+iy*ry+iz*rz; p2u = ix*ux+iy*uy+iz*uz; }
+        nc++;
+      }
+
+      if (nc >= 2) lines.push({ x1: p1r, y1: p1u, x2: p2r, y2: p2u, color, objectKey });
     }
-  });
+  }
 
   return lines;
 }

@@ -449,19 +449,25 @@ Geometrie-Werkzeuge für den 2D-Querschnitt.
 ### Interfaces
 
 ```typescript
-SectionLine    { x1, y1, x2, y2, color, objectKey? }   // ein Schnittsegment (projiziert in Schnittebene)
-SectionPolygon { points: [number,number][]; color; objectKey? }  // geschlossenes Polygon (für Hatch-Fill und Verdeckungstest)
+SectionLine    { x1, y1, x2, y2, color, objectKey? }
+SectionPolygon { points, color, objectKey?, minX, minY, maxX, maxY }  // AABB für schnelle Vorablehnung
 ```
 
 ### Funktionen
 
 | Funktion | Beschreibung |
 |---|---|
-| `sliceScene(scene, origin, normal, right, up)` | Schneidet alle sichtbaren Meshes der Szene mit einer Ebene; gibt projizierte 2D-Segmente zurück |
-| `buildSectionPolygons(lines, eps?)` | Rekonstruiert geschlossene Polygone aus `SectionLine[]` via räumlichem Hash-Join; filtert Fläche < 0,01 m² |
+| `sliceScene(meshes, origin, normal, right, up)` | Schneidet vorgefiltertes Mesh-Array mit einer Ebene; gibt projizierte 2D-Segmente zurück |
+| `buildSectionPolygons(lines, eps?)` | Rekonstruiert geschlossene Polygone; berechnet AABB in einem Durchlauf mit dem Shoelace-Test |
 | `pointInPolygon(px, py, polygon)` | Ray-Casting-Test: gibt `true` zurück wenn Punkt (px, py) innerhalb des Polygons liegt |
 
-`buildSectionPolygons` gruppiert Segmente nach Farbe, baut eine Adjazenz-Map mit quantisierten Endpunkten (Standard `eps = 1e-3 m`) und verfolgt Ketten greedy. Nur geschlossene Ketten mit ≥ 3 Punkten und Fläche ≥ 0,01 m² (Shoelace) werden übernommen.
+**Performance-Eigenschaften von `sliceScene`:**
+- Nimmt `THREE.Mesh[]` statt `THREE.Scene` — kein `scene.traverse` im Aufrufpfad, Caller verwendet `pickableMeshesRef.current`
+- Pro Mesh: alle Vertices einmalig als `Float32Array` in den Weltkoordinaten transformiert (Matrix-Elemente direkt, kein `Vector3.applyMatrix4`)
+- Dreiecksschleife: vollständig inlineierte Kantenintersektion ohne Closures, ohne Array-Allokation, ohne `Vector3`-Objekte → JIT-freundlich
+- Bounding-Sphere-Vorfilter: vollständig per skalarer Arithmetik
+
+`buildSectionPolygons` gruppiert Segmente nach Farbe, baut eine Adjazenz-Map mit quantisierten Endpunkten (Standard `eps = 1e-3 m`) und verfolgt Ketten greedy. AABB und Shoelace-Fläche werden in einem einzigen Pass berechnet. Nur geschlossene Ketten mit ≥ 3 Punkten und Fläche ≥ 0,01 m² werden übernommen.
 
 ### Verdeckungsalgorithmus (Tiefenlinien im Querschnitt)
 
@@ -494,13 +500,28 @@ LSSegmentPlane { origin, normal, right, staA, staDiff, hLen }// Segment-Ebene de
 
 | Funktion | Beschreibung |
 |---|---|
-| `sliceSceneLS(scene, segs, staStart, staEnd)` | Schneidet Szene mit Segment-Ebenen-Serie; gibt projizierte 2D-Linien zurück |
-| `computeLSDepthLines(scene, segs, staStart, staEnd, maxDist)` | Berechnet Tiefenlinien mit Per-Kanten-Verdeckungstest per Raycast |
+| `sliceSceneLS(meshes, segs, staStart, staEnd)` | Schneidet vorgefiltertes Mesh-Array mit Segment-Ebenen-Serie; gibt projizierte 2D-Linien zurück |
+| `computeLSDepthLines(meshes, segs, staStart, staEnd, maxDist)` | Berechnet Tiefenlinien mit AABB-Verdeckungstest (kein Raycast) |
+
+**Performance-Eigenschaften:**
+- Beide Funktionen nehmen `THREE.Mesh[]` statt `THREE.Scene` — kein zweifaches `scene.traverse` (Caller baut die Liste einmal)
+- `sliceSceneLS`: gleiche Float32Array-Optimierung wie in der vorherigen Version
 
 ### Verdeckungsalgorithmus (Tiefenlinien im Längenschnitt)
 
-`computeLSDepthLines` verwendet einen Per-Kanten-Raycast:
-1. Für jede Kante wird das 3D-Mittelstück berechnet.
-2. Ein Strahl wird vom projizierten Mittelpunkt auf der Segmentebene in Richtung des Mittelpunkts gecastet.
-3. Trifft der Strahl ein anderes Mesh vor dem Mittelpunkt → `hidden = true`.
-4. Per-Kanten statt Per-Mesh: korrekte Klassifikation auch bei partiell verdeckten Bauteilen.
+`computeLSDepthLines` arbeitet in zwei Phasen, **vollständig ohne Raycasting**:
+
+**Phase 1 — Mesh-Metadaten:** Für jedes sichtbare Mesh werden berechnet:
+- Nächste Segmentebene + Abstand (`absN`)
+- Exakter Welt-AABB via 8-Ecken-Transformation (korrekt für beliebige Rotationen)
+- XZ-Mittelpunkt für Tiefenprojektion
+- Kanten-Buffer (vorberechnete `isEdge`-Children oder temporäre `EdgesGeometry`)
+
+**Phase 2 — Per-Kanten-AABB-Test:** Für jede Kante:
+1. Kanten-Mittelpunkt: `mSignedN` (vorzeichenbehaftete Tiefe von Schnittebene), `mrMid` (laterale r-Koordinate), `mElev` (Höhe)
+2. Für jeden anderen Mesh: Prüfe ob Verdeckter auf gleicher Seite + näher (Tiefenvergleich) + Elevations-Überschneidung + r-Bereich-Überschneidung (XZ-AABB projiziert auf `edgeSeg.right`)
+3. Alle Projektionen im Koordinatensystem der Kante (korrekt für gekrümmte Trassen)
+
+**Komplexität:** O(M × V/mesh) für Phase 1 + O(E × M) für Phase 2  
+**Vorher:** O(E × M × T) mit Raycast (E=Kanten, M=Meshes, T=Dreiecke/Mesh)  
+**Speedup:** Faktor T ohne BVH (100–10.000×), Faktor log(T) mit BVH (7–14×)

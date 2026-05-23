@@ -1813,13 +1813,24 @@ export function ViewportContainer({ onElementClick }: Props) {
       // material at the cut plane is blocking the view to that edge.
       const cutPolygons = buildSectionPolygons(useAlignmentStore.getState().crossSectionLines);
 
+      // Pre-extract scalar components to avoid repeated method-call overhead
+      // in the inner edge loop (eliminates Vector3.clone/sub/dot allocations).
+      const ox = origin3.x, oy = origin3.y, oz_val = origin3.z;
+      const nnx = normalVec.x, nny = normalVec.y, nnz = normalVec.z;
+      const rx = rightDir.x,   ry = rightDir.y,   rz = rightDir.z;
+      const ux = upDir.x,      uy = upDir.y,      uz = upDir.z;
+
       for (const mesh of meshes) {
         if (!isWorldVisible(mesh)) continue;
         const geo = mesh.geometry;
         if (!geo.boundingSphere) geo.computeBoundingSphere();
-        const bs = geo.boundingSphere!;
-        const center = bs.center.clone().applyMatrix4(mesh.matrixWorld);
-        const distCenter = center.clone().sub(origin3).dot(normalVec);
+        const bs  = geo.boundingSphere!;
+        const bsMe = mesh.matrixWorld.elements;
+        // Transform bounding sphere center (no Vector3 allocation)
+        const bcx = bsMe[0]*bs.center.x + bsMe[4]*bs.center.y + bsMe[8]*bs.center.z + bsMe[12];
+        const bcy = bsMe[1]*bs.center.x + bsMe[5]*bs.center.y + bsMe[9]*bs.center.z + bsMe[13];
+        const bcz = bsMe[2]*bs.center.x + bsMe[6]*bs.center.y + bsMe[10]*bs.center.z + bsMe[14];
+        const distCenter = (bcx-ox)*nnx + (bcy-oy)*nny + (bcz-oz_val)*nnz;
         const radius = bs.radius * mesh.matrixWorld.getMaxScaleOnAxis();
         if (distCenter + radius <= 0 || distCenter - radius > maxDist) continue;
 
@@ -1829,7 +1840,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           color = "#" + (mat as THREE.MeshLambertMaterial).color.getHexString();
         }
 
-        // Resolve objectKey for this mesh (same logic as sliceScene)
+        // Resolve objectKey for this mesh
         let _mid: string | undefined;
         let _n: THREE.Object3D | null = mesh.parent;
         while (_n) { if (_n.userData.modelId) { _mid = _n.userData.modelId as string; break; } _n = _n.parent; }
@@ -1851,25 +1862,30 @@ export function ViewportContainer({ onElementClick }: Props) {
         for (let i = 0; i < edgePos.count; i += 2) {
           p1w.fromBufferAttribute(edgePos, i).applyMatrix4(wm);
           p2w.fromBufferAttribute(edgePos, i + 1).applyMatrix4(wm);
-          const d1 = p1w.clone().sub(origin3).dot(normalVec);
-          const d2 = p2w.clone().sub(origin3).dot(normalVec);
+
+          // Raw arithmetic — no Vector3.clone/sub/dot calls, zero GC pressure
+          const p1dx = p1w.x - ox, p1dy = p1w.y - oy, p1dz = p1w.z - oz_val;
+          const p2dx = p2w.x - ox, p2dy = p2w.y - oy, p2dz = p2w.z - oz_val;
+          const d1 = p1dx*nnx + p1dy*nny + p1dz*nnz;
+          const d2 = p2dx*nnx + p2dy*nny + p2dz*nnz;
           if ((d1 <= 0 && d2 <= 0) || (d1 > maxDist && d2 > maxDist)) continue;
-          const v1 = p1w.clone().sub(origin3);
-          const v2 = p2w.clone().sub(origin3);
 
-          // Per-edge occlusion: test the 2D midpoint of this edge against all
-          // cut polygons that belong to other elements.
-          const mx2d = (v1.dot(rightDir) + v2.dot(rightDir)) * 0.5;
-          const my2d = (v1.dot(upDir)   + v2.dot(upDir))   * 0.5;
-          const isHidden = cutPolygons.some(
-            p => p.objectKey !== meshKey && pointInPolygon(mx2d, my2d, p.points)
-          );
+          const x1 = p1dx*rx + p1dy*ry + p1dz*rz;
+          const y1 = p1dx*ux + p1dy*uy + p1dz*uz;
+          const x2 = p2dx*rx + p2dy*ry + p2dz*rz;
+          const y2 = p2dx*ux + p2dy*uy + p2dz*uz;
+          const mx2d = (x1 + x2) * 0.5;
+          const my2d = (y1 + y2) * 0.5;
 
-          depthLines.push({
-            x1: v1.dot(rightDir), y1: v1.dot(upDir),
-            x2: v2.dot(rightDir), y2: v2.dot(upDir),
-            hidden: isHidden, color,
-          });
+          // Per-edge occlusion: AABB pre-reject then full PIP test
+          let isHidden = false;
+          for (const p of cutPolygons) {
+            if (p.objectKey === meshKey) continue;
+            if (mx2d < p.minX || mx2d > p.maxX || my2d < p.minY || my2d > p.maxY) continue;
+            if (pointInPolygon(mx2d, my2d, p.points)) { isHidden = true; break; }
+          }
+
+          depthLines.push({ x1, y1, x2, y2, hidden: isHidden, color });
         }
         if (tempGeo) tempGeo.dispose();
       }
@@ -2002,7 +2018,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       setTimeout(() => {
         const sc = sceneRef.current;
         if (!sc) return;
-        const lines = sliceScene(sc, origin3, planeNormal, rightDir, upDir);
+        const lines = sliceScene(pickableMeshesRef.current, origin3, planeNormal, rightDir, upDir);
         useAlignmentStore.getState().setCrossSectionResult(lines, basisSnap);
 
         // Build per-object label metadata from unique objectKeys in the slice
@@ -2083,7 +2099,7 @@ export function ViewportContainer({ onElementClick }: Props) {
           useAlignmentStore.getState().setCrossSectionResult([], null);
           return;
         }
-        const lines = sliceScene(sc, originVec, normalVec, right, upVec);
+        const lines = sliceScene(pickableMeshesRef.current, originVec, normalVec, right, upVec);
         useAlignmentStore.getState().setCrossSectionResult(lines, basisSnap);
 
         const modelStoreState = useModelStore.getState();
@@ -2300,13 +2316,16 @@ export function ViewportContainer({ onElementClick }: Props) {
         const cur = useAlignmentStore.getState();
         if (cur.lsStaStart !== staStart || cur.lsStaEnd !== staEnd || cur.lsAlignmentId !== alignId) return;
 
-        const sc = sceneRef.current;
-        if (!sc) { useAlignmentStore.getState().setLSResult([], []); return; }
+        if (!sceneRef.current) { useAlignmentStore.getState().setLSResult([], []); return; }
+
+        // Build the mesh list once and share it between slice + depth passes
+        // (avoids a second scene.traverse for depth lines).
+        const lsMeshes = pickableMeshesRef.current;
 
         // Convert slice elevations (worldY) to absolute elevation by adding oz.
         // All LS elevation data is stored as absolute so there is no oz-dependency
         // at display time and no race condition when IFC models are loaded/unloaded.
-        const rawLines = sliceSceneLS(sc, segs, staStart, staEnd);
+        const rawLines = sliceSceneLS(lsMeshes, segs, staStart, staEnd);
         const lines = rawLines.map(l => ({
           ...l, elev1: l.elev1 + oz, elev2: l.elev2 + oz,
         }));
@@ -2321,7 +2340,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
         const curSt = useAlignmentStore.getState();
         const rawDepth = curSt.lsDepthView
-          ? computeLSDepthLines(sc, segs, staStart, staEnd, curSt.lsDepthDistance)
+          ? computeLSDepthLines(lsMeshes, segs, staStart, staEnd, curSt.lsDepthDistance)
           : [];
         const depthLines = rawDepth.map(l => ({
           ...l, elev1: l.elev1 + oz, elev2: l.elev2 + oz,
