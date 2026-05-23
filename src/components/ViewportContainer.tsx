@@ -22,7 +22,7 @@ import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession 
 import { useAlignmentStore } from "../alignment/alignmentStore";
 import type { PlacedLabel, OffsetMeasurement } from "../alignment/alignmentStore";
 import { buildRobustPolyline, sampleAtDisplayStation, evaluateProfile } from "../alignment/landXmlParser";
-import { sliceScene } from "../alignment/crossSectionUtils";
+import { sliceScene, buildSectionPolygons, pointInPolygon } from "../alignment/crossSectionUtils";
 import { sliceSceneLS, computeLSDepthLines } from "../alignment/longitudinalSectionUtils";
 import type { LSSegmentPlane } from "../alignment/longitudinalSectionUtils";
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
@@ -1804,9 +1804,14 @@ export function ViewportContainer({ onElementClick }: Props) {
       const maxDist = st.depthDistance;
       const meshes = pickableMeshesRef.current;
       const depthLines: XSSyncDepthLine[] = [];
-      const rc = new THREE.Raycaster();
       const p1w = new THREE.Vector3();
       const p2w = new THREE.Vector3();
+
+      // Build 2D cut polygons from the current cross-section lines.
+      // A depth-line edge is hidden if its projected 2D midpoint falls inside
+      // any cut polygon that belongs to a DIFFERENT element — meaning solid
+      // material at the cut plane is blocking the view to that edge.
+      const cutPolygons = buildSectionPolygons(useAlignmentStore.getState().crossSectionLines);
 
       for (const mesh of meshes) {
         if (!isWorldVisible(mesh)) continue;
@@ -1824,11 +1829,12 @@ export function ViewportContainer({ onElementClick }: Props) {
           color = "#" + (mat as THREE.MeshLambertMaterial).color.getHexString();
         }
 
-        // Visibility: ray from section plane toward element center
-        const centerOnPlane = center.clone().sub(normalVec.clone().multiplyScalar(distCenter));
-        rc.set(centerOnPlane, normalVec);
-        const hits = rc.intersectObjects(meshes as THREE.Object3D[], false);
-        const isHidden = hits.length > 0 && hits[0].distance < distCenter - 0.05;
+        // Resolve objectKey for this mesh (same logic as sliceScene)
+        let _mid: string | undefined;
+        let _n: THREE.Object3D | null = mesh.parent;
+        while (_n) { if (_n.userData.modelId) { _mid = _n.userData.modelId as string; break; } _n = _n.parent; }
+        const _eid = mesh.userData.expressId as number | undefined;
+        const meshKey = (_mid != null && _eid != null) ? `${_mid}:${_eid}` : undefined;
 
         // Edge segments: prefer existing isEdge child, otherwise compute temporarily
         const edgeChild = mesh.children.find(c => c.userData.isEdge) as THREE.LineSegments | undefined;
@@ -1850,6 +1856,15 @@ export function ViewportContainer({ onElementClick }: Props) {
           if ((d1 <= 0 && d2 <= 0) || (d1 > maxDist && d2 > maxDist)) continue;
           const v1 = p1w.clone().sub(origin3);
           const v2 = p2w.clone().sub(origin3);
+
+          // Per-edge occlusion: test the 2D midpoint of this edge against all
+          // cut polygons that belong to other elements.
+          const mx2d = (v1.dot(rightDir) + v2.dot(rightDir)) * 0.5;
+          const my2d = (v1.dot(upDir)   + v2.dot(upDir))   * 0.5;
+          const isHidden = cutPolygons.some(
+            p => p.objectKey !== meshKey && pointInPolygon(mx2d, my2d, p.points)
+          );
+
           depthLines.push({
             x1: v1.dot(rightDir), y1: v1.dot(upDir),
             x2: v2.dot(rightDir), y2: v2.dot(upDir),

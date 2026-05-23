@@ -232,19 +232,6 @@ export function computeLSDepthLines(
     const distN = bestDistN;           // signed horizontal distance from segment plane
     const absN  = Math.abs(distN);
 
-    // ── Occlusion test: horizontal ray from plane projection toward mesh center ──
-    // Direction is seg.normal (or its inverse), purely horizontal (Y = 0).
-    const sign = distN >= 0 ? 1 : -1;
-    const rayOrigin = new THREE.Vector3(
-      center.x - seg.normal.x * distN,
-      center.y,
-      center.z - seg.normal.z * distN,
-    );
-    rc.set(rayOrigin, new THREE.Vector3(seg.normal.x * sign, 0, seg.normal.z * sign));
-    const hits = rc.intersectObjects(allMeshes as THREE.Object3D[], false);
-    // hidden if anything else is closer than the mesh's own center (minus tolerance)
-    const isHidden = hits.length > 0 && hits[0].distance < absN - 0.05;
-
     const mat   = Array.isArray(obj.material) ? obj.material[0] : obj.material;
     const col   = (mat as THREE.MeshStandardMaterial)?.color;
     const color = col ? `#${col.getHexString()}` : "#888888";
@@ -292,6 +279,24 @@ export function computeLSDepthLines(
       const sta2 = s.staA + r2 * scale;
 
       if (Math.max(sta1, sta2) < staStart || Math.min(sta1, sta2) > staEnd) continue;
+
+      // Per-edge occlusion test: cast a ray from the edge midpoint's projection
+      // onto the nearest segment plane toward the 3D midpoint itself.
+      const mx = (p1w.x + p2w.x) * 0.5;
+      const my = (p1w.y + p2w.y) * 0.5;
+      const mz = (p1w.z + p2w.z) * 0.5;
+      const mdx = mx - s.origin.x, mdz = mz - s.origin.z;
+      const mDistN = mdx * s.normal.x + mdz * s.normal.z;
+      const mAbsN  = Math.abs(mDistN);
+      const mSign  = mDistN >= 0 ? 1 : -1;
+      const rayOx  = mx - s.normal.x * mDistN;
+      const rayOz  = mz - s.normal.z * mDistN;
+      rc.set(
+        new THREE.Vector3(rayOx, my, rayOz),
+        new THREE.Vector3(s.normal.x * mSign, 0, s.normal.z * mSign),
+      );
+      const hits = rc.intersectObjects(allMeshes as THREE.Object3D[], false);
+      const isHidden = hits.length > 0 && hits[0].distance < mAbsN - 0.05;
 
       result.push({ sta1, elev1: p1w.y, sta2, elev2: p2w.y, hidden: isHidden, color });
     }

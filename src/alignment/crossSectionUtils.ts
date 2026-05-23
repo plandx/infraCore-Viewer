@@ -94,6 +94,23 @@ export function buildSectionPolygons(lines: SectionLine[], eps = 1e-3): SectionP
   return results;
 }
 
+/**
+ * Point-in-polygon test using ray-casting algorithm.
+ * Returns true if the point (px, py) is inside the given polygon.
+ */
+export function pointInPolygon(px: number, py: number, polygon: Array<[number, number]>): boolean {
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i][0], yi = polygon[i][1];
+    const xj = polygon[j][0], yj = polygon[j][1];
+    if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 // Pre-allocated to avoid GC pressure in the hot loop
 const _vA = new THREE.Vector3();
 const _vB = new THREE.Vector3();

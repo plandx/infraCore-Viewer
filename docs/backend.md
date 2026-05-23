@@ -449,8 +449,8 @@ Geometrie-Werkzeuge für den 2D-Querschnitt.
 ### Interfaces
 
 ```typescript
-SectionLine    { x1, y1, x2, y2, color }   // ein Schnittsegment (projiziert in Schnittebene)
-SectionPolygon { points: [number,number][]; color }  // geschlossenes Polygon (für Hatch-Fill)
+SectionLine    { x1, y1, x2, y2, color, objectKey? }   // ein Schnittsegment (projiziert in Schnittebene)
+SectionPolygon { points: [number,number][]; color; objectKey? }  // geschlossenes Polygon (für Hatch-Fill und Verdeckungstest)
 ```
 
 ### Funktionen
@@ -459,5 +459,48 @@ SectionPolygon { points: [number,number][]; color }  // geschlossenes Polygon (f
 |---|---|
 | `sliceScene(scene, origin, normal, right, up)` | Schneidet alle sichtbaren Meshes der Szene mit einer Ebene; gibt projizierte 2D-Segmente zurück |
 | `buildSectionPolygons(lines, eps?)` | Rekonstruiert geschlossene Polygone aus `SectionLine[]` via räumlichem Hash-Join; filtert Fläche < 0,01 m² |
+| `pointInPolygon(px, py, polygon)` | Ray-Casting-Test: gibt `true` zurück wenn Punkt (px, py) innerhalb des Polygons liegt |
 
 `buildSectionPolygons` gruppiert Segmente nach Farbe, baut eine Adjazenz-Map mit quantisierten Endpunkten (Standard `eps = 1e-3 m`) und verfolgt Ketten greedy. Nur geschlossene Ketten mit ≥ 3 Punkten und Fläche ≥ 0,01 m² (Shoelace) werden übernommen.
+
+### Verdeckungsalgorithmus (Tiefenlinien im Querschnitt)
+
+`pointInPolygon` wird in `ViewportContainer.tsx → computeDepthLines` verwendet:
+
+1. Nach dem Schnitt (`sliceScene`) werden die Schnittlinien mit `buildSectionPolygons` zu geschlossenen 2D-Polygonen je Element aufgebaut.
+2. Für jede Tiefenlinie-Kante wird der 2D-Mittelpunkt gegen alle Schnittpolygone **anderer** Elemente getestet.
+3. Liegt der Mittelpunkt innerhalb eines fremden Polygons → `hidden = true` (das Bauteilmaterial am Schnitt verdeckt diese Kante).
+4. Andernfalls → `hidden = false` (Ansichtslinie, direkt sichtbar).
+
+Diese Per-Kanten-Methode ersetzt die frühere Per-Mesh-Raycast-Näherung und liefert korrektes Ergebnis auch bei partiell verdeckten Bauteilen.
+
+---
+
+## longitudinalSectionUtils.ts
+
+**Pfad:** `src/alignment/longitudinalSectionUtils.ts`
+
+Geometrie-Werkzeuge für den 2D-Längenschnitt.
+
+### Interfaces
+
+```typescript
+LSLine      { sta1, elev1, sta2, elev2, color, objectKey? }  // Schnittlinie (Station + Höhe)
+LSDepthLine { sta1, elev1, sta2, elev2, hidden, color }      // Tiefenlinie mit Sichtbarkeits-Flag
+LSSegmentPlane { origin, normal, right, staA, staDiff, hLen }// Segment-Ebene der Trasse
+```
+
+### Funktionen
+
+| Funktion | Beschreibung |
+|---|---|
+| `sliceSceneLS(scene, segs, staStart, staEnd)` | Schneidet Szene mit Segment-Ebenen-Serie; gibt projizierte 2D-Linien zurück |
+| `computeLSDepthLines(scene, segs, staStart, staEnd, maxDist)` | Berechnet Tiefenlinien mit Per-Kanten-Verdeckungstest per Raycast |
+
+### Verdeckungsalgorithmus (Tiefenlinien im Längenschnitt)
+
+`computeLSDepthLines` verwendet einen Per-Kanten-Raycast:
+1. Für jede Kante wird das 3D-Mittelstück berechnet.
+2. Ein Strahl wird vom projizierten Mittelpunkt auf der Segmentebene in Richtung des Mittelpunkts gecastet.
+3. Trifft der Strahl ein anderes Mesh vor dem Mittelpunkt → `hidden = true`.
+4. Per-Kanten statt Per-Mesh: korrekte Klassifikation auch bei partiell verdeckten Bauteilen.
