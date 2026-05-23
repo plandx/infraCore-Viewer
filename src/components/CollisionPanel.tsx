@@ -367,7 +367,7 @@ export function CollisionPanel({ onClose }: Props) {
     <AlertCircle size={10} className="text-amber-400" />;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-card border border-border rounded-xl shadow-2xl w-[920px] max-h-[90vh] flex flex-col overflow-hidden">
 
         {/* Header */}

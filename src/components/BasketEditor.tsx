@@ -509,7 +509,7 @@ export function BasketEditor({ onClose, mode = "modal" }: { onClose: () => void;
 
   if (mode === "window") return inner;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm bg-black/60">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-sm bg-black/60">
       {inner}
     </div>
   );

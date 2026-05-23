@@ -696,7 +696,7 @@ export function BatchPanel({ onClose }: Props) {
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-stretch justify-stretch p-4">
+    <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-stretch justify-stretch p-4">
       {/* Global datalists — referenced by list="..." on inputs throughout the panel */}
       <datalist id="batch-prop-keys">
         {propKeys.map((k) => <option key={k} value={k} />)}
