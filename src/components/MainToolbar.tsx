@@ -45,6 +45,8 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
   const theme             = useModelStore((s) => s.settings.theme);
   const sectionActive     = useModelStore((s) => s.sectionPlanes.length > 0 || s.activeTool === "section");
+  const isolatedElements  = useModelStore((s) => s.isolatedElements);
+  const showAll           = useModelStore((s) => s.showAll);
   const orthographic      = useModelStore((s) => s.settings.orthographic);
   const showSpaces        = useModelStore((s) => s.settings.showSpaces);
   const grid              = useModelStore((s) => s.settings.grid);
@@ -187,6 +189,10 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   }, []);
 
   const handleIsolate5D = useCallback(() => {
+    if (isolatedElements !== null) {
+      showAll();
+      return;
+    }
     const entries = useBillingStore.getState().entries;
     const models  = useModelStore.getState().models;
     if (Object.keys(entries).length === 0) return;
@@ -203,7 +209,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
       });
     }
     if (toIsolate.length > 0) useModelStore.getState().isolateEntries(toIsolate);
-  }, []);
+  }, [isolatedElements, showAll]);
 
   const handleToggleVisualize5D = useCallback(() => {
     useBillingStore.getState().setModuleActive(!useBillingStore.getState().moduleActive);
@@ -703,9 +709,14 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
               {/* VISUALISIERUNG */}
               <RibbonGroup label="Visualisierung">
-                <RibbonLargeBtn icon={<Target size={18} />} label="Isolieren"
-                  onClick={handleIsolate5D} disabled={billing5DCount === 0}
-                  title={billing5DCount > 0 ? `5D-Elemente isolieren (${billing5DCount} erfasst)` : "Keine 5D-Elemente erfasst"} />
+                <RibbonLargeBtn
+                  icon={<Target size={18} />}
+                  label={isolatedElements !== null ? "Isolation aus" : "Isolieren"}
+                  active={isolatedElements !== null}
+                  onClick={handleIsolate5D}
+                  disabled={billing5DCount === 0 && isolatedElements === null}
+                  title={isolatedElements !== null ? "Isolation aufheben" : billing5DCount > 0 ? `5D-Elemente isolieren (${billing5DCount} erfasst)` : "Keine 5D-Elemente erfasst"}
+                />
                 <RibbonLargeBtn icon={<Layers size={18} />}
                   label={billingModuleActive ? "Overlay AN" : "Overlay AUS"}
                   onClick={handleToggleVisualize5D} active={billingModuleActive}
