@@ -16,6 +16,9 @@ URL-Erkennung (in Reihenfolge):
 - `?collision` → `<CollisionWindow />` (Popup-Fenster für Kollisionsprüfung)
 - `?secondary&panel=…` → `<SecondaryWindow panel={…} />`
 - `?cross-section` → `<CrossSectionWindow />`
+- `?longitudinal-section` → `<LongitudinalSectionWindow />`
+- `?abwicklung` → `<AbwicklungWindow />` (Grundriss-Abwicklung entlang Achse)
+- `?basket` → `<BasketWindow />`
 - sonst → `<MainApp />`
 
 `MainApp` enthält das 3-spaltige Layout (HierarchyPanel | Viewport | PropertiesPanel) mit react-resizable-panels.
@@ -682,8 +685,8 @@ Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstel
 - **`computeDepthLines(origin3, normalVec, rightDir, upDir)`** in `ViewportContainer.tsx`:
   - Iteriert `pickableMeshesRef.current` (alle sichtbaren IFC-Meshes)
   - Bounding-Sphere-Check gegen den Tiefenbereich `[0, depthDistance]` entlang der Normalen
-  - Sichtbarkeitsprüfung: 1 Raycast je Element vom Schnittbild-Projektionspunkt in Normalenrichtung; trifft ein Objekt vorher → `hidden = true`
   - Kantensegmente aus vorhandenem `isEdge`-Kind oder neu erzeugter `EdgesGeometry` (wird sofort `dispose()`d)
+  - **Sichtbarkeitsprüfung per Kante** (kein Raycast): Kanten-Mittelpunkt in 2D projizieren → AABB-Vorfilter + `pointInPolygon(mx2d, my2d, polygon.points)` gegen alle `crossSectionPolygons` anderer Elemente → `hidden = true` wenn innerhalb eines fremden Polygons
   - Ergebnis in `alignmentStore.depthLines: XSSyncDepthLine[]` gespeichert
 - **`computeDepthLinesFromBasis()`**: wird bei Änderung von `depthView`/`depthDistance` ohne neuen Schnitt aufgerufen
 - **`XSSyncDepthLine`**: `{ x1, y1, x2, y2, hidden: boolean, color: string }` in 2D-Schnittkoordinaten

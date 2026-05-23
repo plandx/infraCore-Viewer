@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect, useMemo } from "react";
-import { X, ZoomIn, ChevronDown, Slice } from "lucide-react";
+import { X, ZoomIn, ChevronDown, Slice, Map } from "lucide-react";
 import { useAlignmentStore } from "./alignmentStore";
 import { useModelStore } from "../store/modelStore";
 import { evaluateProfile } from "./landXmlParser";
-import { openCrossSectionWindow, openLongitudinalSectionWindow } from "../utils/windowSync";
+import { openCrossSectionWindow, openLongitudinalSectionWindow, openAbwicklungWindow } from "../utils/windowSync";
 
 function fmtSta(sta: number): string {
   const km = Math.floor(sta / 1000);
@@ -55,6 +55,8 @@ export function ProfileViewer() {
   const lsStaStart       = useAlignmentStore(s => s.lsStaStart);
   const lsStaEnd         = useAlignmentStore(s => s.lsStaEnd);
   const lsOpen           = useAlignmentStore(s => s.lsOpen);
+  const openAbwicklung   = useAlignmentStore(s => s.openAbwicklung);
+  const abwicklungOpen   = useAlignmentStore(s => s.abwicklungOpen);
 
   // Range selection for Längenschnitt: shift+drag or LS-mode drag
   const [lsMode, setLsMode]             = useState(false);
@@ -320,17 +322,30 @@ export function ProfileViewer() {
         <div className="flex-1" />
 
         {lsRange && activeAlignment && (
-          <button
-            onClick={() => {
-              openLongSection(activeAlignment.id, lsRange[0], lsRange[1]);
-              openLongitudinalSectionWindow();
-            }}
-            className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-            title="Längenschnitt öffnen"
-          >
-            <Slice size={9} />
-            Längenschnitt
-          </button>
+          <>
+            <button
+              onClick={() => {
+                openLongSection(activeAlignment.id, lsRange[0], lsRange[1]);
+                openLongitudinalSectionWindow();
+              }}
+              className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+              title="Längenschnitt öffnen"
+            >
+              <Slice size={9} />
+              Längenschnitt
+            </button>
+            <button
+              onClick={() => {
+                openAbwicklung(activeAlignment.id, lsRange[0], lsRange[1]);
+                openAbwicklungWindow();
+              }}
+              className={`shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] transition-colors ${abwicklungOpen ? "bg-emerald-700 hover:bg-emerald-600" : "bg-emerald-600 hover:bg-emerald-500"} text-white`}
+              title="Abwicklung öffnen"
+            >
+              <Map size={9} />
+              Abwicklung
+            </button>
+          </>
         )}
 
         <button

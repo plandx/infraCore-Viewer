@@ -25,17 +25,19 @@ Beide Fenster halten **je einen eigenen Zustand-Store**. Änderungen in einem Fe
 ## URL-Schema
 
 ```
-Main:       http://localhost:5173/
-Sekundär:   http://localhost:5173/?secondary&panel=hierarchy
-                                              panel=properties
-                                              panel=lists
-                                              panel=sql
-                                              panel=qto
-                                              panel=basket
-Billing:    http://localhost:5173/?billing
-QS-Viewer:  http://localhost:5173/?cross-section
-Kollision:  http://localhost:5173/?collision
-Korb:       http://localhost:5173/?basket
+Main:           http://localhost:5173/
+Sekundär:       http://localhost:5173/?secondary&panel=hierarchy
+                                                  panel=properties
+                                                  panel=lists
+                                                  panel=sql
+                                                  panel=qto
+                                                  panel=basket
+Billing:        http://localhost:5173/?billing
+QS-Viewer:      http://localhost:5173/?cross-section
+Kollision:      http://localhost:5173/?collision
+Korb:           http://localhost:5173/?basket
+Längenschnitt:  http://localhost:5173/?longitudinal-section
+Abwicklung:     http://localhost:5173/?abwicklung
 ```
 
 `main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
@@ -377,6 +379,9 @@ Bei `req` im Hauptfenster: `broadcastLSState()` + wenn `lsAlignmentId !== null &
 | `lines` | `LSLineSync[]` | IFC-Schnittlinien `{ sta1,elev1,sta2,elev2,color,objectKey? }` |
 | `profile` | `LSProfilePt[]` | Gradiente-Punkte `{ sta, elev }` |
 | `computing` | `boolean` | Berechnung läuft |
+| `depthView` | `boolean` | Tiefenansicht aktiv |
+| `depthDistance` | `number` | Sichttiefe in Metern |
+| `depthLines` | `LSDepthLineSync[]` | Projizierte Tiefenlinien `{ sta1,elev1,sta2,elev2,hidden,color }` |
 | `theme` | `"light" \| "dark"` | Farb-Theme des Hauptfensters |
 
 ### Berechnungslogik (`ViewportContainer.tsx`, `computeLS()`)
@@ -393,8 +398,63 @@ Bei `req` im Hauptfenster: `broadcastLSState()` + wenn `lsAlignmentId !== null &
 ### longitudinalSectionUtils.ts
 
 - `LSSegmentPlane` — Interface für eine Schnittebene-Beschreibung pro Segment
-- `sliceSceneLS(scene, segs, staStart, staEnd)` — Kern-Algorithmus:
-  - Iteriert alle `THREE.Mesh`-Objekte in der Szene
+- `sliceSceneLS(meshes, segs, staStart, staEnd)` — Kern-Algorithmus:
+  - Nimmt `THREE.Mesh[]` statt `THREE.Scene` — kein scene.traverse im Aufrufpfad
   - Pro Mesh: AABB-Test gegen alle Segmentebenen (Bounding-Sphere reject: Normalabstand + rechte Ausdehnung)
   - Pro Dreieck: Ebenen-Intersection, x → Station-Mapping, Bereichsfilter
   - Gibt `LSLine[]` zurück (in Three.js Y-Koordinaten)
+- `computeLSDepthLines(meshes, segs, staStart, staEnd, maxDist)` — Tiefenlinien (kein Raycast):
+  - Phase 1: AABB-Metadaten je Mesh via 8-Ecken-Transformation (korrekt für beliebige Rotationen)
+  - Phase 2: Per-Kanten-AABB-Tiefenvergleich — kein Raycast, O(E×M) statt O(E×M×T)
+  - Caller (ViewportContainer) baut `meshes`-Liste einmal und übergibt sie an beide Funktionen
+
+---
+
+## Abwicklung-Fenster (`ABWICKLUNG_CHANNEL = "infracore-abwicklung"`)
+
+### Konzept
+
+Projiziert IFC-Kantengeometrie in ein **Korridorkoordinatensystem**: X = Station entlang der Achse, Y = Lateralabstand (+ = rechts, − = links). Ergibt eine „abgerollte" Grundrissdarstellung des Korridors.
+
+### Öffnen
+```typescript
+openAbwicklungWindow()  // → ?abwicklung, 1200×640
+```
+Wird aus `ProfileViewer` aufgerufen (Button neben „Längenschnitt", erscheint wenn LS-Bereich gewählt ist).
+
+### Protokoll (AbwicklungMsg)
+
+```
+Main-Fenster (useAbwicklungSync)          AbwicklungWindow
+──────────────────────────────────────────────────────────
+   │── { t: "state", s: AbwicklungSyncState } ──►│  vollständiger Push
+   │◄─ { t: "req" } ─────────────────────────────│  beim Öffnen
+   │◄─ { t: "setRange", staStart, staEnd } ───────│  Benutzer ändert Bereich
+   │◄─ { t: "setOffsets", left, right } ──────────│  Korridor-Breite ändern
+   │◄─ { t: "close" } ───────────────────────────│  Fenster geschlossen
+```
+
+### AbwicklungSyncState
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `alignmentId` | `number \| null` | Alignment-ID |
+| `alignmentName` | `string` | Anzeigename |
+| `staStart` / `staEnd` | `number` | Stationsbereich in Metern |
+| `leftOffset` / `rightOffset` | `number` | Korridor-Halbbreite links/rechts in Metern |
+| `lines` | `AbwicklungLineSync[]` | Projizierte IFC-Kanten `{ s1,t1,s2,t2,elevMid,color,objectKey? }` |
+| `computing` | `boolean` | Berechnung läuft |
+| `elevationOrigin` | `number` | oz — addieren für absolute Höhe |
+| `theme` | `"light" \| "dark"` | Farb-Theme |
+
+### Berechnungslogik (`abwicklungUtils.ts`, `computeAbwicklung()`)
+
+1. Polylinien-Segmente im Stationsbereich ± 5 m Puffer filtern
+2. Für jedes Segment: Tangente `(tx,tz)`, Rechtsrichtung `(rx=-tz, rz=tx)` berechnen
+3. Korridor-AABB im Weltkoordinatenraum (XZ) für Mesh-Breitband-Ablehnung aufbauen
+4. Pro Mesh: Bounding-Sphere gegen Korridor-AABB testen → bei Miss: überspringen
+5. Kanten aus `isEdge LineSegments`-Kind, alternativ temporäre `EdgesGeometry`
+6. Pro Kante: Weltkoordinaten-Transformation via `mesh.matrixWorld`, dann `projectPoint(wx,wz,segs)` → `[station, lateral]`
+7. Stationsbereich- und Lateralbereich-Filter → `AbwicklungLine[]`
+
+**Koordinatensystem:** `projectPoint` gibt `[station, lateral]` zurück — lateral ist das vorzeichenbehaftete senkrechte Abstandsmaß zur Achse (+ = rechts, berechnet als `perpX*rx + perpZ*rz`).

@@ -437,6 +437,68 @@ Kleine Hilfs-Funktionen:
 - `computeModelOffset` — berechnet Origin-Offset für World-Space-Normalisierung
 - `generateModelColor` — generiert eindeutige Farbe je Modell-Index
 
+---
+
+## collisionUtils.ts
+
+**Pfad:** `src/utils/collisionUtils.ts`
+
+BVH-basierte Kollisionserkennung für das Kollisions-Popup-Fenster.
+
+### `ElementRecord`
+
+```typescript
+interface ElementRecord {
+  modelId: string;
+  expressId: number;
+  name: string;
+  type: string;
+  geometry: THREE.BufferGeometry; // World-space merged geometry (BVH gebaut)
+  box: THREE.Box3;                // World-space AABB für schnellen Vorfilter
+  props: Record<string, string>;  // Flache Eigenschafts-Map
+}
+```
+
+### `collectElements(models)`
+
+Baut `ElementRecord[]` aus allen geladenen Modellen:
+- Filtert Overlay-Flags (`isHighlight`, `isBillingOverlay`, `isEdge`, …) heraus
+- Mergt alle Meshes je Element zu einer World-Space-Geometrie via `StaticGeometryGenerator`
+- Baut BVH (`MeshBVH`) auf die zusammengeführte Geometrie für O(log T) Dreieckstests
+
+### `disposeElements(elements)`
+
+Gibt alle `BufferGeometry`-Objekte frei.
+
+### `matchesPropConditions(props, conditions)` / `matchesFilter(el, filter)`
+
+Filtert Elemente nach Typ, Modell-ID und Eigenschaftsbedingungen (für Clash-Regeln).
+
+### `runRuleBasedDetection(elements, rules, onProgress, signal)`
+
+Hauptalgorithmus:
+1. Sortiert Elemente in Mengen A und B je Regel
+2. AABB-Vorfilter (`aabbSignedGap < tolerance`)
+3. Exakter BVH-Dreieck-Intersektionstest (`geometriesIntersect`)
+4. Dedupliziert Paare (A:B = B:A)
+5. Läuft in `setTimeout`-Batches (kein Web-Worker-Overhead), meldet Fortschritt via `onProgress(0..100)`
+6. Gibt `ClashResult[]` zurück; max. 500 Treffer je Regel
+
+**Abhängigkeit:** `three-mesh-bvh` muss auf `THREE.Mesh.prototype.raycast` gepatcht sein (geschieht in `ifcLoader.ts`).
+
+---
+
+## ifcClassNames.ts
+
+**Pfad:** `src/utils/ifcClassNames.ts`
+
+```typescript
+export const IFC_CLASS_NAMES: Record<number, string>
+```
+
+Automatisch aus dem web-ifc IFC-Schema generiert. Deckt IFC2x3, IFC4 und IFC4x3 ab.
+
+Wird für die Typanzeige in Panels genutzt: `IFC_CLASS_NAMES[typeCode] ?? "Unknown"`. Keine eigene Logik — reines Nachschlagewerk.
 
 ---
 
@@ -449,15 +511,79 @@ Geometrie-Werkzeuge für den 2D-Querschnitt.
 ### Interfaces
 
 ```typescript
-SectionLine    { x1, y1, x2, y2, color }   // ein Schnittsegment (projiziert in Schnittebene)
-SectionPolygon { points: [number,number][]; color }  // geschlossenes Polygon (für Hatch-Fill)
+SectionLine    { x1, y1, x2, y2, color, objectKey? }
+SectionPolygon { points, color, objectKey?, minX, minY, maxX, maxY }  // AABB für schnelle Vorablehnung
 ```
 
 ### Funktionen
 
 | Funktion | Beschreibung |
 |---|---|
-| `sliceScene(scene, origin, normal, right, up)` | Schneidet alle sichtbaren Meshes der Szene mit einer Ebene; gibt projizierte 2D-Segmente zurück |
-| `buildSectionPolygons(lines, eps?)` | Rekonstruiert geschlossene Polygone aus `SectionLine[]` via räumlichem Hash-Join; filtert Fläche < 0,01 m² |
+| `sliceScene(meshes, origin, normal, right, up)` | Schneidet vorgefiltertes Mesh-Array mit einer Ebene; gibt projizierte 2D-Segmente zurück |
+| `buildSectionPolygons(lines, eps?)` | Rekonstruiert geschlossene Polygone; berechnet AABB in einem Durchlauf mit dem Shoelace-Test |
+| `pointInPolygon(px, py, polygon)` | Ray-Casting-Test: gibt `true` zurück wenn Punkt (px, py) innerhalb des Polygons liegt |
 
-`buildSectionPolygons` gruppiert Segmente nach Farbe, baut eine Adjazenz-Map mit quantisierten Endpunkten (Standard `eps = 1e-3 m`) und verfolgt Ketten greedy. Nur geschlossene Ketten mit ≥ 3 Punkten und Fläche ≥ 0,01 m² (Shoelace) werden übernommen.
+**Performance-Eigenschaften von `sliceScene`:**
+- Nimmt `THREE.Mesh[]` statt `THREE.Scene` — kein `scene.traverse` im Aufrufpfad, Caller verwendet `pickableMeshesRef.current`
+- Pro Mesh: alle Vertices einmalig als `Float32Array` in den Weltkoordinaten transformiert (Matrix-Elemente direkt, kein `Vector3.applyMatrix4`)
+- Dreiecksschleife: vollständig inlineierte Kantenintersektion ohne Closures, ohne Array-Allokation, ohne `Vector3`-Objekte → JIT-freundlich
+- Bounding-Sphere-Vorfilter: vollständig per skalarer Arithmetik
+
+`buildSectionPolygons` gruppiert Segmente nach Farbe, baut eine Adjazenz-Map mit quantisierten Endpunkten (Standard `eps = 1e-3 m`) und verfolgt Ketten greedy. AABB und Shoelace-Fläche werden in einem einzigen Pass berechnet. Nur geschlossene Ketten mit ≥ 3 Punkten und Fläche ≥ 0,01 m² werden übernommen.
+
+### Verdeckungsalgorithmus (Tiefenlinien im Querschnitt)
+
+`pointInPolygon` wird in `ViewportContainer.tsx → computeDepthLines` verwendet:
+
+1. Nach dem Schnitt (`sliceScene`) werden die Schnittlinien mit `buildSectionPolygons` zu geschlossenen 2D-Polygonen je Element aufgebaut.
+2. Für jede Tiefenlinie-Kante wird der 2D-Mittelpunkt gegen alle Schnittpolygone **anderer** Elemente getestet.
+3. Liegt der Mittelpunkt innerhalb eines fremden Polygons → `hidden = true` (das Bauteilmaterial am Schnitt verdeckt diese Kante).
+4. Andernfalls → `hidden = false` (Ansichtslinie, direkt sichtbar).
+
+Diese Per-Kanten-Methode ersetzt die frühere Per-Mesh-Raycast-Näherung und liefert korrektes Ergebnis auch bei partiell verdeckten Bauteilen.
+
+---
+
+## longitudinalSectionUtils.ts
+
+**Pfad:** `src/alignment/longitudinalSectionUtils.ts`
+
+Geometrie-Werkzeuge für den 2D-Längenschnitt.
+
+### Interfaces
+
+```typescript
+LSLine      { sta1, elev1, sta2, elev2, color, objectKey? }  // Schnittlinie (Station + Höhe)
+LSDepthLine { sta1, elev1, sta2, elev2, hidden, color }      // Tiefenlinie mit Sichtbarkeits-Flag
+LSSegmentPlane { origin, normal, right, staA, staDiff, hLen }// Segment-Ebene der Trasse
+```
+
+### Funktionen
+
+| Funktion | Beschreibung |
+|---|---|
+| `sliceSceneLS(meshes, segs, staStart, staEnd)` | Schneidet vorgefiltertes Mesh-Array mit Segment-Ebenen-Serie; gibt projizierte 2D-Linien zurück |
+| `computeLSDepthLines(meshes, segs, staStart, staEnd, maxDist)` | Berechnet Tiefenlinien mit AABB-Verdeckungstest (kein Raycast) |
+
+**Performance-Eigenschaften:**
+- Beide Funktionen nehmen `THREE.Mesh[]` statt `THREE.Scene` — kein zweifaches `scene.traverse` (Caller baut die Liste einmal)
+- `sliceSceneLS`: gleiche Float32Array-Optimierung wie in der vorherigen Version
+
+### Verdeckungsalgorithmus (Tiefenlinien im Längenschnitt)
+
+`computeLSDepthLines` arbeitet in zwei Phasen, **vollständig ohne Raycasting**:
+
+**Phase 1 — Mesh-Metadaten:** Für jedes sichtbare Mesh werden berechnet:
+- Nächste Segmentebene + Abstand (`absN`)
+- Exakter Welt-AABB via 8-Ecken-Transformation (korrekt für beliebige Rotationen)
+- XZ-Mittelpunkt für Tiefenprojektion
+- Kanten-Buffer (vorberechnete `isEdge`-Children oder temporäre `EdgesGeometry`)
+
+**Phase 2 — Per-Kanten-AABB-Test:** Für jede Kante:
+1. Kanten-Mittelpunkt: `mSignedN` (vorzeichenbehaftete Tiefe von Schnittebene), `mrMid` (laterale r-Koordinate), `mElev` (Höhe)
+2. Für jeden anderen Mesh: Prüfe ob Verdeckter auf gleicher Seite + näher (Tiefenvergleich) + Elevations-Überschneidung + r-Bereich-Überschneidung (XZ-AABB projiziert auf `edgeSeg.right`)
+3. Alle Projektionen im Koordinatensystem der Kante (korrekt für gekrümmte Trassen)
+
+**Komplexität:** O(M × V/mesh) für Phase 1 + O(E × M) für Phase 2  
+**Vorher:** O(E × M × T) mit Raycast (E=Kanten, M=Meshes, T=Dreiecke/Mesh)  
+**Speedup:** Faktor T ohne BVH (100–10.000×), Faktor log(T) mit BVH (7–14×)
