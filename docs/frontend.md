@@ -176,7 +176,13 @@ Oberste Toolbar-Leiste. Enthält:
 
 **Font-Size-Lock:** Der äußerste `<div>` trägt `style={{ fontSize: '14px' }}`. Damit sind alle rem-Berechnungen innerhalb der Toolbar von der Root-Schriftgröße (`data-font-size` sm/md/lg) entkoppelt.
 
-**Ribbon-Höhe:** `h-[60px]` (vorher 54px) — gibt Platz für alle Ribbon-Gruppen ohne Clipping bei größeren Schriften.
+**Toolbar-Layout:** Zwei Zeilen:
+- Zeile 1 (Tab-Strip): `h-9` (36px) — enthält Logo, Tab-Buttons, Utility-Strip
+- Zeile 2 (Ribbon): `h-[68px]` — Ribbon-Gruppen mit kontextbezogenen Aktions-Buttons
+
+**Visuelles Chrome:** Der äußere `<div>` trägt `borderTop: 3px solid var(--color-primary)` (farblicher Akzent oben), `background: var(--toolbar-bg)` (eigene Toolbar-Hintergrundfarbe, abweichend vom Content) und `boxShadow` für Elevation-Trennung vom Viewport.
+
+**CSS-Variable `--toolbar-bg`:** Definiert in `index.css` — `hsl(220 13% 94%)` im Light-Mode, `var(--tokyo-bg-dark)` (#13131a) im Dark-Mode. Sorgt für klare Abgrenzung zur Content-Area (`bg-card`).
 
 ---
 
@@ -520,7 +526,7 @@ Aufbau:
 
 **Datei:** `src/components/SecondaryWindow.tsx`
 
-Wrapper für Sekundär-Fenster. Rendert je nach `panel`-Parameter:
+Wrapper für Sekundär-Fenster. Title-Bar: `h-11` (44px) mit identischem Toolbar-Chrome (3px Primary-Akzent oben, `var(--toolbar-bg)`). Rendert je nach `panel`-Parameter:
 - `hierarchy` → `<HierarchyPanel>`
 - `properties` → `<PropertiesPanel>`
 - `lists` → `<LensRulesPanel>`
@@ -560,7 +566,7 @@ Props: keine
 
 **Datei:** `src/components/StatusBar.tsx`
 
-Unterste Zeile: Anzahl Modelle, Gesamt-Dreiecke, JS-Heap, FPS-Zähler (farbcodiert), Version.
+Unterste Zeile (`h-8`, 32px): Anzahl Modelle, Gesamt-Dreiecke, JS-Heap, FPS-Zähler (farbcodiert), Version. Verwendet `var(--toolbar-bg)` als Hintergrundfarbe (konsistent mit dem Haupt-Toolbar-Chrome).
 
 ---
 

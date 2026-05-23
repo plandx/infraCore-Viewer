@@ -278,18 +278,26 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
       <input ref={inputRef}    type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
       <input ref={addInputRef} type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
 
-      <div className="flex flex-col shrink-0 border-b border-border bg-card text-card-foreground select-none relative z-[100]" style={{ fontSize: '14px' }}>
+      <div
+        className="flex flex-col shrink-0 border-b border-border select-none relative z-[100]"
+        style={{
+          fontSize: '14px',
+          background: 'var(--toolbar-bg)',
+          borderTop: '3px solid var(--color-primary)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+        }}
+      >
 
         {/* ── Row 1: Tab strip + utilities ──────────────────────────────── */}
-        <div className="flex items-stretch h-7 border-b border-border/60">
+        <div className="flex items-stretch h-9 border-b border-border/50">
 
           {/* Logo */}
-          <div className="flex items-center gap-1.5 px-3 border-r border-border">
-            <svg width="16" height="16" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[3px]">
+          <div className="flex items-center gap-2 px-3.5 border-r border-border/70">
+            <svg width="18" height="18" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[3px]">
               <rect width="32" height="32" rx="5" fill="#E8312A"/>
               <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
             </svg>
-            <span className="font-bold text-[11px] tracking-tight text-foreground whitespace-nowrap">infraCore</span>
+            <span className="font-bold text-[12px] tracking-tight text-foreground whitespace-nowrap">infraCore</span>
           </div>
 
           {/* Tab buttons */}
@@ -299,10 +307,10 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  "relative flex items-center gap-1 px-3 text-[11px] font-semibold tracking-wide transition-all border-b-2 whitespace-nowrap",
+                  "relative flex items-center gap-1.5 px-3.5 text-[12px] font-semibold tracking-wide transition-all border-b-2 whitespace-nowrap",
                   activeTab === tab.id
-                    ? "text-primary border-primary bg-muted/40"
-                    : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
+                    ? "text-primary border-primary bg-primary/[0.10]"
+                    : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/40"
                 )}
               >
                 {tab.label}
@@ -318,7 +326,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
           <div className="flex-1" />
 
           {/* Right utility strip — always visible */}
-          <div className="flex items-center gap-0.5 px-2 border-l border-border/60">
+          <div className="flex items-center gap-1 px-2.5 border-l border-border/60">
             {loading && (
               <div className="flex items-center gap-1 text-[10px] text-muted-foreground mr-1">
                 <Loader2 size={11} className="animate-spin" />
@@ -425,7 +433,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
         </div>
 
         {/* ── Row 2: Ribbon tool strip ──────────────────────────────────── */}
-        <div className="flex items-stretch h-[60px] overflow-visible">
+        <div className="flex items-stretch h-[68px] overflow-visible">
 
           {activeTab === "start" && (
             <>
@@ -736,12 +744,12 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
 function RibbonGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-stretch border-r border-border/50 last:border-r-0">
+    <div className="flex items-stretch border-r border-border/40 last:border-r-0">
       <div className="flex flex-col min-w-0">
-        <div className="flex items-center gap-0.5 px-1.5 pt-1.5 pb-0.5 flex-1">
+        <div className="flex items-center gap-1 px-2 pt-2 pb-0.5 flex-1">
           {children}
         </div>
-        <div className="px-2 pb-1 text-[8.5px] font-semibold uppercase tracking-wider text-muted-foreground/60 text-center leading-none whitespace-nowrap">
+        <div className="px-2 pb-1.5 text-[8.5px] font-semibold uppercase tracking-wider text-muted-foreground/80 text-center leading-none whitespace-nowrap">
           {label}
         </div>
       </div>
@@ -761,16 +769,16 @@ function RibbonLargeBtn({
       <button
         onClick={onClick} disabled={disabled} title={title}
         className={cn(
-          "flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded transition-all min-w-[44px] h-full text-center",
-          primary && !active && "bg-primary text-primary-foreground hover:bg-primary/90",
-          !primary && active && "bg-primary/15 text-primary",
-          !primary && !active && "text-foreground/80 hover:bg-muted hover:text-foreground",
+          "flex flex-col items-center justify-center gap-1 px-2.5 py-1.5 rounded-md transition-all min-w-[48px] h-full text-center",
+          primary && !active && "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
+          !primary && active && "bg-primary/15 text-primary ring-1 ring-primary/30",
+          !primary && !active && "text-foreground/80 hover:bg-muted/70 hover:text-foreground",
           disabled && "opacity-35 cursor-not-allowed pointer-events-none",
           className,
         )}
       >
         <span className={cn("shrink-0", active && !primary && "text-primary")}>{icon}</span>
-        <span className="text-[9.5px] font-medium leading-tight max-w-[60px] text-center whitespace-nowrap overflow-hidden text-ellipsis">
+        <span className="text-[10px] font-medium leading-tight max-w-[64px] text-center whitespace-nowrap overflow-hidden text-ellipsis">
           {label}
         </span>
         {kbd && (
@@ -802,14 +810,14 @@ function RibbonSmBtn({
     <button
       onClick={onClick} disabled={disabled} title={title}
       className={cn(
-        "flex items-center gap-1 px-1.5 py-0.5 rounded transition-all text-left",
-        active ? "bg-primary/15 text-primary" : "text-foreground/70 hover:bg-muted hover:text-foreground",
+        "flex items-center gap-1 px-2 py-1 rounded transition-all text-left",
+        active ? "bg-primary/15 text-primary ring-1 ring-primary/25" : "text-foreground/70 hover:bg-muted/70 hover:text-foreground",
         disabled && "opacity-35 cursor-not-allowed pointer-events-none",
         className,
       )}
     >
       <span className="shrink-0">{icon}</span>
-      {label && <span className="text-[9.5px] font-medium whitespace-nowrap">{label}</span>}
+      {label && <span className="text-[10px] font-medium whitespace-nowrap">{label}</span>}
       {kbd && <span className="text-[7px] opacity-40 font-mono">[{kbd}]</span>}
     </button>
   );
@@ -824,8 +832,8 @@ function UtilBtn({
   return (
     <button onClick={onClick} title={title}
       className={cn(
-        "flex items-center justify-center w-6 h-6 rounded transition-all",
-        active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted",
+        "flex items-center justify-center w-7 h-7 rounded transition-all",
+        active ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/70",
         className,
       )}
     >

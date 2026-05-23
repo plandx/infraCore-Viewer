@@ -717,7 +717,10 @@ export function LongitudinalSectionWindow() {
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-none">
 
       {/* ── Row 1: Identity bar ───────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-2 px-3 border-b border-border/60 bg-card" style={{ height: '28px', fontSize: '14px' }}>
+      <div
+        className="shrink-0 flex items-center gap-2 px-3.5 border-b border-border/60"
+        style={{ height: '36px', fontSize: '14px', background: 'var(--toolbar-bg)', borderTop: '3px solid var(--color-primary)', boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}
+      >
         <svg width="16" height="16" viewBox="0 0 32 32" className="shrink-0 rounded-[3px]">
           <rect width="32" height="32" rx="5" fill="#E8312A"/>
           <text x="16" y="23" fontFamily="Arial" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle">iC</text>
@@ -747,7 +750,10 @@ export function LongitudinalSectionWindow() {
       </div>
 
       {/* ── Row 2: Ribbon ─────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-stretch border-b border-border bg-card/40 overflow-x-auto" style={{ height: '52px', fontSize: '14px' }}>
+      <div
+        className="shrink-0 flex items-stretch border-b border-border overflow-x-auto"
+        style={{ height: '60px', fontSize: '14px', background: 'var(--toolbar-bg)' }}
+      >
 
         <XsGroup label="Station">
           <span className="text-[9px] text-muted-foreground">Von</span>

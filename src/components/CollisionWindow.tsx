@@ -155,7 +155,10 @@ export function CollisionWindow() {
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+      <div
+        className="flex items-center justify-between px-5 shrink-0 border-b border-border"
+        style={{ height: '44px', background: 'var(--toolbar-bg)', borderTop: '3px solid var(--color-primary)', boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}
+      >
         <div className="flex items-center gap-2.5">
           <AlertTriangle size={15} className="text-amber-400" />
           <h2 className="text-sm font-semibold">Regelbasierte Kollisionsprüfung</h2>
