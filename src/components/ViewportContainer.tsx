@@ -2405,10 +2405,10 @@ export function ViewportContainer({ onElementClick }: Props) {
             cur.abwicklungAlignmentId !== alignId ||
             cur.abwicklungLeftOffset !== left || cur.abwicklungRightOffset !== right) return;
 
-        const rawLines = computeAbwicklung(
+        const { lines: rawLines, objectLabels } = computeAbwicklung(
           pickableMeshesRef.current, pts, staStart, staEnd, left, right,
         );
-        useAlignmentStore.getState().setAbwicklungResult(rawLines, oz);
+        useAlignmentStore.getState().setAbwicklungResult(rawLines, oz, objectLabels);
       }, 0);
     };
 

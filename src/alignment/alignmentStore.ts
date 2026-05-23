@@ -104,6 +104,7 @@ interface AlignmentStore {
   abwicklungLeftOffset: number;       // default 10 m
   abwicklungRightOffset: number;      // default 10 m
   abwicklungLines: AbwicklungLineSync[];
+  abwicklungObjectLabels: XSSyncObjectLabel[];
   abwicklungComputing: boolean;
   abwicklungElevationOrigin: number;  // oz, add to elevMid for absolute elevation
 
@@ -157,7 +158,7 @@ interface AlignmentStore {
   closeAbwicklung(): void;
   setAbwicklungRange(staStart: number, staEnd: number): void;
   setAbwicklungOffsets(left: number, right: number): void;
-  setAbwicklungResult(lines: AbwicklungLineSync[], elevationOrigin: number): void;
+  setAbwicklungResult(lines: AbwicklungLineSync[], elevationOrigin: number, objectLabels?: XSSyncObjectLabel[]): void;
 
   // Face cross-section actions
   openFaceCrossSection(origin: [number,number,number], normal: [number,number,number]): void;
@@ -219,6 +220,7 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   abwicklungLeftOffset: 10,
   abwicklungRightOffset: 10,
   abwicklungLines: [],
+  abwicklungObjectLabels: [],
   abwicklungComputing: false,
   abwicklungElevationOrigin: 0,
   faceCrossSectionActive: false,
@@ -370,8 +372,9 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
     abwicklungLines: [],
     abwicklungComputing: true,
   }),
-  setAbwicklungResult: (lines, elevationOrigin) => set({
+  setAbwicklungResult: (lines, elevationOrigin, objectLabels = []) => set({
     abwicklungLines: lines,
+    abwicklungObjectLabels: objectLabels,
     abwicklungComputing: false,
     abwicklungElevationOrigin: elevationOrigin,
   }),

@@ -349,6 +349,17 @@ export function LongitudinalSectionWindow() {
   useEffect(() => { lockXRef.current = lockX; }, [lockX]);
   useEffect(() => { lockYRef.current = lockY; }, [lockY]);
 
+  // ── vExag ref for zoom-box handler ───────────────────────────────────────
+  const vExagRef = useRef(vExag);
+  useEffect(() => { vExagRef.current = vExag; }, [vExag]);
+
+  // ── Zoom-box (rubber-band rect zoom) ────────────────────────────────────
+  const [zoomBoxMode, setZoomBoxMode]   = useState(false);
+  const [zoomBoxRect, setZoomBoxRect]   = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const zoomBoxStartRef = useRef<{ svgX: number; svgY: number } | null>(null);
+  const zoomBoxModeRef  = useRef(false);
+  useEffect(() => { zoomBoxModeRef.current = zoomBoxMode; }, [zoomBoxMode]);
+
   // ── Wheel zoom — beide Achsen gleichzeitig, Pivot am Mauszeiger ──────────
   useEffect(() => {
     const svg = svgRef.current;
@@ -628,6 +639,12 @@ export function LongitudinalSectionWindow() {
 
   // ── Mouse handlers ────────────────────────────────────────────────────────
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (zoomBoxModeRef.current) {
+      if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
+      const rect = svgRectRef.current;
+      zoomBoxStartRef.current = { svgX: e.clientX - rect.left, svgY: e.clientY - rect.top };
+      return;
+    }
     if (activeToolRef.current.measActive || e.button !== 0) return;
     // Store raw (pre-exaggeration) elevation range so pan works correctly with any vExag
     dragRef.current = { mx: e.clientX, my: e.clientY, sMin: vMin, sMax: vMax, eMin: rawVEMin, eMax: rawVEMax };
@@ -639,6 +656,15 @@ export function LongitudinalSectionWindow() {
     const rect = svgRectRef.current;
     const svgX = e.clientX - rect.left;
     const svgY = e.clientY - rect.top;
+
+    if (zoomBoxModeRef.current && zoomBoxStartRef.current) {
+      if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
+      const svgX2 = e.clientX - svgRectRef.current.left;
+      const svgY2 = e.clientY - svgRectRef.current.top;
+      const s = zoomBoxStartRef.current;
+      setZoomBoxRect({ x: Math.min(s.svgX, svgX2), y: Math.min(s.svgY, svgY2), w: Math.abs(svgX2 - s.svgX), h: Math.abs(svgY2 - s.svgY) });
+      return;
+    }
 
     if (dragRef.current) {
       const dxPx = e.clientX - dragRef.current.mx;
@@ -684,6 +710,30 @@ export function LongitudinalSectionWindow() {
   };
 
   const handleMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (zoomBoxModeRef.current && zoomBoxStartRef.current) {
+      if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
+      const endSvgX = e.clientX - svgRectRef.current.left;
+      const endSvgY = e.clientY - svgRectRef.current.top;
+      const { svgX: startSvgX, svgY: startSvgY } = zoomBoxStartRef.current;
+      const dx = Math.abs(endSvgX - startSvgX);
+      const dy = Math.abs(endSvgY - startSvgY);
+      if (dx >= 5 && dy >= 5) {
+        const vp = vpRef.current;
+        const staMin = vp.vMin + (Math.min(startSvgX, endSvgX) - M.left) / vp.chartW * vp.vRange;
+        const staMax = vp.vMin + (Math.max(startSvgX, endSvgX) - M.left) / vp.chartW * vp.vRange;
+        const elevMax = vp.vEMin + (1 - (Math.min(startSvgY, endSvgY) - M.top) / vp.chartH) * vp.vERange;
+        const elevMin = vp.vEMin + (1 - (Math.max(startSvgY, endSvgY) - M.top) / vp.chartH) * vp.vERange;
+        if (staMax - staMin > 0.5 && elevMax - elevMin > 0.1) {
+          setViewSta([staMin, staMax]);
+          const eMid = (elevMin + elevMax) / 2;
+          const eHalf = (elevMax - elevMin) / 2;
+          setViewElev([eMid - eHalf * vExagRef.current, eMid + eHalf * vExagRef.current]);
+        }
+      }
+      zoomBoxStartRef.current = null;
+      setZoomBoxRect(null);
+      return;
+    }
     if (e.button === 0 && !dragRef.current) {
       if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
       const raw = svgToWorld(e.clientX - svgRectRef.current.left, e.clientY - svgRectRef.current.top, vpRef.current);
@@ -705,12 +755,14 @@ export function LongitudinalSectionWindow() {
     setMouseWorld(null);
     snapRef.current = null;
     setSnapDisplay(null);
+    zoomBoxStartRef.current = null;
+    setZoomBoxRect(null);
   };
 
   const isZoomed = viewSta !== null || viewElev !== null;
   const effW: [number, number] | null = snapActive && snapDisplay ? snapDisplay.pt : mouseWorld;
 
-  const cursorStyle = measActive ? "crosshair" : panning ? "grabbing" : "grab";
+  const cursorStyle = measActive || zoomBoxMode ? "crosshair" : panning ? "grabbing" : "grab";
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -908,6 +960,9 @@ export function LongitudinalSectionWindow() {
               title={lockY ? "Höhe fixiert — nur Station zoomen/pannen" : "Höhe fixieren"}
             >Höhe</button>
           </div>
+          <XsToolBtn icon={ZoomIn} label="Box" active={zoomBoxMode}
+            onClick={() => { setZoomBoxMode(a => !a); setZoomBoxRect(null); zoomBoxStartRef.current = null; }}
+            title="Rechteck-Zoom" color="bg-sky-600 text-white" />
           {isZoomed && (
             <button onClick={() => { setViewSta(null); setViewElev(null); }}
               className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground hover:text-foreground"
@@ -1140,6 +1195,17 @@ export function LongitudinalSectionWindow() {
                 </g>
               );
             })()}
+
+            {/* Zoom-box rubber-band rectangle */}
+            {zoomBoxRect && zoomBoxRect.w > 2 && zoomBoxRect.h > 2 && (
+              <rect
+                x={zoomBoxRect.x} y={zoomBoxRect.y}
+                width={zoomBoxRect.w} height={zoomBoxRect.h}
+                fill="#3b82f6" fillOpacity={0.08}
+                stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="5,3"
+                style={{ pointerEvents: "none" }}
+              />
+            )}
 
             {/* ── X axis (station) ── */}
             <line x1={M.left} y1={M.top + chartH} x2={M.left + chartW} y2={M.top + chartH}

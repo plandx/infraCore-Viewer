@@ -376,6 +376,7 @@ function useAbwicklungSync() {
         leftOffset:      store.abwicklungLeftOffset,
         rightOffset:     store.abwicklungRightOffset,
         lines:           store.abwicklungLines,
+        objectLabels:    store.abwicklungObjectLabels,
         computing:       store.abwicklungComputing,
         theme,
         elevationOrigin: store.abwicklungElevationOrigin,

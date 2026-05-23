@@ -655,6 +655,7 @@ Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstel
 | Fang | Magnet-Icon (himmelblau) | Aktiviert Snap-Modus: Vertex-Fang (Priorität, 14px-Schwelle) dann Kanten-Fang (Lot auf Segment) |
 | Objekte | Tag-Icon (grün) | Schaltet Objektbeschriftung ein; Dropdown wählt das Anzeigeattribut (Name, Typ, beliebige geladene Property) |
 | Tiefe | Eye-Icon (grün) | Aktiviert Tiefenansicht: projiziert alle Kanten im Sichtbereich hinter dem Schnitt (default 3 m) — sichtbare Kanten solid, verdeckte Kanten gestrichelt |
+| Box-Zoom | ZoomIn-Icon | Aktiviert Rechteck-Zoom: Ziehen zeichnet blaues gestricheltes Auswahl-Rechteck; beim Loslassen wird `zoomFactor` + `viewCenter` auf den Ausschnitt gesetzt |
 
 ### Objektbeschriftung
 
@@ -738,6 +739,7 @@ Keine — empfängt alles über BroadcastChannel (`LS_CHANNEL`).
 - **Überhöhung**: Preset-Buttons 1×/2×/5×/10×/20× + freies Zahlenfeld; Y-Achsentitel zeigt Faktor wenn aktiv
 - **Tiefenlinien (Depth View)**: Kanten von Objekten innerhalb `maxDist` der Trasse werden projiziert und als transparente Linien gezeichnet
 - **Stationsbereich-Eingabe**: Zwei Inputs oben; bei Enter/Blur wird `{ t: "setRange" }` Nachricht gesendet
+- **Rechteck-Zoom (Box Zoom)**: Taste „Box" im Ansicht-Ribbon → `zoomBoxMode=true`; Ziehen zeichnet blaues gestricheltes Auswahl-Rechteck; beim Loslassen wird `viewSta` + `viewElev` auf den Ausschnitt gesetzt (Exaggeration korrekt mitgerechnet: `eMid ± eHalf * vExag`)
 - **SVG-Export**: `Download`-Button → `XMLSerializer` → `<a download>`
 - **Theme**: Erbt `theme: "light" | "dark"` aus `LSSyncState`; Default dunkel
 
@@ -764,3 +766,71 @@ Auf `LS_CHANNEL` (BroadcastChannel):
 - **Bereich ziehen**: `lsMode` aktiv oder `Shift`-Taste gedrückt → Drag definiert `[staStart, staEnd]`
 - **Visuelles Feedback**: Blau gestricheltes Rechteck (`fillOpacity=0.12`) über dem gewählten Bereich
 - **"Längenschnitt" Button**: Erscheint wenn `lsRange` gesetzt; ruft `openLongSection(id, start, end)` + `openLongitudinalSectionWindow()` auf
+- **"Abwicklung" Button**: Erscheint neben dem Längenschnitt-Button wenn `lsRange` gesetzt; ruft `openAbwicklung(id, start, end)` + `openAbwicklungWindow()` auf
+
+---
+
+## AbwicklungWindow (`src/alignment/AbwicklungWindow.tsx`)
+
+Eigenständiges Popup-Fenster (`?abwicklung`) für die Grundriss-Abwicklung entlang einer Trasse. Projiziert IFC-Kanten in das Korridorkoordinatensystem: X = Station, Y = Lateralabstand (+ = rechts, − = links).
+
+### Props
+Keine — empfängt alles über BroadcastChannel (`ABWICKLUNG_CHANNEL = "infracore-abwicklung"`).
+
+### State
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `state` | `AbwicklungSyncState` | Zuletzt empfangener Zustand vom Hauptfenster |
+| `size` | `{ w, h }` | Container-Größe (ResizeObserver) |
+| `viewSta` | `[number, number] \| null` | Gezoomter Stationsbereich (null = Vollausschnitt) |
+| `viewLat` | `[number, number] \| null` | Gezoomter Lateralbereich (null = Vollausschnitt) |
+| `lockX` | `boolean` | Stations-Achse beim Zoom sperren |
+| `lockY` | `boolean` | Lateral-Achse beim Zoom sperren |
+| `zoomBoxMode` | `boolean` | Rechteck-Zoom aktiv |
+| `colorMode` | `"ifc" \| "elevation"` | IFC-Originalfarbe oder Höhenrampe (blau→rot) |
+| `snapActive` | `boolean` | Fang-Modus aktiv |
+| `snapDisplay` | `SnapPoint \| null` | Aktuell gefangener Punkt (für SVG-Indikator) |
+| `objLabelsVisible` | `boolean` | Objektbeschriftung sichtbar |
+| `objLabelProp` | `string` | Anzeigeattribut (`"name"` / `"type"` / beliebiger Prop-Key) |
+| `labelStyle` | `"leader" \| "direct"` | Beschriftungsstil: Leader-Linie oder direkte Platzierung |
+| `measActive` | `boolean` | Mess-Werkzeug aktiv |
+| `measurements` | `AbwMeasurement[]` | Gespeicherte Messungen |
+
+### Koordinatenskalierung
+- **Unabhängige Achsen**: `viewSta` und `viewLat` sind getrennte Zustände — X- und Y-Zoom sind unabhängig voneinander
+- **Startansicht**: Beim ersten Öffnen passt sich die Ansicht automatisch an den vollen Stationsbereich + Korridorbreite an (Vollausschnitt)
+- **Reset**: Setzt `viewSta = null` und `viewLat = null` → kehrt zur Vollansicht zurück
+
+### Features
+- **X-Achse**: Station in km+m Format (gleiche `computeTicks`-Logik wie LS)
+- **Y-Achse**: Lateralabstand in Metern (R+ / L−)
+- **IFC-Kanten**: `lines: AbwicklungLineSync[]` als farbige Segmente (IFC-Farbe oder Höhenrampe)
+- **Farbmodi**: "ifc" (Batch-Pfade pro Farbe) vs "elevation" (per-Linie-Farbe via `elevColor()` blau→rot-Rampe)
+- **Zoom**: Mausrad an Cursor-Position; Achslock `lockX`/`lockY` verhindern Zoom auf der gesperrten Achse; Pivot korrekt je Achse
+- **Pan**: Linke Maustaste + Ziehen; Achslocks werden respektiert
+- **Rechteck-Zoom (Box Zoom)**: Button im Ansicht-Ribbon; Ziehen zeichnet blaues gestricheltes Rechteck; beim Loslassen wird `viewSta` + `viewLat` auf den Ausschnitt gesetzt
+- **Fang (Snap)**: `computeSnapScreen()` sucht nächsten Vertex (Raute) oder Kantenpunkt (Kreis) in SVG-Pixel-Koordinaten (Schwelle 12px); gibt Welt-Koordinaten `[sta, lat]` zurück
+- **Mess-Werkzeug**: Klick-Klick-Messung in Station + Lateral; zeigt Linie + Maßtext
+- **Objektbeschriftung**: `buildLabelPositions` + `deOverlapLabels` (80 Iterationen Force-Repulsion); Leader-Linie oder Direkt-Modus
+- **Korridorbreite**: Inputs für links/rechts in Metern; sendet `{ t: "setOffsets" }` → Hauptfenster löst Neuberechnung aus
+- **Stationsbereich**: Inputs für Start/Ende; sendet `{ t: "setRange" }` → Hauptfenster löst Neuberechnung aus
+- **SVG-Export**: Download-Button → `XMLSerializer` → `<a download>`
+
+### Ribbon-Gruppen
+| Gruppe | Inhalt |
+|---|---|
+| Station | Start- + End-Eingabe (m) |
+| Korridor | Links- + Rechts-Offset (m) |
+| Farbe | IFC / Höhe Toggle |
+| Werkzeuge | Messen + Fang |
+| Beschriftung | Tag-Toggle + Prop-Key-Dropdown + Leader/Direct-Toggle |
+| Ansicht | Sta-Lock + Quer-Lock + Box-Zoom + Reset |
+| Export | SVG-Download |
+
+### Kommunikation
+Auf `ABWICKLUNG_CHANNEL` (BroadcastChannel):
+- Sendet `{ t: "req" }` beim Mount
+- Empfängt `{ t: "state"; s: AbwicklungSyncState }` → update `state`
+- Sendet `{ t: "setRange"; staStart; staEnd }` bei Benutzer-Eingabe
+- Sendet `{ t: "setOffsets"; left; right }` bei Korridor-Änderung
+- Sendet `{ t: "close" }` beim Schließen

@@ -497,6 +497,29 @@ Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen,
 | `depthDistance` | `number` | XS-Sichttiefe in Metern (default 3) |
 | `depthLines` | `XSSyncDepthLine[]` | Berechnete XS-Tiefenansichts-Liniensegmente |
 
+### Felder — Abwicklung
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `abwicklungOpen` | `boolean` | Abwicklung-Fenster offen |
+| `abwicklungAlignmentId` | `number \| null` | Alignment-ID |
+| `abwicklungStaStart` | `number \| null` | Startstation in Metern |
+| `abwicklungStaEnd` | `number \| null` | Endstation in Metern |
+| `abwicklungLeftOffset` | `number` | Korridor-Halbbreite links in Metern |
+| `abwicklungRightOffset` | `number` | Korridor-Halbbreite rechts in Metern |
+| `abwicklungLines` | `AbwicklungLine[]` | Projizierte IFC-Kanten `{ s1,t1,s2,t2,elevMid,color,objectKey? }` |
+| `abwicklungObjectLabels` | `XSSyncObjectLabel[]` | Label je sichtbarem Abwicklungs-Element |
+| `abwicklungComputing` | `boolean` | Berechnung aktiv |
+| `abwicklungElevationOrigin` | `number` | oz — addieren für absolute Höhe |
+
+**Aktion:**
+| Aktion | Beschreibung |
+|---|---|
+| `openAbwicklung(alignmentId, staStart, staEnd)` | Abwicklung öffnen, Berechnung starten |
+| `closeAbwicklung()` | Abwicklung schließen |
+| `setAbwicklungOffsets(left, right)` | Korridorbreite ändern, Neuberechnung auslösen |
+| `setAbwicklungResult(lines, elevationOrigin, objectLabels?)` | Ergebnis + Labels speichern, `computing=false` |
+
 ### Felder — Längenschnitt (LS)
 
 | Feld | Typ | Bedeutung |

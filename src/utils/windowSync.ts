@@ -224,6 +224,7 @@ export interface AbwicklungSyncState {
   leftOffset:       number;
   rightOffset:      number;
   lines:            AbwicklungLineSync[];
+  objectLabels:     XSSyncObjectLabel[];
   computing:        boolean;
   theme:            "light" | "dark";
   elevationOrigin:  number; // oz — add to elevMid for real-world elevation

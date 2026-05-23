@@ -443,6 +443,7 @@ Main-Fenster (useAbwicklungSync)          AbwicklungWindow
 | `staStart` / `staEnd` | `number` | Stationsbereich in Metern |
 | `leftOffset` / `rightOffset` | `number` | Korridor-Halbbreite links/rechts in Metern |
 | `lines` | `AbwicklungLineSync[]` | Projizierte IFC-Kanten `{ s1,t1,s2,t2,elevMid,color,objectKey? }` |
+| `objectLabels` | `XSSyncObjectLabel[]` | Label je sichtbarem Abwicklungs-Element `{ key, name, type, props }` |
 | `computing` | `boolean` | Berechnung läuft |
 | `elevationOrigin` | `number` | oz — addieren für absolute Höhe |
 | `theme` | `"light" \| "dark"` | Farb-Theme |
@@ -451,10 +452,16 @@ Main-Fenster (useAbwicklungSync)          AbwicklungWindow
 
 1. Polylinien-Segmente im Stationsbereich ± 5 m Puffer filtern
 2. Für jedes Segment: Tangente `(tx,tz)`, Rechtsrichtung `(rx=-tz, rz=tx)` berechnen
-3. Korridor-AABB im Weltkoordinatenraum (XZ) für Mesh-Breitband-Ablehnung aufbauen
-4. Pro Mesh: Bounding-Sphere gegen Korridor-AABB testen → bei Miss: überspringen
-5. Kanten aus `isEdge LineSegments`-Kind, alternativ temporäre `EdgesGeometry`
-6. Pro Kante: Weltkoordinaten-Transformation via `mesh.matrixWorld`, dann `projectPoint(wx,wz,segs)` → `[station, lateral]`
-7. Stationsbereich- und Lateralbereich-Filter → `AbwicklungLine[]`
+3. **Stations-Buckets** aufbauen: 100-Meter-Buckets für O(1)-Projektion (`buildBuckets`)
+4. Korridor-AABB im Weltkoordinatenraum (XZ) für Mesh-Breitband-Ablehnung aufbauen
+5. Pro Mesh: Bounding-Sphere gegen Korridor-AABB testen → bei Miss: überspringen
+6. Kanten aus `isEdge LineSegments`-Kind, alternativ **gecachter** `EdgesGeometry` (`mesh.userData.__abwkEdges`)
+7. Pro Kante: Weltkoordinaten-Transformation via `mesh.matrixWorld`, dann `projectPoint(wx,wz,segs,buckets)` → `[station, lateral]`
+8. Stationsbereich- und Lateralbereich-Filter → `AbwicklungLine[]`
+9. Labels aus Mesh-Parent-Hierarchie (`userData.modelId`, `userData.ifcType`, `userData.name`) → `XSSyncObjectLabel[]`
+
+**Performance-Optimierungen:**
+- **EdgesGeometry-Cache**: `mesh.userData.__abwkEdges` — wird beim ersten Aufruf erzeugt und wiederverwendet; verhindert O(N)-Neu-Triangulierung bei jeder Bereichsänderung
+- **Stations-Bucket-Lookup**: Stationsschätzung via Dot-Product → ±2-Bucket-Suche; Fallback auf Vollscan nur wenn kein Kandidat in Nachbar-Buckets; O(1) average statt O(N_segs)
 
 **Koordinatensystem:** `projectPoint` gibt `[station, lateral]` zurück — lateral ist das vorzeichenbehaftete senkrechte Abstandsmaß zur Achse (+ = rechts, berechnet als `perpX*rx + perpZ*rz`).

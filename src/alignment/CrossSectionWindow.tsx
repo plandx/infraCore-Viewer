@@ -457,6 +457,13 @@ export function CrossSectionWindow() {
   const rafIdRef        = useRef<number | null>(null);
   const pendingPosRef   = useRef<{ svgX: number; svgY: number } | null>(null);
 
+  // ── Zoom-box (rubber-band rect zoom) ─────────────────────────────────────
+  const [zoomBoxMode, setZoomBoxMode]   = useState(false);
+  const [zoomBoxRect, setZoomBoxRect]   = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const zoomBoxStartRef = useRef<{ svgX: number; svgY: number } | null>(null);
+  const zoomBoxModeRef  = useRef(false);
+  useEffect(() => { zoomBoxModeRef.current = zoomBoxMode; }, [zoomBoxMode]);
+
   // ── Ticks ─────────────────────────────────────────────────────────────────
   const xTicks = useMemo(() => computeTicks(vxMin, vxMax, Math.max(3, Math.floor(chartW / 70))), [vxMin, vxMax, chartW]);
   const yTicks = useMemo(() => computeTicks(vyMin, vyMax, Math.max(3, Math.floor(chartH / 45))), [vyMin, vyMax, chartH]);
@@ -608,6 +615,12 @@ export function CrossSectionWindow() {
   activeToolRef.current = { measActive, ptLabelMode, dimActive };
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (zoomBoxModeRef.current) {
+      if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
+      const rect = svgRectRef.current;
+      zoomBoxStartRef.current = { svgX: e.clientX - rect.left, svgY: e.clientY - rect.top };
+      return;
+    }
     const { measActive: ma, ptLabelMode: pt, dimActive: da } = activeToolRef.current;
     if (ma || pt || da || e.button !== 0) return;
     dragRef.current = { mx: e.clientX, my: e.clientY, cx, cy, sc: scale };
@@ -619,6 +632,15 @@ export function CrossSectionWindow() {
     const rect = svgRectRef.current;
     const svgX = e.clientX - rect.left;
     const svgY = e.clientY - rect.top;
+
+    if (zoomBoxModeRef.current && zoomBoxStartRef.current) {
+      if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
+      const svgX2 = e.clientX - svgRectRef.current.left;
+      const svgY2 = e.clientY - svgRectRef.current.top;
+      const s = zoomBoxStartRef.current;
+      setZoomBoxRect({ x: Math.min(s.svgX, svgX2), y: Math.min(s.svgY, svgY2), w: Math.abs(svgX2 - s.svgX), h: Math.abs(svgY2 - s.svgY) });
+      return;
+    }
 
     if (dragRef.current) {
       const dx = e.clientX - dragRef.current.mx;
@@ -658,6 +680,35 @@ export function CrossSectionWindow() {
   };
 
   const handleMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (zoomBoxModeRef.current && zoomBoxStartRef.current) {
+      if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
+      const endSvgX = e.clientX - svgRectRef.current.left;
+      const endSvgY = e.clientY - svgRectRef.current.top;
+      const { svgX: svgX1, svgY: svgY1 } = zoomBoxStartRef.current;
+      const dx = Math.abs(endSvgX - svgX1);
+      const dy = Math.abs(endSvgY - svgY1);
+      if (dx >= 5 && dy >= 5) {
+        const vp = vpRef.current;
+        const wWidth  = (Math.max(svgX1, endSvgX) - Math.min(svgX1, endSvgX)) / vp.chartW * vp.visW;
+        const wyMax   = vp.vyMax - (Math.min(svgY1, endSvgY) - M.top) / vp.chartH * vp.visH;
+        const wyMin   = vp.vyMax - (Math.max(svgY1, endSvgY) - M.top) / vp.chartH * vp.visH;
+        const wHeight = wyMax - wyMin;
+        if (wWidth > 0.1 && wHeight > 0.1) {
+          const dom = domainRef.current;
+          const cw  = vp.chartW;
+          const ch  = vp.chartH;
+          const bs  = Math.min(cw / ((dom.xMax - dom.xMin) || 1), ch / ((dom.yMax - dom.yMin) || 1));
+          const newScale = Math.min(cw / wWidth, ch / wHeight);
+          const newZoom  = Math.min(200, newScale / bs);
+          const wxMin = vp.vxMin + (Math.min(svgX1, endSvgX) - M.left) / vp.chartW * vp.visW;
+          setViewCenter([(wxMin + wxMin + wWidth) / 2, (wyMin + wyMax) / 2]);
+          setZoomFactor(newZoom);
+        }
+      }
+      zoomBoxStartRef.current = null;
+      setZoomBoxRect(null);
+      return;
+    }
     if (e.button === 0) {
       if (!svgRectRef.current) svgRectRef.current = e.currentTarget.getBoundingClientRect();
       const raw = svgToWorldFromVp(e.clientX - svgRectRef.current.left, e.clientY - svgRectRef.current.top, vpRef.current);
@@ -697,11 +748,13 @@ export function CrossSectionWindow() {
     setMouseWorld(null);
     snapRef.current = null;
     setSnapDisplay(null);
+    zoomBoxStartRef.current = null;
+    setZoomBoxRect(null);
   };
 
   // ── Derived cursor ────────────────────────────────────────────────────────
   const isToolActive = measActive || ptLabelMode || dimActive;
-  const cursorStyle = isToolActive ? "crosshair" : panning ? "grabbing" : "grab";
+  const cursorStyle = isToolActive || zoomBoxMode ? "crosshair" : panning ? "grabbing" : "grab";
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -995,6 +1048,13 @@ export function CrossSectionWindow() {
             onClick={() => send({ t: "toggleSectionSurface" })}
             title="Schnittfläche im 3D-Viewer anzeigen"
             color="bg-sky-600 text-white" />
+        </XsGroup>
+
+        {/* Ansicht */}
+        <XsGroup label="Ansicht">
+          <XsToolBtn icon={ZoomIn} label="Box" active={zoomBoxMode}
+            onClick={() => { setZoomBoxMode(a => !a); setZoomBoxRect(null); zoomBoxStartRef.current = null; }}
+            title="Rechteck-Zoom" color="bg-sky-600 text-white" />
         </XsGroup>
 
         {/* Export */}
@@ -1363,6 +1423,17 @@ export function CrossSectionWindow() {
                 </g>
               );
             })}
+
+            {/* Zoom-box rubber-band rectangle */}
+            {zoomBoxRect && zoomBoxRect.w > 2 && zoomBoxRect.h > 2 && (
+              <rect
+                x={zoomBoxRect.x} y={zoomBoxRect.y}
+                width={zoomBoxRect.w} height={zoomBoxRect.h}
+                fill="#3b82f6" fillOpacity={0.08}
+                stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="5,3"
+                style={{ pointerEvents: "none" }}
+              />
+            )}
 
             {/* ── X axis ── */}
             <line x1={M.left} y1={M.top + chartH} x2={M.left + chartW} y2={M.top + chartH}
