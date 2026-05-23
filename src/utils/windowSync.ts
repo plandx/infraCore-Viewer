@@ -204,6 +204,43 @@ export function openLongitudinalSectionWindow() {
   window.open(url, "infracore-longitudinal-section", "width=1200,height=600,resizable=yes");
 }
 
+// ── Abwicklung (corridor unrolling) window ────────────────────────────────────
+
+export const ABWICKLUNG_CHANNEL = "infracore-abwicklung";
+
+export interface AbwicklungLineSync {
+  s1: number; t1: number;  // station, lateral at start
+  s2: number; t2: number;  // station, lateral at end
+  elevMid: number;         // average world-Y elevation (add elevationOrigin for absolute)
+  color: string;
+  objectKey?: string;
+}
+
+export interface AbwicklungSyncState {
+  alignmentId:      number | null;
+  alignmentName:    string;
+  staStart:         number;
+  staEnd:           number;
+  leftOffset:       number;
+  rightOffset:      number;
+  lines:            AbwicklungLineSync[];
+  computing:        boolean;
+  theme:            "light" | "dark";
+  elevationOrigin:  number; // oz — add to elevMid for real-world elevation
+}
+
+export type AbwicklungMsg =
+  | { t: "state"; s: AbwicklungSyncState }
+  | { t: "req" }
+  | { t: "close" }
+  | { t: "setRange"; staStart: number; staEnd: number }
+  | { t: "setOffsets"; left: number; right: number };
+
+export function openAbwicklungWindow() {
+  const url = `${window.location.pathname}?abwicklung`;
+  window.open(url, "infracore-abwicklung", "width=1200,height=640,resizable=yes");
+}
+
 // ── Collision window ──────────────────────────────────────────────────────────
 
 export const COLLISION_CHANNEL = "infracore-collision";

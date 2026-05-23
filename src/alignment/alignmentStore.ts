@@ -3,7 +3,7 @@ import { parseLandXmlText } from "./landXmlParser";
 import type { Alignment } from "./types";
 import type { SectionLine, SectionPolygon } from "./crossSectionUtils";
 import { buildSectionPolygons } from "./crossSectionUtils";
-import type { XSSyncObjectLabel, XSSyncDepthLine, LSLineSync, LSProfilePt, LSDepthLineSync } from "../utils/windowSync";
+import type { XSSyncObjectLabel, XSSyncDepthLine, LSLineSync, LSProfilePt, LSDepthLineSync, AbwicklungLineSync } from "../utils/windowSync";
 
 let _xsWin: Window | null = null;
 
@@ -96,6 +96,17 @@ interface AlignmentStore {
   lsDepthDistance: number;
   lsDepthLines: LSDepthLineSync[];
 
+  // Abwicklung (corridor unrolling) state
+  abwicklungOpen: boolean;
+  abwicklungAlignmentId: number | null;
+  abwicklungStaStart: number | null;
+  abwicklungStaEnd: number | null;
+  abwicklungLeftOffset: number;       // default 10 m
+  abwicklungRightOffset: number;      // default 10 m
+  abwicklungLines: AbwicklungLineSync[];
+  abwicklungComputing: boolean;
+  abwicklungElevationOrigin: number;  // oz, add to elevMid for absolute elevation
+
   // Face cross-section (independent of alignment station)
   faceCrossSectionActive: boolean;
   faceCrossSectionOrigin: [number,number,number] | null;
@@ -140,6 +151,13 @@ interface AlignmentStore {
   setLSComputeResult(lines: LSLineSync[], profile: LSProfilePt[], depthLines: LSDepthLineSync[]): void;
   setLSDepthView(enabled: boolean, distance?: number): void;
   setLSDepthLines(lines: LSDepthLineSync[]): void;
+
+  // Abwicklung actions
+  openAbwicklung(alignmentId: number, staStart: number, staEnd: number): void;
+  closeAbwicklung(): void;
+  setAbwicklungRange(staStart: number, staEnd: number): void;
+  setAbwicklungOffsets(left: number, right: number): void;
+  setAbwicklungResult(lines: AbwicklungLineSync[], elevationOrigin: number): void;
 
   // Face cross-section actions
   openFaceCrossSection(origin: [number,number,number], normal: [number,number,number]): void;
@@ -194,6 +212,15 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   lsDepthView: false,
   lsDepthDistance: 3,
   lsDepthLines: [],
+  abwicklungOpen: false,
+  abwicklungAlignmentId: null,
+  abwicklungStaStart: null,
+  abwicklungStaEnd: null,
+  abwicklungLeftOffset: 10,
+  abwicklungRightOffset: 10,
+  abwicklungLines: [],
+  abwicklungComputing: false,
+  abwicklungElevationOrigin: 0,
   faceCrossSectionActive: false,
   faceCrossSectionOrigin: null,
   faceCrossSectionNormal: null,
@@ -317,6 +344,37 @@ export const useAlignmentStore = create<AlignmentStore>((set, get) => ({
   setLSComputeResult: (lines, profile, depthLines) => set({ lsLines: lines, lsProfile: profile, lsDepthLines: depthLines, lsComputing: false }),
   setLSDepthView: (enabled, distance) => set(s => ({ lsDepthView: enabled, lsDepthDistance: distance ?? s.lsDepthDistance })),
   setLSDepthLines: (lines) => set({ lsDepthLines: lines }),
+
+  openAbwicklung: (alignmentId, staStart, staEnd) => set({
+    abwicklungOpen: true,
+    abwicklungAlignmentId: alignmentId,
+    abwicklungStaStart: staStart,
+    abwicklungStaEnd: staEnd,
+    abwicklungLines: [],
+    abwicklungComputing: true,
+  }),
+  closeAbwicklung: () => set({
+    abwicklungOpen: false,
+    abwicklungLines: [],
+    abwicklungComputing: false,
+  }),
+  setAbwicklungRange: (staStart, staEnd) => set({
+    abwicklungStaStart: staStart,
+    abwicklungStaEnd: staEnd,
+    abwicklungLines: [],
+    abwicklungComputing: true,
+  }),
+  setAbwicklungOffsets: (left, right) => set({
+    abwicklungLeftOffset: left,
+    abwicklungRightOffset: right,
+    abwicklungLines: [],
+    abwicklungComputing: true,
+  }),
+  setAbwicklungResult: (lines, elevationOrigin) => set({
+    abwicklungLines: lines,
+    abwicklungComputing: false,
+    abwicklungElevationOrigin: elevationOrigin,
+  }),
 
   openFaceCrossSection: (origin, normal) => {
     set({

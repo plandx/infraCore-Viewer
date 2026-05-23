@@ -28,13 +28,14 @@ import { CollisionWindow } from "./components/CollisionWindow";
 import { ProfileViewer } from "./alignment/ProfileViewer";
 import { CrossSectionWindow } from "./alignment/CrossSectionWindow";
 import { LongitudinalSectionWindow } from "./alignment/LongitudinalSectionWindow";
+import { AbwicklungWindow } from "./alignment/AbwicklungWindow";
 import { FaceCrossSectionPanel } from "./alignment/FaceCrossSectionPanel";
 import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifcLoader";
-import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
-import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, ClashRule, ClashResult, XSSyncObjectLabel } from "./utils/windowSync";
+import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
+import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel } from "./utils/windowSync";
 import { collectElements, runRuleBasedDetection } from "./utils/collisionUtils";
 import type { IFCModelEntry } from "./types/ifc";
 
@@ -47,6 +48,7 @@ const IS_CROSS_SECTION = _params.has("cross-section");
 const IS_LONG_SECTION  = _params.has("longitudinal-section");
 const IS_COLLISION = _params.has("collision");
 const IS_BASKET = _params.has("basket");
+const IS_ABWICKLUNG = _params.has("abwicklung");
 
 // ── root export (secondary windows skip the full app) ─────────────────────────
 
@@ -61,6 +63,7 @@ export default function App() {
   if (IS_CROSS_SECTION) return <CrossSectionWindow />;
   if (IS_LONG_SECTION) return <LongitudinalSectionWindow />;
   if (IS_BASKET) return <BasketWindow />;
+  if (IS_ABWICKLUNG) return <AbwicklungWindow />;
   return <MainApp />;
 }
 
@@ -344,6 +347,69 @@ function useLongitudinalSectionSync() {
           state.lsDepthLines   !== prev.lsDepthLines   ||
           state.lsDepthView    !== prev.lsDepthView    ||
           state.lsDepthDistance!== prev.lsDepthDistance) broadcast();
+    });
+    const unsubModel = useModelStore.subscribe((s, p) => {
+      if (s.settings.theme !== p.settings.theme) broadcast();
+    });
+    return () => { ch.close(); unsub(); unsubModel(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
+// ── abwicklung window sync hook ────────────────────────────────────────────────
+
+function useAbwicklungSync() {
+  useEffect(() => {
+    let ch: BroadcastChannel;
+    try { ch = new BroadcastChannel(ABWICKLUNG_CHANNEL); } catch { return; }
+
+    const broadcast = () => {
+      const store = useAlignmentStore.getState();
+      const alignment = store.files.flatMap(f => f.alignments)
+        .find(a => a.id === store.abwicklungAlignmentId);
+      const theme = useModelStore.getState().settings.theme;
+      const s: AbwicklungSyncState = {
+        alignmentId:     store.abwicklungAlignmentId,
+        alignmentName:   alignment?.displayName ?? "",
+        staStart:        store.abwicklungStaStart ?? 0,
+        staEnd:          store.abwicklungStaEnd   ?? 0,
+        leftOffset:      store.abwicklungLeftOffset,
+        rightOffset:     store.abwicklungRightOffset,
+        lines:           store.abwicklungLines,
+        computing:       store.abwicklungComputing,
+        theme,
+        elevationOrigin: store.abwicklungElevationOrigin,
+      };
+      ch.postMessage({ t: "state", s } satisfies AbwicklungMsg);
+    };
+
+    ch.onmessage = (e: MessageEvent<AbwicklungMsg>) => {
+      const store = useAlignmentStore.getState();
+      const msg = e.data;
+      if (msg.t === "req") {
+        broadcast();
+        if (store.abwicklungOpen && store.abwicklungLines.length === 0 &&
+            !store.abwicklungComputing &&
+            store.abwicklungStaStart !== null && store.abwicklungStaEnd !== null) {
+          store.setAbwicklungRange(store.abwicklungStaStart, store.abwicklungStaEnd);
+        }
+      } else if (msg.t === "setRange") {
+        store.setAbwicklungRange(msg.staStart, msg.staEnd);
+      } else if (msg.t === "setOffsets") {
+        store.setAbwicklungOffsets(msg.left, msg.right);
+      } else if (msg.t === "close") {
+        store.closeAbwicklung();
+      }
+    };
+
+    const unsub = useAlignmentStore.subscribe((state, prev) => {
+      if (state.abwicklungLines      !== prev.abwicklungLines      ||
+          state.abwicklungComputing  !== prev.abwicklungComputing  ||
+          state.abwicklungOpen       !== prev.abwicklungOpen       ||
+          state.abwicklungStaStart   !== prev.abwicklungStaStart   ||
+          state.abwicklungStaEnd     !== prev.abwicklungStaEnd     ||
+          state.abwicklungLeftOffset !== prev.abwicklungLeftOffset ||
+          state.abwicklungRightOffset!== prev.abwicklungRightOffset) broadcast();
     });
     const unsubModel = useModelStore.subscribe((s, p) => {
       if (s.settings.theme !== p.settings.theme) broadcast();
@@ -655,6 +721,7 @@ function MainApp() {
   useMainWindowSync(handleElementClick);
   useCrossSectionSync();
   useLongitudinalSectionSync();
+  useAbwicklungSync();
   useCollisionSync();
 
   // Billing window element-list provider

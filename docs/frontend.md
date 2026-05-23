@@ -17,6 +17,7 @@ URL-Erkennung (in Reihenfolge):
 - `?secondary&panel=…` → `<SecondaryWindow panel={…} />`
 - `?cross-section` → `<CrossSectionWindow />`
 - `?longitudinal-section` → `<LongitudinalSectionWindow />`
+- `?abwicklung` → `<AbwicklungWindow />` (Grundriss-Abwicklung entlang Achse)
 - `?basket` → `<BasketWindow />`
 - sonst → `<MainApp />`
 

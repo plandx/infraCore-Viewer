@@ -25,6 +25,7 @@ import { buildRobustPolyline, sampleAtDisplayStation, evaluateProfile } from "..
 import { sliceScene, buildSectionPolygons, pointInPolygon } from "../alignment/crossSectionUtils";
 import { sliceSceneLS, computeLSDepthLines } from "../alignment/longitudinalSectionUtils";
 import type { LSSegmentPlane } from "../alignment/longitudinalSectionUtils";
+import { computeAbwicklung } from "../alignment/abwicklungUtils";
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
 
 // Build EdgesGeometry + LineSegments in idle-time batches of 60 meshes.
@@ -2373,6 +2374,64 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
     });
     return () => { unsub(); unsubModelLS(); };
+  }, []);
+
+  // ── Abwicklung (corridor unrolling) computation ────────────────────────────
+  useEffect(() => {
+    const computeAbwicklungResult = () => {
+      const st = useAlignmentStore.getState();
+      if (!st.abwicklungOpen || st.abwicklungAlignmentId === null ||
+          st.abwicklungStaStart === null || st.abwicklungStaEnd === null) return;
+
+      const staStart = st.abwicklungStaStart;
+      const staEnd   = st.abwicklungStaEnd;
+      const alignId  = st.abwicklungAlignmentId;
+      const left     = st.abwicklungLeftOffset;
+      const right    = st.abwicklungRightOffset;
+
+      const allAligns = st.files.flatMap(f => f.alignments);
+      const alignment = allAligns.find(a => a.id === alignId);
+      if (!alignment) { useAlignmentStore.getState().setAbwicklungResult([], 0); return; }
+
+      const cache = alignPolylineRef.current.get(alignment.id);
+      if (!cache) { useAlignmentStore.getState().setAbwicklungResult([], 0); return; }
+
+      const { pts } = cache;
+      const oz = pts[0]?.oz ?? 0;
+
+      setTimeout(() => {
+        const cur = useAlignmentStore.getState();
+        if (cur.abwicklungStaStart !== staStart || cur.abwicklungStaEnd !== staEnd ||
+            cur.abwicklungAlignmentId !== alignId ||
+            cur.abwicklungLeftOffset !== left || cur.abwicklungRightOffset !== right) return;
+
+        const rawLines = computeAbwicklung(
+          pickableMeshesRef.current, pts, staStart, staEnd, left, right,
+        );
+        useAlignmentStore.getState().setAbwicklungResult(rawLines, oz);
+      }, 0);
+    };
+
+    const unsub = useAlignmentStore.subscribe((state, prev) => {
+      if (state.abwicklungComputing && (
+        !prev.abwicklungComputing ||
+        state.abwicklungStaStart    !== prev.abwicklungStaStart ||
+        state.abwicklungStaEnd      !== prev.abwicklungStaEnd   ||
+        state.abwicklungLeftOffset  !== prev.abwicklungLeftOffset ||
+        state.abwicklungRightOffset !== prev.abwicklungRightOffset ||
+        state.abwicklungAlignmentId !== prev.abwicklungAlignmentId
+      )) computeAbwicklungResult();
+      if (!state.abwicklungOpen && prev.abwicklungOpen)
+        useAlignmentStore.getState().setAbwicklungResult([], 0);
+    });
+    const unsubModel = useModelStore.subscribe((state, prev) => {
+      if (state.models !== prev.models) {
+        const aState = useAlignmentStore.getState();
+        if (aState.abwicklungOpen && aState.abwicklungAlignmentId != null)
+          computeAbwicklungResult();
+      }
+    });
+    return () => { unsub(); unsubModel(); };
   }, []);
 
   // ── Alignment click helpers ────────────────────────────────────────────────
