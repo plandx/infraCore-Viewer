@@ -351,6 +351,96 @@ dprRestoreTimer = setTimeout(restoreDpr, 200);
 
 ---
 
+## Performance Pass 3 — Schnittdarstellung (Mai 2026)
+
+### P3-Fix 1 — XS: Per-Edge-Occlusion statt Per-Mesh-Raycast
+
+**Problem:** Tiefenlinien im Querschnitt nutzten einen einzelnen Ray vom Mesh-Mittelpunkt — dadurch bekamen alle Kanten eines Mesh dasselbe `hidden`-Flag, auch wenn das Mesh nur partiell verdeckt war.
+
+**Fix:** 2D-Point-in-Polygon-Test per Kante:
+1. `sliceScene` liefert `SectionLine[]` mit `objectKey` je Segment
+2. `buildSectionPolygons` rekonstruiert geschlossene 2D-Polygone mit `minX/minY/maxX/maxY` AABB-Feldern (Shoelace-Test + AABB in einem Pass)
+3. Für jede Tiefenlinien-Kante: Mittelpunkt wird per AABB-Vorfilter + `pointInPolygon()` gegen alle Schnittpolygone anderer Elemente geprüft
+4. `hidden = true` wenn Mittelpunkt innerhalb eines fremden Polygons liegt
+
+**Ergebnis:** Korrekte Per-Kanten-Sichtbarkeit auch bei partiell verdeckten Bauteilen.
+
+---
+
+### P3-Fix 2 — XS: Float32Array-Vorberechnung + Inlineierte Dreiecksschnitte
+
+**Problem:** `sliceScene` traversierte `THREE.Scene` und allozierte pro Dreieck `Vector3`-Objekte für Eckpunkte und Schnittberechnung.
+
+**Fix:** `sliceScene(meshes, ...)` nimmt `THREE.Mesh[]` statt `THREE.Scene`:
+```typescript
+// Alle Vertices einmalig als Float32Array in Weltkoordinaten
+const wp = new Float32Array(vCount * 3);
+for (let v = 0; v < vCount; v++) {
+  wp[v*3]   = m11*lx + m12*ly + m13*lz + m14;
+  wp[v*3+1] = m21*lx + m22*ly + m23*lz + m24;
+  wp[v*3+2] = m31*lx + m32*ly + m33*lz + m34;
+}
+// Dreiecksschleife: scalar-Arithmetik, keine Vector3, keine Closures
+let p1r = 0, p1u = 0, p2r = 0, p2u = 0, nc = 0;
+if ((dA > EPS && dB < -EPS) || (dA < -EPS && dB > EPS)) { /* inline */ }
+```
+
+**Ergebnis:** Kein GC-Druck im heißen Dreieck-Loop; JIT kann die skalare Arithmetik gut optimieren.
+
+---
+
+### P3-Fix 3 — LS: AABB-Verdeckungstest statt Raycast
+
+**Problem:** `computeLSDepthLines` (Tiefenlinien im Längenschnitt) rief `rc.intersectObjects(allMeshes, false)` für **jede Kante** auf — O(E × M × T) ohne BVH.
+
+**Fix:** Zweiphasiger AABB-Algorithmus, **kein Raycast**:
+
+Phase 1 — einmalige Metadaten je Mesh:
+```typescript
+// 8-Ecken-Transformation für exakten Welt-AABB (korrekt bei Rotation)
+for (let bx=0; bx<2; bx++) for (let by=0; by<2; by++) for (let bz=0; bz<2; bz++) {
+  const lx = bx ? bb.max.x : bb.min.x; /* ... */
+  const wx = m11*lx + m12*ly + m13*lz + m14;
+  if (wx < wxMin) wxMin = wx; if (wx > wxMax) wxMax = wx; /* ... */
+}
+```
+
+Phase 2 — per Kante: Tiefenvergleich + Elevations-Überschneidung + laterale r-Bereich-Überschneidung:
+```typescript
+const mSignedN = (mx - sox)*snx + (mz - soz)*snz;
+for (const other of infos) {
+  if (Math.abs(oSignedN) >= mAbsN - 0.05) continue; // muss näher sein
+  if (mElev < other.wyMin || mElev > other.wyMax) continue;
+  if (mrMid >= oRMin && mrMid <= oRMax) { isHidden = true; break; }
+}
+```
+
+**Komplexität:**
+| | Vorher | Nachher |
+|---|---|---|
+| Komplexität | O(E × M × T) | O(M) Phase 1 + O(E × M) Phase 2 |
+| Faktor vs. Raycast ohne BVH | 1× | 100–10.000× schneller |
+| Faktor vs. Raycast mit BVH | 1× | 7–14× schneller |
+
+**Datei:** `src/alignment/longitudinalSectionUtils.ts`
+
+---
+
+### P3-Fix 4 — LS: Mesh-Liste einmal aufbauen
+
+**Problem:** `ViewportContainer.computeLS()` rief `sliceSceneLS(scene, ...)` und `computeLSDepthLines(scene, ...)` auf — zwei separate `scene.traverse()`-Aufrufe über dieselbe Szene.
+
+**Fix:** `pickableMeshesRef.current` einmal lesen, an beide Funktionen übergeben:
+```typescript
+const lsMeshes = pickableMeshesRef.current;
+const rawLines = sliceSceneLS(lsMeshes, segs, staStart, staEnd);
+const depthLines = computeLSDepthLines(lsMeshes, segs, staStart, staEnd, dist);
+```
+
+**Ergebnis:** Traversal-Overhead halbiert; kein `scene.traverse()` in reaktiven Pfaden.
+
+---
+
 ## Bekannte Nicht-Behobene Probleme
 
 | Problem | Schweregrad | Aufwand | Notizen |

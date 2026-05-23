@@ -437,6 +437,68 @@ Kleine Hilfs-Funktionen:
 - `computeModelOffset` — berechnet Origin-Offset für World-Space-Normalisierung
 - `generateModelColor` — generiert eindeutige Farbe je Modell-Index
 
+---
+
+## collisionUtils.ts
+
+**Pfad:** `src/utils/collisionUtils.ts`
+
+BVH-basierte Kollisionserkennung für das Kollisions-Popup-Fenster.
+
+### `ElementRecord`
+
+```typescript
+interface ElementRecord {
+  modelId: string;
+  expressId: number;
+  name: string;
+  type: string;
+  geometry: THREE.BufferGeometry; // World-space merged geometry (BVH gebaut)
+  box: THREE.Box3;                // World-space AABB für schnellen Vorfilter
+  props: Record<string, string>;  // Flache Eigenschafts-Map
+}
+```
+
+### `collectElements(models)`
+
+Baut `ElementRecord[]` aus allen geladenen Modellen:
+- Filtert Overlay-Flags (`isHighlight`, `isBillingOverlay`, `isEdge`, …) heraus
+- Mergt alle Meshes je Element zu einer World-Space-Geometrie via `StaticGeometryGenerator`
+- Baut BVH (`MeshBVH`) auf die zusammengeführte Geometrie für O(log T) Dreieckstests
+
+### `disposeElements(elements)`
+
+Gibt alle `BufferGeometry`-Objekte frei.
+
+### `matchesPropConditions(props, conditions)` / `matchesFilter(el, filter)`
+
+Filtert Elemente nach Typ, Modell-ID und Eigenschaftsbedingungen (für Clash-Regeln).
+
+### `runRuleBasedDetection(elements, rules, onProgress, signal)`
+
+Hauptalgorithmus:
+1. Sortiert Elemente in Mengen A und B je Regel
+2. AABB-Vorfilter (`aabbSignedGap < tolerance`)
+3. Exakter BVH-Dreieck-Intersektionstest (`geometriesIntersect`)
+4. Dedupliziert Paare (A:B = B:A)
+5. Läuft in `setTimeout`-Batches (kein Web-Worker-Overhead), meldet Fortschritt via `onProgress(0..100)`
+6. Gibt `ClashResult[]` zurück; max. 500 Treffer je Regel
+
+**Abhängigkeit:** `three-mesh-bvh` muss auf `THREE.Mesh.prototype.raycast` gepatcht sein (geschieht in `ifcLoader.ts`).
+
+---
+
+## ifcClassNames.ts
+
+**Pfad:** `src/utils/ifcClassNames.ts`
+
+```typescript
+export const IFC_CLASS_NAMES: Record<number, string>
+```
+
+Automatisch aus dem web-ifc IFC-Schema generiert. Deckt IFC2x3, IFC4 und IFC4x3 ab.
+
+Wird für die Typanzeige in Panels genutzt: `IFC_CLASS_NAMES[typeCode] ?? "Unknown"`. Keine eigene Logik — reines Nachschlagewerk.
 
 ---
 

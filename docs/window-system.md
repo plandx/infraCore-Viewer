@@ -377,6 +377,9 @@ Bei `req` im Hauptfenster: `broadcastLSState()` + wenn `lsAlignmentId !== null &
 | `lines` | `LSLineSync[]` | IFC-Schnittlinien `{ sta1,elev1,sta2,elev2,color,objectKey? }` |
 | `profile` | `LSProfilePt[]` | Gradiente-Punkte `{ sta, elev }` |
 | `computing` | `boolean` | Berechnung läuft |
+| `depthView` | `boolean` | Tiefenansicht aktiv |
+| `depthDistance` | `number` | Sichttiefe in Metern |
+| `depthLines` | `LSDepthLineSync[]` | Projizierte Tiefenlinien `{ sta1,elev1,sta2,elev2,hidden,color }` |
 | `theme` | `"light" \| "dark"` | Farb-Theme des Hauptfensters |
 
 ### Berechnungslogik (`ViewportContainer.tsx`, `computeLS()`)
@@ -393,8 +396,12 @@ Bei `req` im Hauptfenster: `broadcastLSState()` + wenn `lsAlignmentId !== null &
 ### longitudinalSectionUtils.ts
 
 - `LSSegmentPlane` — Interface für eine Schnittebene-Beschreibung pro Segment
-- `sliceSceneLS(scene, segs, staStart, staEnd)` — Kern-Algorithmus:
-  - Iteriert alle `THREE.Mesh`-Objekte in der Szene
+- `sliceSceneLS(meshes, segs, staStart, staEnd)` — Kern-Algorithmus:
+  - Nimmt `THREE.Mesh[]` statt `THREE.Scene` — kein scene.traverse im Aufrufpfad
   - Pro Mesh: AABB-Test gegen alle Segmentebenen (Bounding-Sphere reject: Normalabstand + rechte Ausdehnung)
   - Pro Dreieck: Ebenen-Intersection, x → Station-Mapping, Bereichsfilter
   - Gibt `LSLine[]` zurück (in Three.js Y-Koordinaten)
+- `computeLSDepthLines(meshes, segs, staStart, staEnd, maxDist)` — Tiefenlinien (kein Raycast):
+  - Phase 1: AABB-Metadaten je Mesh via 8-Ecken-Transformation (korrekt für beliebige Rotationen)
+  - Phase 2: Per-Kanten-AABB-Tiefenvergleich — kein Raycast, O(E×M) statt O(E×M×T)
+  - Caller (ViewportContainer) baut `meshes`-Liste einmal und übergibt sie an beide Funktionen

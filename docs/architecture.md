@@ -37,12 +37,29 @@ Browser
 ├── src/
 │   ├── App.tsx                ← Root: erkennt Sekundär-Fenster, rendert MainApp
 │   ├── main.tsx               ← Erkennt ?billing → BillingApp, sonst App
+│   ├── alignment/             ← Trassen-/Schnitt-Modul
+│   │   ├── types.ts           ← Alignment, AlignSegment, AlignCoord, LSSegmentPlane, …
+│   │   ├── alignmentStore.ts  ← Zustand-Store für Trassen + XS + LS (Zustand)
+│   │   ├── landXmlParser.ts   ← LandXML 1.2-Parser (Gerade, Bogen, Klothoide)
+│   │   ├── crossSectionUtils.ts ← 2D-Querschnitt: sliceScene, buildSectionPolygons, pointInPolygon
+│   │   ├── longitudinalSectionUtils.ts ← 2D-Längenschnitt: sliceSceneLS, computeLSDepthLines
+│   │   ├── AlignmentPanel.tsx ← Trassen-Seitenleiste: Dateiliste, Auswahl, Samplerate
+│   │   ├── AlignmentAnnotations.tsx ← Three.js-Overlays: Stationsmarken, Offset-Linien
+│   │   ├── ProfileViewer.tsx  ← Längenprofil-Canvas (Gradiente + Höhenachse)
+│   │   ├── CrossSectionViewer.tsx ← 2D-Canvas für Querschnittdarstellung
+│   │   ├── CrossSectionWindow.tsx ← Standalone-Fenster für ?cross-section
+│   │   ├── LongitudinalSectionWindow.tsx ← Standalone-Fenster für ?longitudinal-section
+│   │   └── FaceCrossSectionPanel.tsx ← Floating-Panel für Flächen-QS (unabhängig von Station)
 │   ├── billing/               ← 5D-Abrechnungsmodul
 │   │   ├── types.ts           ← BillingEntry, BillingStage, DocumentRef, ElementQuantities, ElementInfo, BillingMsg
 │   │   ├── billingStore.ts    ← Zustand-Store + localStorage + BroadcastChannel
 │   │   ├── BillingVisualizer.ts ← Three.js Füllstand-Overlays (MeshBasicMaterial + clip plane)
+│   │   ├── Billing5DOverlay.tsx ← React-Overlay für 5D-Füllstand-Steuerung
 │   │   ├── BillingPanel.tsx   ← Haupt-UI im Billing-Fenster
 │   │   ├── BillingApp.tsx     ← Root-Komponente für ?billing
+│   │   ├── QuantitySetPanel.tsx ← Mengen-Tabelle mit Quellen-Gruppen + Inline-Edit
+│   │   ├── IfcQuantityExtractor.ts ← Extrahiert QuantityItem[] aus IFC-Psets
+│   │   ├── quantityTypes.ts   ← QuantityType, QuantityUnit, QUANTITY_META, fmtQty, …
 │   │   └── quantityUtils.ts   ← Volumen + Oberfläche aus Three.js-Geometrie (Divergenz-Theorem)
 │   ├── batch/                 ← Batch-Änderungsmodul
 │   │   ├── types.ts           ← IfcValueType, FilterOp, TargetFilter, BatchOperation, BatchRule, PreviewResult
@@ -60,15 +77,19 @@ Browser
 │   │   ├── SectionModule.ts   ← Controller: Gizmos, Caps, Drag, Clips
 │   │   └── CapGenerator.ts    ← CPU-Schnittflächen (Triangle → Earcut)
 │   ├── store/
-│   │   └── modelStore.ts      ← Zentraler Zustand (Zustand)
+│   │   └── modelStore.ts      ← Zentraler IFC-Viewer-Zustand (Zustand)
 │   ├── types/
 │   │   └── ifc.ts             ← Alle TypeScript-Typen
+│   ├── lib/
+│   │   └── utils.ts           ← Hilfsfunktionen (cn — Tailwind-Klassen-Merge)
 │   └── utils/
 │       ├── ifcLoader.ts       ← IFC-Parsing (web-ifc WASM)
 │       ├── ifcWriter.ts       ← IFC-Export mit Eigenschafts-Overrides
 │       ├── sqlEngine.ts       ← Mini-SQL über alasql
 │       ├── smartViewUtils.ts  ← SmartView-Regelauswertung
 │       ├── windowSync.ts      ← BroadcastChannel-Protokoll
+│       ├── collisionUtils.ts  ← Kollisionserkennung (BVH-basiert, drei-mesh-bvh)
+│       ├── ifcClassNames.ts   ← IFC_CLASS_NAMES: Record<number, string> (auto-generiert aus Schema)
 │       └── coordinateUtils.ts ← Formatierungs-Helfer
 └── package.json
 ```
@@ -198,6 +219,62 @@ BroadcastChannel: { t: "quantities", key, data: ElementQuantities }
 BillingPanel empfängt → zeigt liveQuantities an
           ↓
 „Speichern" → billingStore.setQuantities(key, data)
+```
+
+## Datenfluss Querschnitt
+
+```
+User klickt Station im ProfileViewer / AlignmentPanel
+      ↓
+alignmentStore.openCrossSection(alignmentId, station)
+  → crossSectionComputing = true, crossSectionLines = []
+      ↓
+ViewportContainer erkennt crossSectionComputing = true
+  ├── sampleAtDisplayStation() → origin, tangent, right, up
+  ├── sliceScene(pickableMeshesRef.current, origin, normal, right, up)
+  │     └── Float32Array-Vorberechnung + inline Dreieck-Ebenen-Schnitt → SectionLine[]
+  ├── buildSectionPolygons(lines) → SectionPolygon[] mit AABB-Feldern
+  └── setCrossSectionResult(lines, basis) + setDepthLines(depthLines)
+      ↓
+useCrossSectionSync → BroadcastChannel "infracore-cross-section"
+  → { t: "state", s: XSSyncState }
+      ↓
+CrossSectionWindow / CrossSectionViewer → 2D-Canvas neu rendern
+```
+
+Tiefenlinien (Verdeckte Linien):
+
+```
+Für jede Kante in EdgesGeometry (Tiefenansicht aktiv):
+  ├── Kantenmittelpunkt in 2D projizieren (mx2d, my2d)
+  ├── AABB-Vorfilter gegen alle cutPolygons
+  └── pointInPolygon(mx2d, my2d, polygon.points)
+        → hidden = true/false
+```
+
+## Datenfluss Längenschnitt
+
+```
+User klickt „Längenschnitt öffnen" im ProfileViewer
+      ↓
+alignmentStore.openLongSection(alignmentId, staStart, staEnd)
+  → lsComputing = true
+      ↓
+ViewportContainer erkennt lsComputing = true
+  ├── Segmentliste aus Alignment-Polyline aufbauen (LSSegmentPlane[])
+  ├── lsMeshes = pickableMeshesRef.current
+  ├── sliceSceneLS(lsMeshes, segs, staStart, staEnd) → LSLine[]
+  ├── evaluateProfile(profileGeom, sta) an 600 Punkten → LSProfilePt[]
+  └── (wenn lsDepthView) computeLSDepthLines(lsMeshes, segs, ...) → LSDepthLine[]
+        Phase 1: AABB-Metadaten je Mesh (8-Ecken-Transformation)
+        Phase 2: Per-Kanten-AABB-Test (kein Raycast)
+      ↓
+setLSComputeResult(lines, profile, depthLines) → Store
+      ↓
+useLongitudinalSectionSync → BroadcastChannel "infracore-longitudinal-section"
+  → { t: "state", s: LSSyncState }
+      ↓
+LongitudinalSectionWindow → 2D-Canvas neu rendern
 ```
 
 ## Kritische Abhängigkeiten
