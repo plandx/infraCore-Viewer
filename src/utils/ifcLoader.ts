@@ -587,6 +587,16 @@ const ELEMENT_LABELS: Partial<Record<number, string>> = {
   [WebIFC.IFCTENDON]:                  "Spannglied",
   [WebIFC.IFCTENDONANCHOR]:            "Spanngliedanker",
   [WebIFC.IFCTENDONCONDUIT]:           "Spanngliedhüllrohr",
+  // Element components / accessories
+  [1335981549]:                        "Zubehör",            // IfcDiscreteAccessory
+  [647756555]:                         "Verbindungsmittel",  // IfcFastener
+  [377706215]:                         "Mech. Verbindungsmittel", // IfcMechanicalFastener
+  // Assemblies / parts
+  [4123344466]:                        "Baugruppe",          // IfcElementAssembly
+  [2979338954]:                        "Bauteil",            // IfcBuildingElementPart
+  [3651124850]:                        "Vorsprung",          // IfcProjectionElement
+  // Chimney
+  [3296154744]:                        "Schornstein",        // IfcChimney
   // Coverings / Cladding
   [WebIFC.IFCCOVERING]:                "Verkleidung",
   [WebIFC.IFCSHADINGDEVICE]:           "Verschattung",
