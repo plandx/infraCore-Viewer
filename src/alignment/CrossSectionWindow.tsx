@@ -470,8 +470,13 @@ export function CrossSectionWindow() {
 
   // ── Pre-computed SVG paths ─────────────────────────────────────────────────
   const svgPaths = useMemo(() => {
+    const vxMax = vxMin + visW, vyMax = vyMin + visH;
     const byColor = new Map<string, string>();
     for (const l of lines) {
+      if (Math.max(l.x1, l.x2) < vxMin) continue;
+      if (Math.min(l.x1, l.x2) > vxMax) continue;
+      if (Math.max(l.y1, l.y2) < vyMin) continue;
+      if (Math.min(l.y1, l.y2) > vyMax) continue;
       const x1s = (M.left + (l.x1 - vxMin) / visW * chartW).toFixed(1);
       const y1s = (M.top  + (1 - (l.y1 - vyMin) / visH) * chartH).toFixed(1);
       const x2s = (M.left + (l.x2 - vxMin) / visW * chartW).toFixed(1);
@@ -483,9 +488,14 @@ export function CrossSectionWindow() {
 
   // Depth lines split into visible/hidden buckets per color
   const svgDepthPaths = useMemo(() => {
+    const vxMax = vxMin + visW, vyMax = vyMin + visH;
     const vis = new Map<string, string>();
     const hid = new Map<string, string>();
     for (const l of depthLines) {
+      if (Math.max(l.x1, l.x2) < vxMin) continue;
+      if (Math.min(l.x1, l.x2) > vxMax) continue;
+      if (Math.max(l.y1, l.y2) < vyMin) continue;
+      if (Math.min(l.y1, l.y2) > vyMax) continue;
       const x1s = (M.left + (l.x1 - vxMin) / visW * chartW).toFixed(1);
       const y1s = (M.top  + (1 - (l.y1 - vyMin) / visH) * chartH).toFixed(1);
       const x2s = (M.left + (l.x2 - vxMin) / visW * chartW).toFixed(1);

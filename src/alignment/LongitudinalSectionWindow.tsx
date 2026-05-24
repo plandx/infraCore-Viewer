@@ -528,38 +528,55 @@ export function LongitudinalSectionWindow() {
   const svgPaths = useMemo(() => {
     const byColor = new Map<string, string>();
     for (const l of lines) {
+      const e1 = l.elev1 + elevationOrigin, e2 = l.elev2 + elevationOrigin;
+      if (Math.max(l.sta1, l.sta2) < vMin) continue;
+      if (Math.min(l.sta1, l.sta2) > vMax) continue;
+      if (Math.max(e1, e2) < vEMin) continue;
+      if (Math.min(e1, e2) > vEMax) continue;
       const x1s = xs(l.sta1).toFixed(1);
-      const y1s = ys(l.elev1 + elevationOrigin).toFixed(1);
+      const y1s = ys(e1).toFixed(1);
       const x2s = xs(l.sta2).toFixed(1);
-      const y2s = ys(l.elev2 + elevationOrigin).toFixed(1);
+      const y2s = ys(e2).toFixed(1);
       byColor.set(l.color, (byColor.get(l.color) ?? "") + `M${x1s},${y1s}L${x2s},${y2s}`);
     }
     return [...byColor.entries()];
-  }, [lines, xs, ys, elevationOrigin]);
+  }, [lines, xs, ys, elevationOrigin, vMin, vMax, vEMin, vEMax]);
 
   // Depth lines batched by color (visible and hidden separately)
   const svgDepthPaths = useMemo(() => {
     const visible = new Map<string, string>();
     const hidden  = new Map<string, string>();
     for (const l of depthLines) {
+      const e1 = l.elev1 + elevationOrigin, e2 = l.elev2 + elevationOrigin;
+      if (Math.max(l.sta1, l.sta2) < vMin) continue;
+      if (Math.min(l.sta1, l.sta2) > vMax) continue;
+      if (Math.max(e1, e2) < vEMin) continue;
+      if (Math.min(e1, e2) > vEMax) continue;
       const x1s = xs(l.sta1).toFixed(1);
-      const y1s = ys(l.elev1 + elevationOrigin).toFixed(1);
+      const y1s = ys(e1).toFixed(1);
       const x2s = xs(l.sta2).toFixed(1);
-      const y2s = ys(l.elev2 + elevationOrigin).toFixed(1);
+      const y2s = ys(e2).toFixed(1);
       const seg = `M${x1s},${y1s}L${x2s},${y2s}`;
       if (l.hidden) hidden.set(l.color,  (hidden.get(l.color)  ?? "") + seg);
       else          visible.set(l.color, (visible.get(l.color) ?? "") + seg);
     }
     return { visible: [...visible.entries()], hidden: [...hidden.entries()] };
-  }, [depthLines, xs, ys, elevationOrigin]);
+  }, [depthLines, xs, ys, elevationOrigin, vMin, vMax, vEMin, vEMax]);
 
-  // Screen-coordinate segments for snap
-  const screenSegs = useMemo(() => lines.map(l => ({
-    sx1: xs(l.sta1), sy1: ys(l.elev1 + elevationOrigin),
-    sx2: xs(l.sta2), sy2: ys(l.elev2 + elevationOrigin),
-    sta1: l.sta1, elev1: l.elev1 + elevationOrigin,
-    sta2: l.sta2, elev2: l.elev2 + elevationOrigin,
-  })), [lines, xs, ys, elevationOrigin]);
+  // Screen-coordinate segments for snap — culled to visible viewport
+  const screenSegs = useMemo(() => {
+    const result = [];
+    for (const l of lines) {
+      const e1 = l.elev1 + elevationOrigin, e2 = l.elev2 + elevationOrigin;
+      if (Math.max(l.sta1, l.sta2) < vMin) continue;
+      if (Math.min(l.sta1, l.sta2) > vMax) continue;
+      if (Math.max(e1, e2) < vEMin) continue;
+      if (Math.min(e1, e2) > vEMax) continue;
+      result.push({ sx1: xs(l.sta1), sy1: ys(e1), sx2: xs(l.sta2), sy2: ys(e2),
+        sta1: l.sta1, elev1: e1, sta2: l.sta2, elev2: e2 });
+    }
+    return result;
+  }, [lines, xs, ys, elevationOrigin, vMin, vMax, vEMin, vEMax]);
 
   const screenSegsRef = useRef(screenSegs);
   screenSegsRef.current = screenSegs;

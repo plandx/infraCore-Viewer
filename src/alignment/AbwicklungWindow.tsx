@@ -351,25 +351,39 @@ export function AbwicklungWindow() {
   // ── SVG paths batched by color ─────────────────────────────────────────────
   const svgPaths = useMemo(() => {
     if (colorMode === "elevation") {
-      return lines.map(l => ({
-        color: elevColor(l.elevMid + elevationOrigin, elevMin, elevMax),
-        d: `M${xs(l.s1).toFixed(1)},${ys(l.t1).toFixed(1)}L${xs(l.s2).toFixed(1)},${ys(l.t2).toFixed(1)}`,
-        single: true,
-      }));
+      return lines.flatMap(l => {
+        if (Math.max(l.s1, l.s2) < vMin || Math.min(l.s1, l.s2) > vMax) return [];
+        if (Math.max(l.t1, l.t2) < vtMin || Math.min(l.t1, l.t2) > vtMax) return [];
+        return [{ color: elevColor(l.elevMid + elevationOrigin, elevMin, elevMax),
+          d: `M${xs(l.s1).toFixed(1)},${ys(l.t1).toFixed(1)}L${xs(l.s2).toFixed(1)},${ys(l.t2).toFixed(1)}`,
+          single: true }];
+      });
     }
     const byColor = new Map<string, string>();
     for (const l of lines) {
+      if (Math.max(l.s1, l.s2) < vMin) continue;
+      if (Math.min(l.s1, l.s2) > vMax) continue;
+      if (Math.max(l.t1, l.t2) < vtMin) continue;
+      if (Math.min(l.t1, l.t2) > vtMax) continue;
       const seg = `M${xs(l.s1).toFixed(1)},${ys(l.t1).toFixed(1)}L${xs(l.s2).toFixed(1)},${ys(l.t2).toFixed(1)}`;
       byColor.set(l.color, (byColor.get(l.color) ?? "") + seg);
     }
     return [...byColor.entries()].map(([color, d]) => ({ color, d, single: false }));
-  }, [lines, xs, ys, colorMode, elevMin, elevMax, elevationOrigin]);
+  }, [lines, xs, ys, colorMode, elevMin, elevMax, elevationOrigin, vMin, vMax, vtMin, vtMax]);
 
-  // ── Screen-coordinate segments for snap ──────────────────────────────────
-  const screenSegs = useMemo(() => lines.map(l => ({
-    sx1: xs(l.s1), sy1: ys(l.t1), sx2: xs(l.s2), sy2: ys(l.t2),
-    sta1: l.s1, lat1: l.t1, sta2: l.s2, lat2: l.t2,
-  })), [lines, xs, ys]);
+  // ── Screen-coordinate segments for snap — culled to visible viewport ──────
+  const screenSegs = useMemo(() => {
+    const result = [];
+    for (const l of lines) {
+      if (Math.max(l.s1, l.s2) < vMin) continue;
+      if (Math.min(l.s1, l.s2) > vMax) continue;
+      if (Math.max(l.t1, l.t2) < vtMin) continue;
+      if (Math.min(l.t1, l.t2) > vtMax) continue;
+      result.push({ sx1: xs(l.s1), sy1: ys(l.t1), sx2: xs(l.s2), sy2: ys(l.t2),
+        sta1: l.s1, lat1: l.t1, sta2: l.s2, lat2: l.t2 });
+    }
+    return result;
+  }, [lines, xs, ys, vMin, vMax, vtMin, vtMax]);
   const screenSegsRef = useRef(screenSegs);
   screenSegsRef.current = screenSegs;
 
