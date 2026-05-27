@@ -340,7 +340,10 @@ export function ViewportContainer({ onElementClick }: Props) {
     domRectRef.current = renderer.domElement.getBoundingClientRect();
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#1a1b26");
+    const _initSettings = useModelStore.getState().settings;
+    scene.background = new THREE.Color(
+      _initSettings.theme === "light" ? "#eef3f9" : (_initSettings.background ?? "#0d1117")
+    );
     sceneRef.current = scene;
 
     billingVizRef.current = new BillingVisualizer(scene);
@@ -413,8 +416,10 @@ export function ViewportContainer({ onElementClick }: Props) {
     scene.add(sun);
     scene.add(new THREE.HemisphereLight(0x8899ff, 0x443300, 0.45));
 
-    // Grid
-    const grid = new THREE.GridHelper(10_000, 100, 0x3b4261, 0x3b4261);
+    // Grid — color matches theme at mount
+    const _initTheme = useModelStore.getState().settings.theme;
+    const _initGridColor = _initTheme === "light" ? 0xd8e4f0 : 0x1c2535;
+    const grid = new THREE.GridHelper(10_000, 100, _initGridColor, _initGridColor);
     grid.name = "__grid";
     scene.add(grid);
 
@@ -960,12 +965,12 @@ export function ViewportContainer({ onElementClick }: Props) {
     const scene = sceneRef.current;
     if (!scene) return;
     scene.background = new THREE.Color(
-      settings.theme === "light" ? "#e8edf2" : (settings.background ?? "#1a1b26")
+      settings.theme === "light" ? "#eef3f9" : (settings.background ?? "#0d1117")
     );
     // Recreate grid with theme-appropriate color so it stays subtle in both modes
     const old = scene.getObjectByName("__grid");
     if (old) scene.remove(old);
-    const gridColor = settings.theme === "light" ? 0xc8d0d8 : 0x3b4261;
+    const gridColor = settings.theme === "light" ? 0xd8e4f0 : 0x1c2535;
     const grid = new THREE.GridHelper(10_000, 100, gridColor, gridColor);
     grid.name = "__grid";
     grid.visible = settings.grid ?? true;

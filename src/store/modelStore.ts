@@ -174,7 +174,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   propertyOverrides: new Map(),
   sectionPlanes: [],
   settings: {
-    background: "#f0f5fa",
+    background: "#0d1117",
     grid: true,
     axes: true,
     edges: false,
