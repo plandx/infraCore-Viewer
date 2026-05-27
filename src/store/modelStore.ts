@@ -126,6 +126,10 @@ interface ModelStore {
   settingsPanelOpen: boolean;
   setSettingsPanelOpen: (open: boolean) => void;
 
+  // Python scripting panel
+  pythonPanelOpen: boolean;
+  setPythonPanelOpen: (open: boolean) => void;
+
   /** Reset all session state (models, measurements, sections, smart views, QTO, overrides).
    *  Settings and key bindings are preserved. */
   resetAll: () => void;
@@ -193,6 +197,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     } catch { return DEFAULT_KEYBINDINGS; }
   })(),
   settingsPanelOpen: false,
+  pythonPanelOpen: false,
 
   addModel: (model) =>
     set((state) => {
@@ -624,6 +629,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     set({ keyBindings: kb });
   },
   setSettingsPanelOpen: (open) => set({ settingsPanelOpen: open }),
+  setPythonPanelOpen: (open) => set({ pythonPanelOpen: open }),
 
   // ── Full app reset ─────────────────────────────────────────────────────────
 

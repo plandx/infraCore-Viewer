@@ -28,6 +28,24 @@ const SECONDARY_PANEL = params.get("panel") ?? "hierarchy";
 
 ---
 
+## PythonPanel (`src/components/PythonPanel.tsx`)
+
+Bottom-Panel mit Monaco-Editor (Python-Syntax) und Konsolenausgabe.  
+Kommuniziert mit dem lokalen FastAPI-Companion-Server auf `http://127.0.0.1:8765`.
+
+| Bereich | Funktion |
+|---|---|
+| Header | Server-Statusanzeige (grün/rot), Sync-Button, Run-Button, Ausgabe löschen |
+| Offline-Banner | Erscheint wenn Server nicht erreichbar; zeigt Start-Befehl |
+| Monaco Editor | Python-Syntax, Ctrl+Enter = Run, Theme folgt App-Theme |
+| Konsole | stdout (grün), stderr (gelb), Error (rot), Info (grau) |
+
+**Sync:** Überträgt alle sichtbaren Modelle (mit `model.file !== null`) per `multipart/form-data POST /upload` an den Server.  
+**Server-Polling:** Alle 5 Sekunden `/health`-Ping zur Statusanzeige.  
+**Toggle:** Taste `Y` oder Analyse-Tab → Python-Button.
+
+---
+
 ## 5D-Abrechnung (Billing-Modul)
 
 ### BillingApp (`src/billing/BillingApp.tsx`)

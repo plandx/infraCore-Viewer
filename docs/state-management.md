@@ -98,6 +98,7 @@ interface SmartTier {
 | `listPanelOpen` | `boolean` | Lens Rules-Panel sichtbar |
 | `smartViewsPanelOpen` | `boolean` | SmartViews-Panel sichtbar |
 | `qtoPanelOpen` | `boolean` | Quantity Take-Off Panel sichtbar |
+| `pythonPanelOpen` | `boolean` | Python/IfcOpenShell-Scripting-Panel sichtbar |
 
 ### Quantity Take-Off Listen
 | Feld | Typ | Beschreibung |

@@ -6,7 +6,7 @@ import {
   Box, ChevronDown, LayoutGrid, Rotate3D,
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
   Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
-  Settings, AlertTriangle, PanelLeftClose, PanelLeftOpen, Grid3x3, BoxSelect,
+  Settings, AlertTriangle, PanelLeftClose, PanelLeftOpen, Grid3x3, BoxSelect, Terminal,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, openCollisionWindow, PANEL_META } from "../utils/windowSync";
 import { HelpPanel } from "./HelpPanel";
@@ -65,6 +65,8 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   const smartViewsPanelOpen    = useModelStore((s) => s.smartViewsPanelOpen);
   const setQTOPanelOpen   = useModelStore((s) => s.setQTOPanelOpen);
   const qtoPanelOpen      = useModelStore((s) => s.qtoPanelOpen);
+  const setPythonPanelOpen = useModelStore((s) => s.setPythonPanelOpen);
+  const pythonPanelOpen    = useModelStore((s) => s.pythonPanelOpen);
   const clearMeasurements = useModelStore((s) => s.clearMeasurements);
   const measurements      = useModelStore((s) => s.measurements);
   const models            = useModelStore((s) => s.models);
@@ -586,6 +588,9 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                 <RibbonLargeBtn icon={<Table2 size={18} />} label="Mengen"
                   onClick={() => setQTOPanelOpen(!qtoPanelOpen)} active={qtoPanelOpen}
                   title="Mengenermittlung [T]" kbd="T" popout={() => openSecondaryWindow("qto")} />
+                <RibbonLargeBtn icon={<Terminal size={18} />} label="Python"
+                  onClick={() => setPythonPanelOpen(!pythonPanelOpen)} active={pythonPanelOpen}
+                  title="Python / IfcOpenShell [Y]" kbd="Y" />
               </RibbonGroup>
 
               {/* PRÜFUNG */}

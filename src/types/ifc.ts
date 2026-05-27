@@ -232,6 +232,7 @@ export interface KeyBindings {
   flyMode: string;
   hideSelected: string;
   showAll: string;
+  pythonPanel: string;
 }
 
 export const DEFAULT_KEYBINDINGS: KeyBindings = {
@@ -248,6 +249,7 @@ export const DEFAULT_KEYBINDINGS: KeyBindings = {
   flyMode: "n",
   hideSelected: "delete",
   showAll: "shift+a",
+  pythonPanel: "y",
 };
 
 // ── Quantity Take-Off Lists ───────────────────────────────────────────────────

@@ -13,6 +13,7 @@ import { StatusBar } from "./components/StatusBar";
 import { LandingOverlay } from "./components/LandingOverlay";
 import { ClipPlaneControl } from "./components/ClipPlaneControl";
 import { SQLPanel } from "./components/SQLPanel";
+import { PythonPanel } from "./components/PythonPanel";
 import { LensRulesPanel } from "./components/LensRulesPanel";
 import { SmartViewsPanel } from "./components/SmartViewsPanel";
 import { QuantityListPanel } from "./components/QuantityListPanel";
@@ -498,6 +499,7 @@ function MainApp() {
     billing5DPanelOpen, setBilling5DPanelOpen,
     profilePanelOpen, setProfilePanelOpen,
     settingsPanelOpen,
+    pythonPanelOpen, setPythonPanelOpen,
     keyBindings,
   } = useModelStore();
 
@@ -579,6 +581,7 @@ function MainApp() {
       if (key === kb.smartViews)   { setSmartViewsPanelOpen(!smartViewsPanelOpen); return; }
       if (key === kb.qtoPanel)     { setQTOPanelOpen(!qtoPanelOpen); return; }
       if (key === kb.profilePanel) { setProfilePanelOpen(!profilePanelOpen); return; }
+      if (key === kb.pythonPanel)  { setPythonPanelOpen(!pythonPanelOpen); return; }
       if (key === kb.flyMode) {
         const cur = useModelStore.getState().activeTool;
         setActiveTool(cur === "fly" ? "select" : "fly"); return;
@@ -629,8 +632,9 @@ function MainApp() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [activeTool, selectedElement, sqlPanelOpen, listPanelOpen, smartViewsPanelOpen, qtoPanelOpen,
-      profilePanelOpen, setActiveTool, setSelected, clearMeasurements, setSqlPanelOpen, setListPanelOpen,
-      setSmartViewsPanelOpen, setQTOPanelOpen, setProfilePanelOpen, hideElement, showAll, keyBindings]);
+      profilePanelOpen, pythonPanelOpen, setActiveTool, setSelected, clearMeasurements, setSqlPanelOpen,
+      setListPanelOpen, setSmartViewsPanelOpen, setQTOPanelOpen, setProfilePanelOpen, setPythonPanelOpen,
+      hideElement, showAll, keyBindings]);
 
   // ── File loading ──────────────────────────────────────────────────────────
   const handleFiles = useCallback(async (files: File[]) => {
@@ -964,6 +968,13 @@ function MainApp() {
               {qtoPanelOpen && (
                 <div className="h-96 shrink-0 border-t border-border">
                   <QuantityListPanel />
+                </div>
+              )}
+
+              {/* Python / IfcOpenShell Panel (bottom of viewport column) */}
+              {pythonPanelOpen && (
+                <div className="h-96 shrink-0 border-t border-border">
+                  <PythonPanel />
                 </div>
               )}
             </div>
