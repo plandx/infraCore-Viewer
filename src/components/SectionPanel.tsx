@@ -7,7 +7,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { SectionPlane } from "../types/ifc";
 import { cn } from "../lib/utils";
 
-const SECTION_COLORS = ["#7aa2f7", "#f7768e", "#9ece6a", "#e0af68", "#bb9af7", "#2ac3de"];
+const SECTION_COLORS = ["#1f77d8", "#cf3f37", "#198754", "#ea7a1d", "#6e59cf", "#0891b2"];
 
 function getSceneBox(models: Map<string, { boundingBox: THREE.Box3 }>): THREE.Box3 {
   const box = new THREE.Box3();
@@ -97,7 +97,7 @@ export function SectionPanel() {
     const mn = box.min, mx = box.max;
     const cx = (mn.x + mx.x) / 2, cy = (mn.y + mx.y) / 2, cz = (mn.z + mx.z) / 2;
     const boxId = uuidv4();
-    const COL = "#7aa2f7";
+    const COL = "#1f77d8";
     clearSectionPlanes();
     const boxPlanes: SectionPlane[] = [
       { id: uuidv4(), boxId, name: "Box +X", normal: [1, 0, 0],  point: [mx.x, cy, cz], enabled: true, color: COL },
@@ -244,7 +244,7 @@ export function SectionPanel() {
               {/* Box groups */}
               {Array.from(boxGroupMap.entries()).map(([boxId, bPlanes]) => {
                 const allEnabled = bPlanes.every(p => p.enabled);
-                const color = bPlanes[0]?.color ?? "#7aa2f7";
+                const color = bPlanes[0]?.color ?? "#1f77d8";
                 return (
                   <div key={boxId}>
                     {/* Box group header */}

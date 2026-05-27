@@ -55,7 +55,7 @@ const IS_ABWICKLUNG = _params.has("abwicklung");
 export default function App() {
   useEffect(() => {
     const { settings } = useModelStore.getState();
-    document.documentElement.classList.toggle("dark", settings.theme !== "light");
+    document.documentElement.classList.toggle("dark", settings.theme === "dark");
     document.documentElement.setAttribute("data-font-size", settings.fontSize ?? "md");
   }, []);
   if (IS_COLLISION) return <CollisionWindow />;

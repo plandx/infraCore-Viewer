@@ -2,116 +2,176 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ── Tokyo Night Color Palette ─────────────────────────────────────── */
+/* ── infraCore Design System — Light Mode ──────────────────────────── */
 :root {
-  --tokyo-storm:        #1a1b26;
-  --tokyo-night:        #16161e;
-  --tokyo-bg-dark:      #13131a;
-  --tokyo-bg-highlight: #1f2335;
-  --tokyo-terminal-black: #414868;
-  --tokyo-comment:      #565f89;
-  --tokyo-dark3:        #3b4261;
-  --tokyo-fg:           #a9b1d6;
-  --tokyo-fg-dark:      #7982a9;
-  --tokyo-fg-gutter:    #363b54;
-  --tokyo-blue:         #7aa2f7;
-  --tokyo-cyan:         #7dcfff;
-  --tokyo-magenta:      #bb9af7;
-  --tokyo-purple:       #9d7cd8;
-  --tokyo-orange:       #ff9e64;
-  --tokyo-yellow:       #e0af68;
-  --tokyo-green:        #9ece6a;
-  --tokyo-teal:         #73daca;
-  --tokyo-red:          #f7768e;
+  /* Brand — iC Red */
+  --ic-red:          #ee4d45;
+  --ic-red-hover:    #e62d26;
+  --ic-red-active:   #cc2820;
+  --ic-red-tint:     rgba(238, 77, 69, 0.10);
+  --ic-red-on:       #ffffff;
 
-  /* Toolbar background */
-  --toolbar-bg: hsl(220 13% 94%);
+  /* Surfaces */
+  --ic-bg:           #eef3f9;
+  --ic-bg-elevated:  #f6f9fc;
+  --ic-surface:      #ffffff;
+  --ic-surface-2:    #f4f7fb;
+  --ic-surface-3:    #e8eef6;
+
+  /* Borders */
+  --ic-border:         #cad6e2;
+  --ic-border-light:   #dbe4ee;
+  --ic-border-subtle:  #e7edf4;
+
+  /* Primary — Infra Blue (interactive) */
+  --ic-primary:        #1f77d8;
+  --ic-primary-hover:  #2d86e8;
+  --ic-primary-active: #1665ba;
+  --ic-primary-light:  rgba(31, 119, 216, 0.12);
+  --ic-primary-on:     #ffffff;
+
+  /* Text */
+  --ic-text:             #14212e;
+  --ic-text-2:           #24384a;
+  --ic-text-muted:       #5e7387;
+  --ic-text-placeholder: #8da0b3;
+
+  /* Semantic */
+  --ic-success:      #198754;
+  --ic-success-bg:   rgba(25, 135, 84, 0.10);
+  --ic-warning:      #ea7a1d;
+  --ic-warning-bg:   rgba(234, 122, 29, 0.12);
+  --ic-danger:       #cf3f37;
+  --ic-danger-bg:    rgba(207, 63, 55, 0.11);
+
+  /* Fonts */
+  --ic-font:      "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --ic-font-mono: "IBM Plex Mono", "Consolas", ui-monospace, monospace;
+
+  /* Shadows */
+  --ic-shadow-xs: 0 1px 2px rgba(18, 38, 63, 0.08);
+  --ic-shadow-sm: 0 8px 22px rgba(20, 33, 46, 0.10);
+  --ic-shadow-md: 0 14px 32px rgba(20, 33, 46, 0.13);
+  --ic-shadow-lg: 0 18px 40px rgba(20, 33, 46, 0.16);
+
+  /* Motion */
+  --ic-ease:     cubic-bezier(0.4, 0, 0.2, 1);
+  --ic-dur-fast: 80ms;
+  --ic-dur:      180ms;
+  --ic-dur-slow: 300ms;
 
   /* Hierarchy – light */
-  --hierarchy-selected-bg:   #e4e4e7;
-  --hierarchy-selected-text: #18181b;
-  --hierarchy-text:          #52525b;
-  --hierarchy-hover-bg:      #f4f4f5;
+  --hierarchy-selected-bg:   var(--ic-primary-light);
+  --hierarchy-selected-text: var(--ic-primary);
+  --hierarchy-text:          var(--ic-text-muted);
+  --hierarchy-hover-bg:      var(--ic-surface-2);
 
   /* Tabs – light */
-  --tabs-bg:         #f4f4f5;
-  --tabs-border:     #e4e4e7;
-  --tab-text:        #71717a;
-  --tab-active-bg:   #ffffff;
-  --tab-active-text: #18181b;
+  --tabs-bg:         var(--ic-surface-2);
+  --tabs-border:     var(--ic-border-light);
+  --tab-text:        var(--ic-text-muted);
+  --tab-active-bg:   var(--ic-surface);
+  --tab-active-text: var(--ic-text);
 }
 
+/* ── infraCore Design System — Dark Mode ───────────────────────────── */
 .dark {
-  --hierarchy-selected-bg:   #1f2335;
-  --hierarchy-selected-text: #a9b1d6;
-  --hierarchy-text:          #7982a9;
-  --hierarchy-hover-bg:      rgba(31,35,53,0.5);
-  --tabs-bg:         #1f2335;
-  --tabs-border:     #3b4261;
-  --tab-text:        #565f89;
-  --tab-active-bg:   #16161e;
-  --tab-active-text: #a9b1d6;
-  --toolbar-bg:      var(--tokyo-bg-dark);
+  --ic-bg:           #0d1117;
+  --ic-bg-elevated:  #111827;
+  --ic-surface:      #161b22;
+  --ic-surface-2:    #1c2330;
+  --ic-surface-3:    #222b39;
+
+  --ic-border:         #30363d;
+  --ic-border-light:   #2a313a;
+  --ic-border-subtle:  #21262d;
+
+  --ic-primary:        #4da3ff;
+  --ic-primary-hover:  #72b7ff;
+  --ic-primary-active: #2c82dd;
+  --ic-primary-light:  rgba(77, 163, 255, 0.16);
+  --ic-primary-on:     #0d1117;
+
+  --ic-text:             #e6edf3;
+  --ic-text-2:           #c2ccd6;
+  --ic-text-muted:       #8b949e;
+  --ic-text-placeholder: #5e6975;
+
+  --ic-success:      #3fb950;
+  --ic-success-bg:   rgba(63, 185, 80, 0.15);
+  --ic-warning:      #f5a55d;
+  --ic-warning-bg:   rgba(245, 165, 93, 0.16);
+  --ic-danger:       #f85149;
+  --ic-danger-bg:    rgba(248, 81, 73, 0.16);
+
+  --ic-red:        #ff6b5f;
+  --ic-red-hover:  #ff8277;
+  --ic-red-active: #e85347;
+  --ic-red-tint:   rgba(255, 107, 95, 0.16);
+  --ic-red-on:     #0d1117;
+
+  --ic-shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.30);
+  --ic-shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.30);
+  --ic-shadow-md: 0 12px 28px rgba(0, 0, 0, 0.40);
+  --ic-shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.48);
+
+  /* Hierarchy – dark */
+  --hierarchy-selected-bg:   var(--ic-primary-light);
+  --hierarchy-selected-text: var(--ic-primary);
+  --hierarchy-text:          var(--ic-text-muted);
+  --hierarchy-hover-bg:      var(--ic-surface-2);
+
+  /* Tabs – dark */
+  --tabs-bg:         var(--ic-surface-2);
+  --tabs-border:     var(--ic-border);
+  --tab-text:        var(--ic-text-muted);
+  --tab-active-bg:   var(--ic-surface);
+  --tab-active-text: var(--ic-text);
 }
 
-/* ── Tailwind theme tokens ─────────────────────────────────────────── */
+/* ── Tailwind Theme Mapping ─────────────────────────────────────────── */
 @theme {
-  --color-background:            hsl(0 0% 100%);
-  --color-foreground:            hsl(240 10% 3.9%);
-  --color-card:                  hsl(0 0% 100%);
-  --color-card-foreground:       hsl(240 10% 3.9%);
-  --color-popover:               hsl(0 0% 100%);
-  --color-popover-foreground:    hsl(240 10% 3.9%);
-  --color-primary:               var(--tokyo-blue);
-  --color-primary-foreground:    hsl(0 0% 100%);
-  --color-secondary:             hsl(240 4.8% 95.9%);
-  --color-secondary-foreground:  hsl(240 5.9% 10%);
-  --color-muted:                 hsl(240 4.8% 95.9%);
-  --color-muted-foreground:      hsl(240 3.8% 46.1%);
-  --color-accent:                hsl(240 4.8% 95.9%);
-  --color-accent-foreground:     hsl(240 5.9% 10%);
-  --color-destructive:           var(--tokyo-red);
-  --color-destructive-foreground: hsl(0 0% 98%);
-  --color-border:                hsl(240 5.9% 90%);
-  --color-input:                 hsl(240 5.9% 90%);
-  --color-ring:                  var(--tokyo-blue);
-  --radius-sm: 0.125rem;
-  --radius-md: 0.25rem;
-  --radius-lg: 0.375rem;
-  --radius-xl: 0.5rem;
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Consolas", ui-monospace, monospace;
+
+  --color-background:           var(--ic-bg);
+  --color-foreground:           var(--ic-text);
+  --color-card:                 var(--ic-surface);
+  --color-card-foreground:      var(--ic-text);
+  --color-popover:              var(--ic-surface);
+  --color-popover-foreground:   var(--ic-text);
+  --color-primary:              var(--ic-primary);
+  --color-primary-foreground:   var(--ic-primary-on);
+  --color-secondary:            var(--ic-surface-2);
+  --color-secondary-foreground: var(--ic-text);
+  --color-muted:                var(--ic-surface-2);
+  --color-muted-foreground:     var(--ic-text-muted);
+  --color-accent:               var(--ic-surface-3);
+  --color-accent-foreground:    var(--ic-text);
+  --color-destructive:          var(--ic-danger);
+  --color-destructive-foreground: #ffffff;
+  --color-border:               var(--ic-border);
+  --color-input:                var(--ic-border-light);
+  --color-ring:                 var(--ic-primary);
+  --color-brand:                var(--ic-red);
+  --color-brand-foreground:     var(--ic-red-on);
+
+  /* Radii — infraCore scale */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 18px;
 }
 
-/* ── Dark mode overrides ───────────────────────────────────────────── */
-:root.dark, .dark {
-  --color-background:           var(--tokyo-storm) !important;
-  --color-foreground:           var(--tokyo-fg) !important;
-  --color-card:                 var(--tokyo-night) !important;
-  --color-card-foreground:      var(--tokyo-fg) !important;
-  --color-popover:              var(--tokyo-night) !important;
-  --color-popover-foreground:   var(--tokyo-fg) !important;
-  --color-primary:              var(--tokyo-blue);
-  --color-primary-foreground:   var(--tokyo-night);
-  --color-secondary:            var(--tokyo-bg-highlight);
-  --color-secondary-foreground: var(--tokyo-fg);
-  --color-muted:                var(--tokyo-bg-highlight);
-  --color-muted-foreground:     var(--tokyo-comment);
-  --color-accent:               var(--tokyo-bg-highlight);
-  --color-accent-foreground:    var(--tokyo-fg);
-  --color-destructive:          var(--tokyo-red);
-  --color-destructive-foreground: var(--tokyo-fg);
-  --color-border:               var(--tokyo-dark3);
-  --color-input:                var(--tokyo-bg-highlight);
-  --color-ring:                 var(--tokyo-blue);
-}
-
-/* ── Font size scale ───────────────────────────────────────────────── */
+/* ── Font size scale ────────────────────────────────────────────────── */
 :root { font-size: 14px; }
 [data-font-size="sm"] { font-size: 12px; }
 [data-font-size="md"] { font-size: 14px; }
 [data-font-size="lg"] { font-size: 16px; }
 
-/* ── Base ──────────────────────────────────────────────────────────── */
-*, *::before, *::after { border-color: var(--color-border); box-sizing: border-box; }
+/* ── Base ───────────────────────────────────────────────────────────── */
+*, *::before, *::after { border-color: var(--ic-border); box-sizing: border-box; }
 
 html, body, #root {
   height: 100%;
@@ -121,68 +181,59 @@ html, body, #root {
 }
 
 body {
-  background-color: var(--color-background);
-  color: var(--color-foreground);
+  font-family: var(--ic-font);
+  background-color: var(--ic-bg);
+  color: var(--ic-text);
+  -webkit-font-smoothing: antialiased;
   font-feature-settings: "rlig" 1, "calt" 1;
 }
 
-.dark body, .dark #root { background-color: var(--tokyo-storm) !important; }
-
-/* ── Scrollbar ─────────────────────────────────────────────────────── */
-.scrollbar-thin { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--color-muted-foreground) 30%, transparent) transparent; }
+/* ── Scrollbar ──────────────────────────────────────────────────────── */
+.scrollbar-thin { scrollbar-width: thin; scrollbar-color: rgba(94, 115, 135, 0.28) transparent; }
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--color-muted-foreground) 30%, transparent); border-radius: 3px; }
-.scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--color-muted-foreground) 50%, transparent); }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: rgba(94, 115, 135, 0.28); border-radius: 3px; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: rgba(94, 115, 135, 0.48); }
 
-.dark .scrollbar-thin { scrollbar-color: var(--tokyo-terminal-black) var(--tokyo-night); }
-.dark .scrollbar-thin::-webkit-scrollbar-thumb { background-color: var(--tokyo-terminal-black); }
-.dark .scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: var(--tokyo-comment); }
+.dark .scrollbar-thin { scrollbar-color: rgba(139, 148, 158, 0.35) transparent; }
+.dark .scrollbar-thin::-webkit-scrollbar-thumb { background-color: rgba(139, 148, 158, 0.35); }
+.dark .scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: rgba(139, 148, 158, 0.58); }
 
-/* ── Hierarchy ─────────────────────────────────────────────────────── */
+/* ── Hierarchy items ────────────────────────────────────────────────── */
 .hierarchy-item:not(.selected):hover { background-color: var(--hierarchy-hover-bg) !important; }
 
-/* ── Tree nodes ────────────────────────────────────────────────────── */
+/* ── Tree nodes ─────────────────────────────────────────────────────── */
 .tree-node {
   display: flex; align-items: center; gap: 0.25rem;
   padding: 0.375rem 0.5rem; cursor: pointer;
-  border-radius: 0.125rem; border-left: 2px solid transparent;
-  transition: all 0.1s;
+  border-radius: 6px; border-left: 2px solid transparent;
+  transition: background var(--ic-dur-fast) var(--ic-ease), border-color var(--ic-dur-fast) var(--ic-ease);
 }
-.tree-node:hover { background-color: color-mix(in srgb, var(--color-muted) 50%, transparent); }
-.tree-node.selected { background-color: color-mix(in srgb, var(--color-primary) 10%, transparent); border-left-color: var(--color-primary); }
+.tree-node:hover { background-color: var(--ic-surface-2); }
+.tree-node.selected { background-color: var(--ic-primary-light); border-left-color: var(--ic-primary); color: var(--ic-primary); }
 
-/* ── XS ribbon buttons (CrossSectionWindow) ────────────────────────── */
-.xs-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 0.125rem 0.375rem; border-radius: 0.25rem;
-  background: transparent; border: none; cursor: pointer;
-  color: var(--color-muted-foreground);
-  transition: background-color 0.1s, color 0.1s;
-}
-.xs-btn:hover { background-color: var(--color-muted); color: var(--color-foreground); }
-.xs-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* ── Toolbar buttons ───────────────────────────────────────────────── */
+/* ── Toolbar buttons ────────────────────────────────────────────────── */
 .toolbar-button {
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 0.375rem; border-radius: 0.375rem; transition: all 0.15s;
+  padding: 0.375rem; border-radius: 6px;
+  transition: background var(--ic-dur-fast) var(--ic-ease), color var(--ic-dur-fast) var(--ic-ease);
   cursor: pointer; background: transparent; border: none; color: inherit;
 }
-.toolbar-button:hover { background-color: var(--color-muted); }
-.toolbar-button.active { background-color: var(--color-primary); color: var(--color-primary-foreground); }
-.toolbar-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.toolbar-button:hover { background-color: var(--ic-surface-2); }
+.toolbar-button.active { background-color: var(--ic-primary-light); color: var(--ic-primary); }
+.toolbar-button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── Cross-section window small buttons ────────────────────────────── */
+/* ── Cross-section window small buttons ─────────────────────────────── */
 .xs-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem;
-  padding: 0.25rem 0.375rem; border-radius: 0.25rem; transition: all 0.15s;
-  cursor: pointer; background: transparent; border: none; color: var(--color-muted-foreground);
+  padding: 0.25rem 0.375rem; border-radius: 4px;
+  transition: background var(--ic-dur-fast) var(--ic-ease);
+  cursor: pointer; background: transparent; border: none; color: var(--ic-text-muted);
   font-size: 0.625rem;
 }
-.xs-btn:hover { background-color: var(--color-muted); color: var(--color-foreground); }
+.xs-btn:hover { background-color: var(--ic-surface-2); color: var(--ic-text); }
 
-/* ── Panel tabs ────────────────────────────────────────────────────── */
+/* ── Panel tabs ─────────────────────────────────────────────────────── */
 .panel-container { container-type: inline-size; }
 
 .properties-tabs-list {
@@ -196,51 +247,58 @@ body {
 .properties-tab-trigger {
   flex: 1; display: inline-flex; align-items: center; justify-content: center;
   gap: 0.375rem; height: 100%; padding: 0 0.75rem;
-  border-top: 3px solid transparent;
+  border-top: 2px solid transparent;
   border-right: 1px solid var(--tabs-border);
   border-bottom: 0; border-left: 0; border-radius: 0 !important;
-  background-color: color-mix(in srgb, var(--tabs-bg) 82%, white 18%) !important;
+  background-color: var(--tabs-bg) !important;
   color: var(--tab-text) !important;
-  font-weight: 600; font-size: 0.75rem; line-height: 1; cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  font-family: var(--ic-font);
+  font-weight: 600; font-size: 0.6875rem; line-height: 1; cursor: pointer;
+  transition: background var(--ic-dur-fast) var(--ic-ease), color var(--ic-dur-fast) var(--ic-ease), border-color var(--ic-dur-fast) var(--ic-ease);
 }
 .properties-tab-trigger:first-child { border-left: 1px solid var(--tabs-border); }
 .properties-tab-trigger:hover {
-  background-color: color-mix(in srgb, var(--tab-active-bg) 90%, white 10%) !important;
+  background-color: var(--ic-surface-3) !important;
   color: var(--tab-active-text) !important;
 }
 .properties-tab-trigger.active {
   background-color: var(--tab-active-bg) !important;
   color: var(--tab-active-text) !important;
-  border-top-color: var(--color-primary) !important;
+  border-top-color: var(--ic-primary) !important;
 }
 
-/* ── Resize handle ─────────────────────────────────────────────────── */
+/* ── Resize handle ──────────────────────────────────────────────────── */
 [data-panel-group-direction="horizontal"] > [data-panel-resize-handle-id] {
-  width: 6px;
-  background-color: var(--color-border);
-  transition: background-color 0.15s;
+  width: 4px;
+  background-color: var(--ic-border-subtle);
+  transition: background-color var(--ic-dur-fast) var(--ic-ease);
   cursor: col-resize;
 }
-[data-panel-group-direction="horizontal"] > [data-panel-resize-handle-id]:hover { background-color: color-mix(in srgb, var(--color-primary) 50%, transparent); }
-[data-panel-group-direction="horizontal"] > [data-panel-resize-handle-id][data-resize-handle-active] { background-color: color-mix(in srgb, var(--color-primary) 70%, transparent); }
-
-/* ── Drop overlay ──────────────────────────────────────────────────── */
-.drop-overlay {
-  border: 2px dashed var(--tokyo-green);
-  background-color: rgba(158,206,106,0.06);
-  color: var(--tokyo-green);
+[data-panel-group-direction="horizontal"] > [data-panel-resize-handle-id]:hover,
+[data-panel-group-direction="horizontal"] > [data-panel-resize-handle-id][data-resize-handle-active] {
+  background-color: var(--ic-primary);
 }
 
-/* ── Loading skeleton ──────────────────────────────────────────────── */
-@keyframes skeleton-pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-.skeleton { background-color: var(--color-muted); border-radius:0.25rem; animation: skeleton-pulse 2s ease-in-out infinite; }
+/* ── Drop overlay ───────────────────────────────────────────────────── */
+.drop-overlay {
+  border: 2px dashed var(--ic-success);
+  background-color: var(--ic-success-bg);
+  color: var(--ic-success);
+}
 
-/* ── Dark panel overrides ──────────────────────────────────────────── */
-.dark .bg-white, .dark .bg-card, .dark .bg-background { background-color: var(--tokyo-night) !important; }
-.dark .bg-zinc-50, .dark .bg-zinc-100 { background-color: var(--tokyo-bg-highlight) !important; }
-.dark .border-zinc-200, .dark .border-zinc-700 { border-color: var(--tokyo-dark3) !important; }
-.dark .text-zinc-900, .dark .text-zinc-100 { color: var(--tokyo-fg) !important; }
-.dark .text-zinc-500, .dark .text-zinc-400 { color: var(--tokyo-comment) !important; }
-.dark [data-state="active"] { background-color: var(--tokyo-night) !important; color: var(--tokyo-fg) !important; }
-.dark ::selection { background-color: var(--tokyo-bg-highlight); color: var(--tokyo-cyan); }
+/* ── Loading skeleton ───────────────────────────────────────────────── */
+@keyframes skeleton-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.skeleton { background-color: var(--ic-surface-3); border-radius: 6px; animation: skeleton-pulse 2s var(--ic-ease) infinite; }
+
+/* ── Focus ring ─────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 1px solid var(--ic-primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--ic-primary-light);
+}
+
+/* ── Text selection ─────────────────────────────────────────────────── */
+::selection {
+  background-color: var(--ic-primary-light);
+  color: var(--ic-primary);
+}

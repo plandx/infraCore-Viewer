@@ -382,7 +382,7 @@ function RawTab({
       <div className="absolute top-2 right-2">
         <CopyButton value={json} />
       </div>
-      <pre className="p-3 text-[11px] font-mono text-green-400 dark:text-[#9ece6a] overflow-auto whitespace-pre-wrap break-words leading-relaxed">
+      <pre className="p-3 text-[11px] font-mono text-[#198754] dark:text-[#3fb950] overflow-auto whitespace-pre-wrap break-words leading-relaxed">
         {json}
       </pre>
     </div>

@@ -376,7 +376,7 @@ const TIER_BADGE_CLASSES: Record<TierAction, string> = {
   removeOthers:     "bg-orange-500/20 text-orange-400",
   color:            "bg-blue-500/20 text-blue-400",
   transparent:      "bg-cyan-500/20 text-cyan-400",
-  opaque:           "bg-slate-500/20 text-slate-400",
+  opaque:           "bg-muted text-muted-foreground",
   autoColor:        "bg-violet-500/20 text-violet-400",
   addAndColor:      "bg-blue-500/20 text-blue-300",
   addAndTransparent:"bg-cyan-500/20 text-cyan-300",

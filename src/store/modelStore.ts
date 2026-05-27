@@ -126,6 +126,10 @@ interface ModelStore {
   settingsPanelOpen: boolean;
   setSettingsPanelOpen: (open: boolean) => void;
 
+  /** Reset all session state (models, measurements, sections, smart views, QTO, overrides).
+   *  Settings and key bindings are preserved. */
+  resetAll: () => void;
+
   /** Apply a serialised state snapshot from the main window (secondary windows only). */
   applyRemoteState: (state: SyncState) => void;
 }
@@ -170,14 +174,14 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   propertyOverrides: new Map(),
   sectionPlanes: [],
   settings: {
-    background: "#1a1b26",
+    background: "#f0f5fa",
     grid: true,
     axes: true,
     edges: false,
     shadows: false,
     fog: false,
     logDepthBuffer: true,
-    theme: "dark",
+    theme: "light",
     showSpaces: false,
     orthographic: false,
     fontSize: "md",
@@ -620,6 +624,43 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     set({ keyBindings: kb });
   },
   setSettingsPanelOpen: (open) => set({ settingsPanelOpen: open }),
+
+  // ── Full app reset ─────────────────────────────────────────────────────────
+
+  resetAll: () => {
+    try { localStorage.removeItem("infracore-smartviews"); } catch {}
+    try { localStorage.removeItem("infracore-qto-lists"); } catch {}
+    set({
+      models: new Map(),
+      worldOrigin: null,
+      selectedElement: null,
+      activeTool: "select",
+      hiddenElements: new Set(),
+      isolatedElements: null,
+      measurements: [],
+      colorGroups: null,
+      smartViews: [],
+      activeSmartViewId: null,
+      stagedSmartViewId: null,
+      preSmartViewState: null,
+      loadedProperties: null,
+      loadedPropKeys: [],
+      loadingPropertiesProgress: null,
+      selectionBasket: new Set(),
+      basketMode: null,
+      basketAutoAdd: false,
+      propertyOverrides: new Map(),
+      sectionPlanes: [],
+      qtoLists: [],
+      sqlPanelOpen: false,
+      listPanelOpen: false,
+      smartViewsPanelOpen: false,
+      qtoPanelOpen: false,
+      profilePanelOpen: false,
+      settingsPanelOpen: false,
+      collisionPanelOpen: false,
+    });
+  },
 
   // ── Remote state sync (secondary windows) ──────────────────────────────────
 

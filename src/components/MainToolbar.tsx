@@ -30,7 +30,7 @@ interface Props {
   rightPanelVisible: boolean;
 }
 
-type RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras";
+export type RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras";
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -216,22 +216,8 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   }, []);
 
   const handleResetApp = useCallback(() => {
-    if (!window.confirm("Alle geladenen Modelle entfernen und App zurücksetzen?\n\nAchsen, Schnitte, Anmerkungen und 5D-Abrechnungsdaten werden ebenfalls gelöscht.")) return;
-    const st = useModelStore.getState();
-    for (const id of st.models.keys()) st.removeModel(id);
-    st.showAll();
-    st.setSelected(null);
-    st.clearMeasurements();
-    st.clearSectionPlanes();
-    st.clearBasket();
-    st.setActiveTool("select");
-    st.setColorGroups(null);
-    if (st.activeSmartViewId) st.deactivateSmartView();
-    st.setSqlPanelOpen(false);
-    st.setListPanelOpen(false);
-    st.setSmartViewsPanelOpen(false);
-    st.setQTOPanelOpen(false);
-    st.clearPropertyOverrides();
+    if (!window.confirm("App vollständig zurücksetzen?\n\nAlle Modelle, Messungen, SmartViews, QTO-Listen, Eigenschafts-Overrides und 5D-Abrechnungsdaten werden gelöscht.\n\nViewer-Einstellungen und Tastenkürzel bleiben erhalten.")) return;
+    useModelStore.getState().resetAll();
     useBillingStore.getState().clearAll();
     const al = useAlignmentStore.getState();
     for (const f of al.files) al.removeFile(f.id);

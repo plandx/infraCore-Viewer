@@ -6,39 +6,25 @@
 
 Neue Komponenten in `MainApp`:
 - `<SettingsPanel />` — Modal für Schriftgröße + Tastenkürzel (öffnet wenn `settingsPanelOpen`)
-- `<CollisionPanel />` — Kollisionsprüfungs-Dialog (Legacy-Inline-Panel, bleibt im Render-Tree für Rückwärtskompatibilität)
+- `<CollisionPanel />` — Kollisionsprüfungs-Dialog (öffnet wenn `collisionPanelOpen`)
 - `<DroneOverlay />` — Drohnen-HUD wenn `activeTool === "drone"`
 - `<FaceCrossSectionPanel />` — Flächen-QS-Steuerung (floating, wenn `faceCrossSectionActive`)
 
 Tastenkürzel aus `keyBindings` (Zustand-Store, localStorage-persistent) gelesen; `activeTool === "fly" || "drone"` deaktiviert alle Shortcuts außer Escape.
 
-URL-Erkennung (in Reihenfolge):
-- `?collision` → `<CollisionWindow />` (Popup-Fenster für Kollisionsprüfung)
-- `?secondary&panel=…` → `<SecondaryWindow panel={…} />`
-- `?cross-section` → `<CrossSectionWindow />`
-- `?longitudinal-section` → `<LongitudinalSectionWindow />`
-- `?abwicklung` → `<AbwicklungWindow />` (Grundriss-Abwicklung entlang Achse)
-- `?basket` → `<BasketWindow />`
-- sonst → `<MainApp />`
+```typescript
+const IS_SECONDARY = new URLSearchParams(window.location.search).has("secondary");
+const SECONDARY_PANEL = params.get("panel") ?? "hierarchy";
+```
+
+- Sekundär → `<SecondaryWindow panel={SECONDARY_PANEL} />`
+- Main → `<MainApp />`
 
 `MainApp` enthält das 3-spaltige Layout (HierarchyPanel | Viewport | PropertiesPanel) mit react-resizable-panels.
-
-**Sidebar-Collapse-UX:** Beide Seitenbereiche können ein- und ausgeklappt werden:
-- `leftCollapsed` / `rightCollapsed` — lokale State-Variablen
-- `leftPanelRef` / `rightPanelRef` — `PanelImperativeHandle`-Refs (importiert aus `react-resizable-panels`), ermöglichen imperatives `collapse()` / `expand()`
-- Jedes `<Panel>` erhält `panelRef={...}` und `onResize` zum Tracking des Collapse-Status
-- Die linke Seitenleiste zeigt oben einen `ChevronLeft`-Button (lucide-react); die rechte Seitenleiste entsprechend einen `ChevronRight`-Button
-- Wenn eine Seitenleiste eingeklappt ist, erscheinen im Center-Panel floating Expand-Buttons (`ChevronRight` links / `ChevronLeft` rechts), die die jeweilige Seite wieder aufklappen
-
-**Linke Seitenleiste:** Wird angezeigt, wenn `listPanelOpen || smartViewsPanelOpen`. `AlignmentPanel` ist nicht mehr Teil der linken Sidebar-Gruppe in `App.tsx` (wird separat eingebunden).
-
-**Bisheriges Verhalten (vor Refactor):** Die linke Seitenleiste hatte die Bedingung `listPanelOpen || smartViewsPanelOpen || alignmentPanelOpen`; `AlignmentPanel` war direkt als Sub-Panel in der inneren `PanelGroup` enthalten. Beides wurde entfernt.
 
 `main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
 
 `MainApp` betreibt einen `BroadcastChannel("infracore-billing")`-Listener: antwortet auf `{ t: "ready" }` mit der aktuellen Elementliste und sendet bei Modellwechsel automatisch `{ t: "elements", list }`.
-
-`MainApp` betreibt außerdem `useCollisionSync()`: einen `BroadcastChannel("infracore-collision")`-Listener, der Prüfungsanfragen vom Kollisions-Popup entgegennimmt, die Detection in Web-Worker-ähnlichen `setTimeout`-Batches läuft und Fortschritt/Ergebnisse zurücksendet.
 
 ---
 
@@ -160,7 +146,7 @@ export function computeDerivedQuantities(items: QuantityItem[]): QuantityItem[] 
 
 **Datei:** `src/components/MainToolbar.tsx`
 
-Oberste Toolbar-Leiste. Enthält:
+Oberste Toolbar-Leiste mit Ribbon-Navigation. Enthält:
 - Datei öffnen / hinzufügen (File-Input, akzeptiert `.ifc`)
 - Fit All (`F`)
 - Werkzeug-Buttons: Auswahl (`S`), Messen (`M`), Schnitt (`C`)
@@ -168,24 +154,36 @@ Oberste Toolbar-Leiste. Enthält:
 - Theme-Toggle (Dark/Light)
 - Kamera-Preset-Dropdown (Oben, Vorne, Links, …)
 - Export: GLTF, Screenshot
-- **Lens Rules**-Panel (`L`), **SmartViews**-Panel (`V`), SQL-Panel (`Q`), **Listen / Mengen**-Panel (`T`)
+- SQL-Panel (`Q`), **Mengen**-Panel (`T`)
 - **5D-Abrechnung**-Button (`BarChart2`-Icon + "5D") — öffnet Billing-Fenster via `openBillingWindow()`
 - **Batch**-Button (`Sliders`-Icon) — öffnet `BatchPanel`-Modal über `onOpenBatch`-Prop
 - Sekundär-Fenster öffnen (Dropdown mit 5 Panel-Typen)
 
-**Stacking-Kontext:** Der äußere `<div>` trägt `relative z-[100]`, damit Dropdowns (z.B. Kamera-Presets, Sekundärfenster-Menü) korrekt über dem Three.js-Canvas gerendert werden.
+### Ribbon-Tabs und Sidebar-Steuerung
 
-**Ribbon-Strip:** Das innere `<div>` der Toolbar-Leiste verwendet `overflow-visible` (zuvor `overflow-x-auto overflow-y-hidden`), damit Dropdown-Menüs über den Rand der Leiste hinaus sichtbar bleiben.
+`RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras"` — **exportierter Typ**.
 
-**Font-Size-Lock:** Der äußerste `<div>` trägt `style={{ fontSize: '14px' }}`. Damit sind alle rem-Berechnungen innerhalb der Toolbar von der Root-Schriftgröße (`data-font-size` sm/md/lg) entkoppelt.
+Der aktive Tab (`activeTab: RibbonTab`) wird in `App.tsx` als State gehalten und via Props übergeben:
 
-**Toolbar-Layout:** Zwei Zeilen:
-- Zeile 1 (Tab-Strip): `h-9` (36px) — enthält Logo, Tab-Buttons, Utility-Strip
-- Zeile 2 (Ribbon): `h-[68px]` — Ribbon-Gruppen mit kontextbezogenen Aktions-Buttons
+```typescript
+interface Props {
+  activeTab: RibbonTab;
+  onTabChange: (tab: RibbonTab) => void;
+  // ...
+}
+```
 
-**Visuelles Chrome:** Der äußere `<div>` trägt `borderTop: 3px solid var(--color-primary)` (farblicher Akzent oben), `background: var(--toolbar-bg)` (eigene Toolbar-Hintergrundfarbe, abweichend vom Content) und `boxShadow` für Elevation-Trennung vom Viewport.
+**Die linke Seitenleiste reagiert direkt auf den aktiven Tab:**
 
-**CSS-Variable `--toolbar-bg`:** Definiert in `index.css` — `hsl(220 13% 94%)` im Light-Mode, `var(--tokyo-bg-dark)` (#13131a) im Dark-Mode. Sorgt für klare Abgrenzung zur Content-Area (`bg-card`).
+| Tab | Seitenleiste (unten) |
+|---|---|
+| `start` | — (nur HierarchyPanel) |
+| `analyse` | LensRulesPanel + SmartViewsPanel |
+| `achsen` | AlignmentPanel |
+| `billing5d` | — (nur HierarchyPanel) |
+| `extras` | — (nur HierarchyPanel) |
+
+Tastenkürzel `L` und `V` wechseln direkt zum "Analyse"-Tab (statt Panel-Toggle).
 
 ---
 
@@ -207,11 +205,8 @@ interface Props {
   onHideOverride?: (modelId: string, expressId: number) => void;
   onShowAllOverride?: () => void;
   onIsolateOverride?: (modelId: string, expressId: number) => void;
-  onToggleCollapse?: () => void;
 }
 ```
-
-Der interne `Header`-Sub-Komponent akzeptiert dieselbe `onToggleCollapse`-Prop und zeigt einen `ChevronLeft`-Button (lucide-react), der beim Klick den linken Sidebar-Bereich einklappt.
 
 Interne Features:
 - Suchfeld (filtert Namen)
@@ -366,25 +361,7 @@ Scrollbare Liste aller Korb-Elemente. Pro Zeile: Modellfarbe, Name + Typ · Mode
 
 **Datei:** `src/components/BasketEditor.tsx`
 
-Eigenschafts-Editor für den Auswahlkorb (XLSX-Export/-Import). Export mit `GlobalId`-Schlüsselspalte, Import matched per `GlobalId` und schreibt `propertyOverrides`.
-
-Props:
-```typescript
-interface Props {
-  onClose: () => void;
-  mode?: "modal" | "window";  // "modal" = fixed inset-0 Overlay, "window" = h-full (Fenster-Modus)
-}
-```
-
-Wird seit Fix 4 nicht mehr als Modal geöffnet, sondern als separates Browser-Fenster via `openBasketWindow()` (`?basket`-URL).
-
-## BasketWindow
-
-**Datei:** `src/components/BasketWindow.tsx`
-
-Standalone-Fenster-Wrapper für den `BasketEditor`. Synchronisiert Zustand via `BroadcastChannel` (gleiches Protokoll wie `SecondaryWindow`). Gesetzt wird `document.title = "Auswahlkorb — infraCore"`.
-
-Öffnen: `openBasketWindow()` aus `src/utils/windowSync.ts` → `window.open(...?basket...)` (1100×700 px).
+Modales Fenster für XLSX-Export und -Import der Korb-Eigenschaften. Export mit `GlobalId`-Schlüsselspalte, Import matched per `GlobalId` und schreibt `propertyOverrides`.
 
 ---
 
@@ -529,7 +506,7 @@ Aufbau:
 
 **Datei:** `src/components/SecondaryWindow.tsx`
 
-Wrapper für Sekundär-Fenster. Title-Bar: `h-11` (44px) mit identischem Toolbar-Chrome (3px Primary-Akzent oben, `var(--toolbar-bg)`). Rendert je nach `panel`-Parameter:
+Wrapper für Sekundär-Fenster. Rendert je nach `panel`-Parameter:
 - `hierarchy` → `<HierarchyPanel>`
 - `properties` → `<PropertiesPanel>`
 - `lists` → `<LensRulesPanel>`
@@ -548,62 +525,11 @@ Drag-and-Drop-Zone + „Datei öffnen"-Button. Verschwindet sobald Modelle gelad
 
 ---
 
-## CollisionWindow
-
-**Datei:** `src/components/CollisionWindow.tsx`
-
-Popup-Fenster (`?collision`) für regelbasierte Kollisionsprüfung. Kommuniziert ausschließlich via `BroadcastChannel("infracore-collision")`.
-
-- Auf Mount: sendet `{ t: "req" }` um aktuellen Zustand vom Main-Fenster zu laden
-- Zeigt Regelliste (links), Ergebnisliste (Mitte), Rule-Editor (rechts, optional)
-- "Prüfung starten": sendet `{ t: "run", rules }` → Main führt Detection durch
-- Statusänderungen: sendet `{ t: "setStatus", key, status }` → Main aktualisiert und broadcastet
-- Regel-Edits sind lokal bis zum nächsten "Prüfung starten"
-- Kein Zugriff auf Three.js/Modell-Daten direkt — alles läuft über BroadcastChannel
-
-Props: keine
-
----
-
 ## StatusBar
 
 **Datei:** `src/components/StatusBar.tsx`
 
-Unterste Zeile (`h-8`, 32px): Anzahl Modelle, Gesamt-Dreiecke, JS-Heap, FPS-Zähler (farbcodiert), Version. Verwendet `var(--toolbar-bg)` als Hintergrundfarbe (konsistent mit dem Haupt-Toolbar-Chrome).
-
----
-
-## HelpPanel
-
-**Datei:** `src/components/HelpPanel.tsx`
-
-Vollständige In-App-Hilfe. Ersetzt das frühere `InfoModal` in `MainToolbar`.
-Wird über den **ⓘ**-Button in der Toolbar geöffnet.
-
-### Aufbau
-
-Linke Navigation (8 Abschnitte) + scrollbarer Inhaltsbereich rechts:
-
-| Abschnitt | Inhalt |
-|---|---|
-| Schnellstart | Step-by-Step: IFC laden, navigieren, auswählen, ausblenden |
-| 3D-Navigation | Mausbelegung, Kamera-Presets, Fly-Mode, Drohne |
-| Werkzeuge | Auswahl, Messen, Schnittebene, Flächen-QS, Fly, Drohne, H-Chord |
-| Panels & Leisten | Projektstruktur, Eigenschaften, SQL, Lens, SmartViews, Mengen, Auswahlkorb |
-| Achsen & Trassen | LandXML laden, Längenschnitt, Querschnitt, Stationierung, Absetzmass |
-| 5D-Abrechnung | 5D-Fenster, Elemente, Fertigstellungsgrade, Visualisierung, Export |
-| Tastenkürzel | Vollständige Referenztabelle aller Kürzel |
-| Tipps & Tricks | Multi-Window, SmartViews-Workflow, SQL-Beispiele, Batch, Koordinaten |
-
-### Props
-
-| Prop | Typ | Beschreibung |
-|---|---|---|
-| `onClose` | `() => void` | Schließt das Panel |
-
-### Helper-Komponenten (intern)
-
-`Step`, `Kbd`, `NoteBox`, `TipBox`, `Row`, `Table` — rein darstellend, keine externe State-Abhängigkeit.
+Unterste Zeile: Anzahl Modelle, Gesamt-Dreiecke, JS-Heap, FPS-Zähler (farbcodiert), Version.
 
 ---
 
@@ -611,19 +537,9 @@ Linke Navigation (8 Abschnitte) + scrollbarer Inhaltsbereich rechts:
 
 **Datei:** `src/alignment/AlignmentPanel.tsx`
 
-Panel für LandXML-Trassen. Öffnet sich als **vollständiger Ersatz** der linken Leiste (nicht als Sub-Panel),
-wenn `alignmentPanelOpen` im `useAlignmentStore` `true` ist. Enthält:
-- Drag-&-Drop-Upload für `.xml`/`.landxml`
-- Achsen-Liste pro Datei (ein-/ausblendbar, farbig, Stationierungsbereich)
-- Stationierungswerkzeug + Auflösungswähler
-- Profil-Mini-Chart für die ausgewählte Achse
-- `<AlignmentAnnotations />` Unterabschnitt
+Seitenleisten-Panel für LandXML-Trassen. Anzeige von Dateien, einzelnen Achsen (ein-/ausblendbar, farbig), Stationierungswerkzeug, Auflösungswähler, Längsprofil-Chart. Enthält `<AlignmentAnnotations />` als Unterabschnitt.
 
-| Prop | Typ | Beschreibung |
-|---|---|---|
-| `onClose?` | `() => void` | Optional — zeigt X-Button im Header zum Schließen des Panels |
-
-> **Hinweis:** `AlignmentPanel` ist nicht mehr direkt in der linken Sidebar-Gruppe von `App.tsx` eingebunden. Es wird über den **Achsen**-Tab zugänglich gemacht (wird in einem späteren Refactor-Schritt wieder eingehängt). `alignmentPanelOpen` aus dem `useAlignmentStore` wird in `App.tsx` nicht mehr für die Sidebar-Sichtbarkeitsbedingung verwendet.
+Props: keine (liest aus `useAlignmentStore`).
 
 ---
 
@@ -654,8 +570,6 @@ Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstel
 | Punkt X/Y | MapPin-Icon (violett) | Setzt eine Bemaßungs-Annotation mit Querabstand (R/L) und Höhenabstand (+/−) vom Achspunkt als Maßlinien |
 | Fang | Magnet-Icon (himmelblau) | Aktiviert Snap-Modus: Vertex-Fang (Priorität, 14px-Schwelle) dann Kanten-Fang (Lot auf Segment) |
 | Objekte | Tag-Icon (grün) | Schaltet Objektbeschriftung ein; Dropdown wählt das Anzeigeattribut (Name, Typ, beliebige geladene Property) |
-| Tiefe | Eye-Icon (grün) | Aktiviert Tiefenansicht: projiziert alle Kanten im Sichtbereich hinter dem Schnitt (default 3 m) — sichtbare Kanten solid, verdeckte Kanten gestrichelt |
-| Box-Zoom | ZoomIn-Icon | Aktiviert Rechteck-Zoom: Ziehen zeichnet blaues gestricheltes Auswahl-Rechteck; beim Loslassen wird `zoomFactor` + `viewCenter` auf den Ausschnitt gesetzt |
 
 ### Objektbeschriftung
 
@@ -680,157 +594,57 @@ Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstel
 - `pointLabels: PtLabel[]` — gespeicherte Punkte `{ id, x, y }` in Achskoordinaten
 - SVG-Darstellung: horizontale Maßlinie auf Höhe des Punkts (zeigt X-Abstand, R/L), vertikale Maßlinie an X-Position des Punkts (zeigt Y-Abstand +/−); Texte mit Hintergrundrechtecken
 
-### Tiefenansicht (Depth View)
-
-- **Toggle + Distanzfeld** in der Werkzeugleiste; Distanz default 3 m, min 0,1 m
-- **`computeDepthLines(origin3, normalVec, rightDir, upDir)`** in `ViewportContainer.tsx`:
-  - Iteriert `pickableMeshesRef.current` (alle sichtbaren IFC-Meshes)
-  - Bounding-Sphere-Check gegen den Tiefenbereich `[0, depthDistance]` entlang der Normalen
-  - Kantensegmente aus vorhandenem `isEdge`-Kind oder neu erzeugter `EdgesGeometry` (wird sofort `dispose()`d)
-  - **Sichtbarkeitsprüfung per Kante** (kein Raycast): Kanten-Mittelpunkt in 2D projizieren → AABB-Vorfilter + `pointInPolygon(mx2d, my2d, polygon.points)` gegen alle `crossSectionPolygons` anderer Elemente → `hidden = true` wenn innerhalb eines fremden Polygons
-  - Ergebnis in `alignmentStore.depthLines: XSSyncDepthLine[]` gespeichert
-- **`computeDepthLinesFromBasis()`**: wird bei Änderung von `depthView`/`depthDistance` ohne neuen Schnitt aufgerufen
-- **`XSSyncDepthLine`**: `{ x1, y1, x2, y2, hidden: boolean, color: string }` in 2D-Schnittkoordinaten
-- **SVG-Rendering**: getrennte `<path>`-Elemente für sichtbare (solid, 55 % Opazität) und verdeckte Linien (gestrichelt 3,3, 35 % Opazität), unter den Schnittlinien gezeichnet
-
 ### SVG-Aufbau
 
 1. Achsenkreuz + Tick-Labels (cm-Genauigkeit, 2 Dezimalstellen)
 2. `<clipPath>` begrenzt Schnittlinien und Hatch-Füllung auf Darstellungsbereich
-3. Tiefenansichts-Kanten (gestrichelt verdeckt, solid sichtbar) — Ebene unterhalb der Schnittlinien
-4. Schnittlinien (`<polyline>`) + Hatch-Füllung (`<polygon>` mit SVG-Pattern)
-5. Bemaßungen: Mess-Linie (blau gestrichelt), Punkt-Beschriftungs-Maßlinien (lila)
-6. Vorschau-Dot bei aktivem Werkzeug
-7. Snap-Indikator (außerhalb Clip-Gruppe, immer sichtbar)
+3. Schnittlinien (`<polyline>`) + Hatch-Füllung (`<polygon>` mit SVG-Pattern)
+4. Bemaßungen: Mess-Linie (blau gestrichelt), Punkt-Beschriftungs-Maßlinien (lila)
+5. Vorschau-Dot bei aktivem Werkzeug
+6. Snap-Indikator (außerhalb Clip-Gruppe, immer sichtbar)
+
 
 ---
 
-## LongitudinalSectionWindow (`src/alignment/LongitudinalSectionWindow.tsx`)
+## Design-System: infraCore Claude Design (`src/index.css`, `index.html`)
 
-Eigenständiges Popup-Fenster für den Längenschnitt. Wird über `?longitudinal-section` URL-Parameter erkannt und von `App.tsx` als Root-Komponente gerendert.
+Alle Farb- und Schrift-Tokens stammen aus dem **infraCore Claude Design**-Bundle.
 
-### Props
-Keine — empfängt alles über BroadcastChannel (`LS_CHANNEL`).
+### CSS-Variablen (`--ic-*`)
 
-### State
-| Feld | Typ | Bedeutung |
-|---|---|---|
-| `state` | `LSSyncState` | Zuletzt empfangener Zustand vom Hauptfenster |
-| `size` | `{ w, h }` | Container-Größe (ResizeObserver) |
-| `viewSta` | `[number, number] \| null` | Gezoomter Stationsbereich (null = Vollauschnitt) |
-| `viewElev` | `[number, number] \| null` | Gezoomter Höhenbereich (null = 1:1-Ausgangsansicht) |
-| `vExag` | `number` | Vertikale Überhöhung (default 1 = physikalisch 1:1) |
-| `hoverSta` | `number \| null` | Aktuelle Hover-Station |
-| `isDragging` | `boolean` | Pan-Modus aktiv |
-| `rangeInput` | `{ start, end }` | Rohwert-Inputs für den Stationsbereich |
+Definiert in `:root` (Licht-Modus) und überschrieben in `.dark {}`:
 
-### Koordinatenskalierung
-- **Startskalierung 1:1**: Beim ersten Öffnen (und nach Reset) wird `viewElev = null` gesetzt. Der Fallback berechnet dann den sichtbaren Höhenbereich so, dass gilt: `(vEMax − vEMin) / chartH = (vMax − vMin) / chartW` — also 1 Meter in X entspricht 1 Meter in Y auf dem Bildschirm.
-- **Überhöhung (vExag)**: Komprimiert den Rohhöhenbereich um Faktor `1/vExag`. Bei `vExag = 1` bleibt die 1:1-Physik erhalten; bei `vExag = 5` erscheint die Y-Achse 5× gestreckt. Zoom und Überhöhung sind unabhängig voneinander.
-- **Reset**: `setViewElev(null)` beim Alignment-Wechsel und bei Datenänderung → kehrt zur 1:1-Ansicht zurück.
+```css
+/* Licht-Modus (Auszug) */
+--ic-bg:        #eef3f9;   /* Seiten-Hintergrund */
+--ic-surface:   #ffffff;   /* Karten, Panels */
+--ic-surface-2: #f4f8fd;   /* leicht abgehobene Bereiche */
+--ic-border:    #d0dcea;
+--ic-primary:   #1f77d8;   /* Infra-Blau – Buttons, Selections */
+--ic-red:       #ee4d45;   /* iC-Markenrot – Warnungen, Destruktiv */
+--ic-text:      #0d1b2e;
+--ic-muted:     #5e7491;
 
-### Features
-- **X-Achse**: Stationsticks im km+m Format, gleiche `computeTicks`-Logik wie ProfileViewer
-- **Y-Achse**: Höhe in Metern (Three.js world Y = LandXML Höhe − origin Z)
-- **IFC-Schnittlinien**: `lines: LSLineSync[]` werden als farbige Segmente gezeichnet (`<line>`)
-- **Gradiente** (Planprofil): `profile: LSProfilePt[]` als gestrichelter grüner Pfad (`stroke="#4ade80"`, `strokeDasharray="6,3"`)
-- **Zoom**: Mausrad an Cursor-Position, beide Achsen gleichzeitig; Achslock-Buttons "Sta" / "Höhe"
-- **Pan**: Linke Maustaste + Ziehen
-- **Überhöhung**: Preset-Buttons 1×/2×/5×/10×/20× + freies Zahlenfeld; Y-Achsentitel zeigt Faktor wenn aktiv
-- **Tiefenlinien (Depth View)**: Kanten von Objekten innerhalb `maxDist` der Trasse werden projiziert und als transparente Linien gezeichnet
-- **Stationsbereich-Eingabe**: Zwei Inputs oben; bei Enter/Blur wird `{ t: "setRange" }` Nachricht gesendet
-- **Rechteck-Zoom (Box Zoom)**: Taste „Box" im Ansicht-Ribbon → `zoomBoxMode=true`; Ziehen zeichnet blaues gestricheltes Auswahl-Rechteck; beim Loslassen wird `viewSta` + `viewElev` auf den Ausschnitt gesetzt (Exaggeration korrekt mitgerechnet: `eMid ± eHalf * vExag`)
-- **SVG-Export**: `Download`-Button → `XMLSerializer` → `<a download>`
-- **Theme**: Erbt `theme: "light" | "dark"` aus `LSSyncState`; Default dunkel
+/* Dark-Mode-Overrides */
+--ic-bg:        #0d1117;
+--ic-surface:   #161b22;
+--ic-primary:   #4da3ff;
+```
 
-### Kommunikation
-Auf `LS_CHANNEL` (BroadcastChannel):
-- Sendet `{ t: "req" }` beim Mount
-- Empfängt `{ t: "state"; s: LSSyncState }` → update `state`
-- Sendet `{ t: "setRange"; staStart; staEnd }` bei Benutzer-Eingabe
-- Sendet `{ t: "close" }` beim Schließen
+### Tailwind `@theme`-Mapping
 
-## ProfileViewer — Längenschnitt-Erweiterung
+Tailwind-Utilities wie `bg-background`, `text-primary`, `border-border` etc. sind im `@theme`-Block auf `var(--ic-*)` gemappt. Dark-Mode-Overrides in `.dark {}` propagieren automatisch.
 
-### Neue State-Felder
-| Feld | Typ | Bedeutung |
-|---|---|---|
-| `lsMode` | `boolean` | LS-Auswahlmodus aktiv (Toggle-Button) |
-| `lsRange` | `[number, number] \| null` | Ausgewählter Stationsbereich |
-| `lsRangeRef` | `Ref<{ start, end } \| null>` | Synchroner Ref für Mouse-Handler |
-| `lsDragRef` | `Ref<{ startSta } \| null>` | Drag-Start-Station |
-| `lsModeRef` | `Ref<boolean>` | Synchroner Ref für lsMode |
+### Schriften (via Google Fonts in `index.html`)
 
-### Interaktion
-- **LS-Mode Toggle**: "LS"-Button in der Kopfzeile (Slice-Icon); wechselt `lsMode`, löscht `lsRange` beim Deaktivieren
-- **Bereich ziehen**: `lsMode` aktiv oder `Shift`-Taste gedrückt → Drag definiert `[staStart, staEnd]`
-- **Visuelles Feedback**: Blau gestricheltes Rechteck (`fillOpacity=0.12`) über dem gewählten Bereich
-- **"Längenschnitt" Button**: Erscheint wenn `lsRange` gesetzt; ruft `openLongSection(id, start, end)` + `openLongitudinalSectionWindow()` auf
-- **"Abwicklung" Button**: Erscheint neben dem Längenschnitt-Button wenn `lsRange` gesetzt; ruft `openAbwicklung(id, start, end)` + `openAbwicklungWindow()` auf
+- **IBM Plex Sans** (300/400/500/600) — Haupt-UI
+- **IBM Plex Mono** (400/500) — Code, numerische Werte, Property-Keys
 
----
+### Farben für Schnittebenen (`SectionPanel.tsx`)
 
-## AbwicklungWindow (`src/alignment/AbwicklungWindow.tsx`)
+`SECTION_COLORS = ["#1f77d8", "#cf3f37", "#198754", "#ea7a1d", "#6e59cf", "#0891b2"]`
+(6 semantische infraCore-Farben, rotierend je nach Anzahl Schnittebenen)
 
-Eigenständiges Popup-Fenster (`?abwicklung`) für die Grundriss-Abwicklung entlang einer Trasse. Projiziert IFC-Kanten in das Korridorkoordinatensystem: X = Station, Y = Lateralabstand (+ = rechts, − = links).
+### Farben für Quellen-Badges (`BillingPanel.tsx`)
 
-### Props
-Keine — empfängt alles über BroadcastChannel (`ABWICKLUNG_CHANNEL = "infracore-abwicklung"`).
-
-### State
-| Feld | Typ | Bedeutung |
-|---|---|---|
-| `state` | `AbwicklungSyncState` | Zuletzt empfangener Zustand vom Hauptfenster |
-| `size` | `{ w, h }` | Container-Größe (ResizeObserver) |
-| `viewSta` | `[number, number] \| null` | Gezoomter Stationsbereich (null = Vollausschnitt) |
-| `viewLat` | `[number, number] \| null` | Gezoomter Lateralbereich (null = Vollausschnitt) |
-| `lockX` | `boolean` | Stations-Achse beim Zoom sperren |
-| `lockY` | `boolean` | Lateral-Achse beim Zoom sperren |
-| `zoomBoxMode` | `boolean` | Rechteck-Zoom aktiv |
-| `colorMode` | `"ifc" \| "elevation"` | IFC-Originalfarbe oder Höhenrampe (blau→rot) |
-| `snapActive` | `boolean` | Fang-Modus aktiv |
-| `snapDisplay` | `SnapPoint \| null` | Aktuell gefangener Punkt (für SVG-Indikator) |
-| `objLabelsVisible` | `boolean` | Objektbeschriftung sichtbar |
-| `objLabelProp` | `string` | Anzeigeattribut (`"name"` / `"type"` / beliebiger Prop-Key) |
-| `labelStyle` | `"leader" \| "direct"` | Beschriftungsstil: Leader-Linie oder direkte Platzierung |
-| `measActive` | `boolean` | Mess-Werkzeug aktiv |
-| `measurements` | `AbwMeasurement[]` | Gespeicherte Messungen |
-
-### Koordinatenskalierung
-- **Unabhängige Achsen**: `viewSta` und `viewLat` sind getrennte Zustände — X- und Y-Zoom sind unabhängig voneinander
-- **Startansicht**: Beim ersten Öffnen passt sich die Ansicht automatisch an den vollen Stationsbereich + Korridorbreite an (Vollausschnitt)
-- **Reset**: Setzt `viewSta = null` und `viewLat = null` → kehrt zur Vollansicht zurück
-
-### Features
-- **X-Achse**: Station in km+m Format (gleiche `computeTicks`-Logik wie LS)
-- **Y-Achse**: Lateralabstand in Metern (R+ / L−)
-- **IFC-Kanten**: `lines: AbwicklungLineSync[]` als farbige Segmente (IFC-Farbe oder Höhenrampe)
-- **Farbmodi**: "ifc" (Batch-Pfade pro Farbe) vs "elevation" (per-Linie-Farbe via `elevColor()` blau→rot-Rampe)
-- **Zoom**: Mausrad an Cursor-Position; Achslock `lockX`/`lockY` verhindern Zoom auf der gesperrten Achse; Pivot korrekt je Achse
-- **Pan**: Linke Maustaste + Ziehen; Achslocks werden respektiert
-- **Rechteck-Zoom (Box Zoom)**: Button im Ansicht-Ribbon; Ziehen zeichnet blaues gestricheltes Rechteck; beim Loslassen wird `viewSta` + `viewLat` auf den Ausschnitt gesetzt
-- **Fang (Snap)**: `computeSnapScreen()` sucht nächsten Vertex (Raute) oder Kantenpunkt (Kreis) in SVG-Pixel-Koordinaten (Schwelle 12px); gibt Welt-Koordinaten `[sta, lat]` zurück
-- **Mess-Werkzeug**: Klick-Klick-Messung in Station + Lateral; zeigt Linie + Maßtext
-- **Objektbeschriftung**: `buildLabelPositions` + `deOverlapLabels` (80 Iterationen Force-Repulsion); Leader-Linie oder Direkt-Modus
-- **Korridorbreite**: Inputs für links/rechts in Metern; sendet `{ t: "setOffsets" }` → Hauptfenster löst Neuberechnung aus
-- **Stationsbereich**: Inputs für Start/Ende; sendet `{ t: "setRange" }` → Hauptfenster löst Neuberechnung aus
-- **SVG-Export**: Download-Button → `XMLSerializer` → `<a download>`
-
-### Ribbon-Gruppen
-| Gruppe | Inhalt |
-|---|---|
-| Station | Start- + End-Eingabe (m) |
-| Korridor | Links- + Rechts-Offset (m) |
-| Farbe | IFC / Höhe Toggle |
-| Werkzeuge | Messen + Fang |
-| Beschriftung | Tag-Toggle + Prop-Key-Dropdown + Leader/Direct-Toggle |
-| Ansicht | Sta-Lock + Quer-Lock + Box-Zoom + Reset |
-| Export | SVG-Download |
-
-### Kommunikation
-Auf `ABWICKLUNG_CHANNEL` (BroadcastChannel):
-- Sendet `{ t: "req" }` beim Mount
-- Empfängt `{ t: "state"; s: AbwicklungSyncState }` → update `state`
-- Sendet `{ t: "setRange"; staStart; staEnd }` bei Benutzer-Eingabe
-- Sendet `{ t: "setOffsets"; left; right }` bei Korridor-Änderung
-- Sendet `{ t: "close" }` beim Schließen
+`SOURCE_COLOR` Map weist jeder `QuantitySource` eine Tailwind-Klasse zu (bleibt als Tailwind-Klasse, kein CSS-Variable-Override nötig).

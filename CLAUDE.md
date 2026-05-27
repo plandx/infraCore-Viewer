@@ -21,7 +21,7 @@ Neue Features → Docs erweitern. Architektur geändert → Docs anpassen. Keine
 **infraCore-Viewer** ist ein rein clientseitiger Web-IFC-Viewer (kein Backend).
 Geöffnete IFC-Dateien bleiben im Browser-Speicher; WASM parst die Geometrie und Eigenschaften.
 
-- **Branch:** `claude/ifc-viewer-web-PeYkM`
+- **Branch:** Immer auf den **Default-Branch** (`main`) pushen — niemals auf Session-spezifische Feature-Branches
 - **Dev-Server:** `npm run dev` (Vite, Port 5173)
 - **Build:** `npm run build` → `dist/`
 - **Type-Check:** `npx tsc --noEmit`

@@ -249,7 +249,28 @@ setListPanelOpen(open: boolean): void
 setSmartViewsPanelOpen(open: boolean): void
 setLoadedProperties(props, keys): void
 applyRemoteState(state: SyncState): void   // nur in Sekundär-Fenstern
+resetAll(): void                           // vollständiger App-Reset (siehe unten)
 ```
+
+### `resetAll()`
+
+Setzt die gesamte Session in einem einzigen atomischen `set()`-Aufruf zurück.
+
+**Was wird zurückgesetzt:**
+- Alle Modelle (`models`, `worldOrigin`)
+- Selektion, Sichtbarkeit, Isolierung
+- Messungen, Schnittebenen, Farb-Gruppen
+- Auswahlkorb inkl. `basketMode` / `basketAutoAdd`
+- Property-Cache (`loadedProperties`, `loadedPropKeys`, `loadingPropertiesProgress`)
+- Eigenschafts-Overrides (`propertyOverrides`)
+- SmartViews (inkl. `activeSmartViewId`, `stagedSmartViewId`, `preSmartViewState`) — auch `localStorage["infracore-smartviews"]`
+- QTO-Listen — auch `localStorage["infracore-qto-lists"]`
+- Alle Panels geschlossen
+- `activeTool` → `"select"`
+
+**Was bleibt erhalten:**
+- `settings` (Viewer-Einstellungen: Hintergrundfarbe, Grid, Kanten …)
+- `keyBindings` (benutzerdefinierte Tastenkürzel)
 
 ---
 
@@ -461,9 +482,9 @@ Nach `addEntry()` / `set()` muss **erneut** `useBillingStore.getState()` aufgeru
 
 ## Alignment-Store (`src/alignment/alignmentStore.ts`)
 
-Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen, Stationierungs-Werkzeug, Querschnitt und Längenschnitt. Unabhängig vom modelStore.
+Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen und das Stationierungs-Werkzeug.
 
-### Felder — Trassen
+### Felder
 
 | Feld | Typ | Bedeutung |
 |---|---|---|
@@ -471,89 +492,20 @@ Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen,
 | `selectedId` | `number \| null` | Aktuell ausgewähltes Alignment |
 | `visibleIds` | `Set<number>` | Sichtbare Alignment-IDs |
 | `colors` | `Record<number, string>` | Farbe je Alignment-ID (aus PALETTE) |
-| `geoOrigin` | `{x,y,z} \| null` | Geo-Referenzpunkt (Easting/Northing/Elev des ersten Segments) |
+| `geoOrigin` | `{x,y,z} \| null` | Geo-Referenzpunkt (Easting/Northing/Elev des ersten Segments) für Szene ohne IFC |
 | `panelOpen` | `boolean` | AlignmentPanel sichtbar |
 | `sampleInterval` | `number` | Bogenabtastabstand in Metern (Standard: 5 m) |
 | `stationToolActive` | `boolean` | Stationierungs-Mess-Werkzeug aktiv |
-| `hoveredStation` | `{alignmentId, station, name} \| null` | Hover-Station (vom Viewport befüllt) |
-| `profileHoverStation` | `number \| null` | Hover-Station im Profil-Canvas |
-| `profileHoverAlignmentId` | `number \| null` | Zugehörige Alignment-ID |
-
-### Felder — Querschnitt (XS)
-
-| Feld | Typ | Bedeutung |
-|---|---|---|
+| `hoveredStation` | `{alignmentId, station, name} \| null` | Aktuelle Hover-Station (vom Viewport befüllt) |
 | `crossSectionOpen` | `boolean` | Querschnitt-Fenster offen |
 | `crossSectionStation` | `number \| null` | Aktuelle Schnittstation in Metern |
 | `crossSectionAlignmentId` | `number \| null` | Alignment-ID des Schnitts |
 | `crossSectionMode` | `"vertical" \| "normal"` | Schnittebenen-Modus |
 | `crossSectionLines` | `SectionLine[]` | Rohsegmente der 2D-Schnittdarstellung |
-| `crossSectionPolygons` | `SectionPolygon[]` | Rekonstruierte geschlossene Polygone mit AABB (Hatch-Fill) |
-| `crossSectionBasis` | `{origin,right,up,normal: [number,number,number]} \| null` | 3D-Basis der Schnittebene (Szenen-Koordinaten) |
+| `crossSectionPolygons` | `SectionPolygon[]` | Rekonstruierte geschlossene Polygone (Hatch-Fill) |
+| `crossSectionBasis` | `{origin,right,up,normal: [number,number,number]} \| null` | 3D-Basis der letzten Schnittebene im Szenen-Koordinatensystem |
 | `crossSectionComputing` | `boolean` | Berechnung läuft |
-| `crossSectionObjectLabels` | `XSSyncObjectLabel[]` | Label je sichtbarem Schnitt-Element |
 | `showSectionSurface` | `boolean` | 3D-Schnittfläche im Viewport anzeigen |
-| `depthView` | `boolean` | Tiefenansicht aktiv (Kanten hinter dem Schnitt) |
-| `depthDistance` | `number` | XS-Sichttiefe in Metern (default 3) |
-| `depthLines` | `XSSyncDepthLine[]` | Berechnete XS-Tiefenansichts-Liniensegmente |
-
-### Felder — Abwicklung
-
-| Feld | Typ | Bedeutung |
-|---|---|---|
-| `abwicklungOpen` | `boolean` | Abwicklung-Fenster offen |
-| `abwicklungAlignmentId` | `number \| null` | Alignment-ID |
-| `abwicklungStaStart` | `number \| null` | Startstation in Metern |
-| `abwicklungStaEnd` | `number \| null` | Endstation in Metern |
-| `abwicklungLeftOffset` | `number` | Korridor-Halbbreite links in Metern |
-| `abwicklungRightOffset` | `number` | Korridor-Halbbreite rechts in Metern |
-| `abwicklungLines` | `AbwicklungLine[]` | Projizierte IFC-Kanten `{ s1,t1,s2,t2,elevMid,color,objectKey? }` |
-| `abwicklungObjectLabels` | `XSSyncObjectLabel[]` | Label je sichtbarem Abwicklungs-Element |
-| `abwicklungComputing` | `boolean` | Berechnung aktiv |
-| `abwicklungElevationOrigin` | `number` | oz — addieren für absolute Höhe |
-
-**Aktion:**
-| Aktion | Beschreibung |
-|---|---|
-| `openAbwicklung(alignmentId, staStart, staEnd)` | Abwicklung öffnen, Berechnung starten |
-| `closeAbwicklung()` | Abwicklung schließen |
-| `setAbwicklungOffsets(left, right)` | Korridorbreite ändern, Neuberechnung auslösen |
-| `setAbwicklungResult(lines, elevationOrigin, objectLabels?)` | Ergebnis + Labels speichern, `computing=false` |
-
-### Felder — Längenschnitt (LS)
-
-| Feld | Typ | Bedeutung |
-|---|---|---|
-| `lsOpen` | `boolean` | Längenschnitt-Fenster geöffnet |
-| `lsAlignmentId` | `number \| null` | Alignment-ID des LS |
-| `lsStaStart` | `number \| null` | Startstation in Metern |
-| `lsStaEnd` | `number \| null` | Endstation in Metern |
-| `lsLines` | `LSLineSync[]` | Berechnete IFC-Schnittlinien `{ sta1,elev1,sta2,elev2,color,objectKey? }` |
-| `lsProfile` | `LSProfilePt[]` | Gradiente-Punkte `{ sta, elev }` |
-| `lsComputing` | `boolean` | Berechnung aktiv |
-| `lsDepthView` | `boolean` | LS-Tiefenansicht aktiv |
-| `lsDepthDistance` | `number` | LS-Sichttiefe in Metern (default 3) |
-| `lsDepthLines` | `LSDepthLineSync[]` | Berechnete LS-Tiefenansichts-Liniensegmente |
-
-### Felder — Flächen-Querschnitt
-
-| Feld | Typ | Bedeutung |
-|---|---|---|
-| `faceCrossSectionActive` | `boolean` | Flächen-QS gerade aktiv |
-| `faceCrossSectionOrigin` | `[x,y,z] \| null` | Schnittebene-Ursprung (3D) |
-| `faceCrossSectionNormal` | `[x,y,z] \| null` | Flächen-Normale |
-| `faceCrossSectionOffset` | `number` | Versatz entlang Normale in Metern |
-
-### Felder — Annotationen
-
-| Feld | Typ | Bedeutung |
-|---|---|---|
-| `stationLabelVisible` | `boolean` | Stationsmarken-Overlay sichtbar |
-| `stationLabelInterval` | `number` | Abstand zwischen Stationsmarken in Metern |
-| `labelToolActive` | `boolean` | Stationsmarken-Setz-Werkzeug aktiv |
-| `offsetToolActive` | `boolean` | Abstandsmess-Werkzeug aktiv |
-| `placedLabels` | `PlacedLabel[]` | Gesetzte Stationsmarken |
-| `offsetMeasurements` | `OffsetMeasurement[]` | Gespeicherte Abstandsmessungen |
 
 ### Aktionen
 
@@ -567,37 +519,11 @@ Verwaltet geladene LandXML-Achsen, Sichtbarkeit, Farben, Darstellungs­optionen,
 | `setSampleInterval(n)` | Bogenabtastabstand setzen |
 | `toggleStationTool()` | Stationierungs-Werkzeug an/aus |
 | `setHoveredStation(info)` | Hover-Station setzen (vom ViewportContainer aufgerufen) |
-| `setProfileHover(alignmentId, station)` | Profil-Hover-Station setzen |
-| `openCrossSection(alignmentId, station)` | XS öffnen und Berechnung starten |
-| `closeCrossSection()` | XS schließen |
+| `openCrossSection(alignmentId, station)` | Schnitt öffnen und Berechnung starten |
 | `setCrossSectionStation(alignmentId, station)` | Station wechseln (löst Neuberechnung aus) |
 | `setCrossSectionMode(mode)` | Schnittmodus wechseln |
-| `setCrossSectionResult(lines, basis?)` | Ergebnis speichern; leitet `buildSectionPolygons` ab; setzt `computing=false` |
-| `setCrossSectionObjectLabels(labels)` | Element-Labels setzen |
-| `setShowSectionSurface(v)` | 3D-Schnittfläche ein-/ausblenden |
-| `setDepthView(enabled)` | XS-Tiefenansicht aktivieren/deaktivieren |
-| `setDepthDistance(d)` | XS-Sichttiefe setzen |
-| `setDepthLines(lines)` | XS-Tiefenlinien setzen (von ViewportContainer aufgerufen) |
-| `openLongSection(alignmentId, staStart, staEnd)` | LS öffnen, `lsComputing=true`, alte Daten löschen |
-| `closeLongSection()` | LS schließen, alle LS-Daten zurücksetzen |
-| `setLSRange(staStart, staEnd)` | Stationsbereich ändern, Neuberechnung starten |
-| `setLSResult(lines, profile)` | LS-Ergebnis speichern (ohne Tiefenlinien), `lsComputing=false` |
-| `setLSComputeResult(lines, profile, depthLines)` | LS-Ergebnis + Tiefenlinien speichern, `lsComputing=false` |
-| `setLSDepthView(enabled, distance?)` | LS-Tiefenansicht aktivieren/deaktivieren (optional: Distanz setzen) |
-| `setLSDepthLines(lines)` | LS-Tiefenlinien manuell setzen |
-| `openFaceCrossSection(origin, normal)` | Flächen-QS öffnen |
-| `closeFaceCrossSection()` | Flächen-QS schließen, alle Felder zurücksetzen |
-| `setFaceCrossSectionOffset(offset)` | Versatz setzen (triggert Neuberechnung via `crossSectionComputing`) |
-| `retriggerFaceSectionCompute()` | Neuberechnung erzwingen (setzt `crossSectionComputing=true`) |
-| `toggleStationLabels()` | Stationsmarken-Overlay an/aus |
-| `setStationLabelInterval(n)` | Marken-Abstand setzen |
-| `toggleLabelTool()` | Stationsmarken-Setz-Werkzeug an/aus |
-| `toggleOffsetTool()` | Abstandsmess-Werkzeug an/aus |
-| `addPlacedLabel(l)` | Stationsmarke hinzufügen |
-| `removePlacedLabel(id)` | Stationsmarke entfernen |
-| `addOffsetMeasurement(m)` | Abstandsmessung hinzufügen |
-| `removeOffsetMeasurement(id)` | Abstandsmessung entfernen |
-| `clearAllAnnotations()` | Alle Annotationen löschen |
+| `setCrossSectionResult(lines, basis?)` | Berechnungsergebnis speichern; leitet `buildSectionPolygons` ab |
+| `setShowSectionSurface(v)` | 3D-Schnittfläche im Viewport ein-/ausblenden |
 
 ### Koordinaten-Konvention in `geoOrigin`
 
@@ -624,7 +550,9 @@ Diese Zustände sind **React-State** in `ViewportContainer`, nicht im Zustand-St
 
 ---
 
-## Zusätzliche modelStore-Felder
+## Neue Felder (2026-05-19)
+
+### modelStore
 
 | Feld | Typ | Bedeutung |
 |---|---|---|
@@ -638,3 +566,17 @@ Diese Zustände sind **React-State** in `ViewportContainer`, nicht im Zustand-St
 - `setSettingsPanelOpen(open)` — toggled das Einstellungs-Modal
 - `setCollisionPanelOpen(open)` — toggled den Kollisions-Dialog
 - `updateSettings({ fontSize })` — setzt `data-font-size` Attribut auf `<html>`
+
+### alignmentStore
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `faceCrossSectionActive` | `boolean` | Flächen-QS gerade aktiv |
+| `faceCrossSectionOrigin` | `[x,y,z] \| null` | Schnittebene-Ursprung (3D) |
+| `faceCrossSectionNormal` | `[x,y,z] \| null` | Flächen-Normale |
+| `faceCrossSectionOffset` | `number` | Versatz entlang Normale in Metern |
+
+**Aktionen:**
+- `openFaceCrossSection(origin, normal)` — öffnet QS an Fläche
+- `closeFaceCrossSection()` — schließt QS, resettet alle Felder
+- `setFaceCrossSectionOffset(offset)` — verschiebt Schnittebene, triggert Neuberechnung
