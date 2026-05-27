@@ -209,9 +209,15 @@ export function LensRulesPanel() {
   const colorInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
   const isApplied = colorGroups !== null;
 
+  const visibleModels = useMemo(() => {
+    const m = new Map<string, IFCModelEntry>();
+    models.forEach((entry, id) => { if (entry.visible) m.set(id, entry); });
+    return m;
+  }, [models]);
+
   const builtGroups = useMemo(
-    () => buildGroups(groupBy, models, loadedProperties, propKey),
-    [groupBy, models, loadedProperties, propKey],
+    () => buildGroups(groupBy, visibleModels, loadedProperties, propKey),
+    [groupBy, visibleModels, loadedProperties, propKey],
   );
   useEffect(() => {
     setLocalGroups((prev) => {
