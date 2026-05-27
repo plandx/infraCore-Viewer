@@ -38,6 +38,7 @@ import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifc
 import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
 import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel } from "./utils/windowSync";
 import { collectElements, runRuleBasedDetection } from "./utils/collisionUtils";
+import { runServerClash } from "./utils/serverClash";
 import type { IFCModelEntry } from "./types/ifc";
 
 // ── detect secondary / cross-section windows ─────────────────────────────────
@@ -457,10 +458,19 @@ function useCollisionSync() {
       } else if (msg.t === "run") {
         currentRules = msg.rules;
         broadcast(currentRules, currentResults, true, 0);
-        const elements = collectElements(useModelStore.getState().models);
-        const results = await runRuleBasedDetection(elements, currentRules, (pct: number) => {
-          broadcast(currentRules, currentResults, true, pct);
-        });
+        let results: ClashResult[];
+        if (msg.useServer) {
+          results = await runServerClash(
+            useModelStore.getState().models,
+            currentRules,
+            (pct: number) => broadcast(currentRules, currentResults, true, pct),
+          );
+        } else {
+          const elements = collectElements(useModelStore.getState().models);
+          results = await runRuleBasedDetection(elements, currentRules, (pct: number) => {
+            broadcast(currentRules, currentResults, true, pct);
+          });
+        }
         currentResults = results;
         broadcast(currentRules, currentResults, false, 100);
       } else if (msg.t === "setStatus") {

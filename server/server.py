@@ -58,7 +58,7 @@ import io
 import tempfile
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Dict
+from typing import Any, Dict, List, Optional
 
 import ifcopenshell
 import ifcopenshell.util.element
@@ -143,6 +143,110 @@ def download_model(name: str):
         headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
     )
 
+
+# ── Clash Detection ────────────────────────────────────────────────────────────
+
+class ClashComponentFilter(BaseModel):
+    ifc_types: List[str] = []    # empty → all IfcProduct subtypes
+    model_names: List[str] = []  # empty → all loaded models
+
+class ClashRulePayload(BaseModel):
+    id: str
+    name: str
+    severity: str = "warning"       # "error" | "warning" | "info"
+    check_type: str = "hard-clash"  # "hard-clash" | "clearance" | "duplicate"
+    tolerance: float = 0.0          # metres; used as extend for clearance/duplicate
+    set_a: ClashComponentFilter
+    set_b: ClashComponentFilter
+
+class ClashPayload(BaseModel):
+    rules: List[ClashRulePayload]
+
+
+@app.post("/clash")
+def run_clash(req: ClashPayload):
+    """Kollisionsprüfung via ifcopenshell.geom.tree (OBB-Intersection)."""
+    import ifcopenshell.geom  # lazy import — not available until bootstrap
+
+    geo_settings = ifcopenshell.geom.settings()
+    geo_settings.set(geo_settings.USE_WORLD_COORDS, True)
+
+    all_results: List[Dict[str, Any]] = []
+
+    for rule in req.rules:
+        # ── Build one spatial tree per Set-B model ────────────────────────────
+        b_trees: Dict[str, Any] = {}  # model_name → tree
+        types_b = rule.set_b.ifc_types or ["IfcProduct"]
+
+        for mname, model in _models.items():
+            if rule.set_b.model_names and mname not in rule.set_b.model_names:
+                continue
+            tree = ifcopenshell.geom.tree()
+            added = 0
+            for t in types_b:
+                try:
+                    for elem in model.by_type(t, include_subtypes=True):
+                        try:
+                            tree.add_element(elem, geo_settings)
+                            added += 1
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            if added:
+                b_trees[mname] = tree
+
+        if not b_trees:
+            continue
+
+        # ── Collect Set-A elements and query ─────────────────────────────────
+        types_a = rule.set_a.ifc_types or ["IfcProduct"]
+        extend  = rule.tolerance if rule.check_type in ("clearance", "duplicate") else 0.0
+        seen: set = set()
+
+        for mname_a, model_a in _models.items():
+            if rule.set_a.model_names and mname_a not in rule.set_a.model_names:
+                continue
+            for t in types_a:
+                try:
+                    elems_a = model_a.by_type(t, include_subtypes=True)
+                except Exception:
+                    continue
+                for elem_a in elems_a:
+                    for mname_b, tree_b in b_trees.items():
+                        try:
+                            overlapping = tree_b.select(elem_a, extend=extend, completely_within=False)
+                        except Exception:
+                            continue
+                        for ov in overlapping:
+                            eid_b = ov.id()
+                            # Skip self-clash and already-seen pairs
+                            if mname_a == mname_b and elem_a.id() == eid_b:
+                                continue
+                            pair = tuple(sorted([(mname_a, elem_a.id()), (mname_b, eid_b)]))
+                            if pair in seen:
+                                continue
+                            seen.add(pair)
+                            all_results.append({
+                                "rule_id":      rule.id,
+                                "rule_name":    rule.name,
+                                "severity":     rule.severity,
+                                "check_type":   rule.check_type,
+                                "model_name_a": mname_a,
+                                "express_id_a": elem_a.id(),
+                                "name_a":       getattr(elem_a, "Name", None) or "",
+                                "type_a":       elem_a.is_a(),
+                                "model_name_b": mname_b,
+                                "express_id_b": eid_b,
+                                "name_b":       getattr(ov, "Name", None) or "",
+                                "type_b":       ov.is_a(),
+                                "overlap":      0.0,
+                            })
+
+    return {"results": all_results, "count": len(all_results)}
+
+
+# ── Script execution ────────────────────────────────────────────────────────────
 
 class ExecuteRequest(BaseModel):
     script: str

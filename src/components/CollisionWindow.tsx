@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { AlertTriangle, Play, Loader2, ChevronDown, ChevronRight, Download, Plus, Trash2, Check, AlertCircle, X, Focus, ArrowUpDown } from "lucide-react";
+import { AlertTriangle, Play, Loader2, ChevronDown, ChevronRight, Download, Plus, Trash2, Check, AlertCircle, X, Focus, ArrowUpDown, Circle } from "lucide-react";
 import { cn } from "../lib/utils";
 import {
   COLLISION_CHANNEL,
@@ -33,10 +33,22 @@ export function CollisionWindow() {
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
   const [sortBy, setSortBy] = useState<SortBy>("severity");
   const [sortAsc, setSortAsc] = useState(true);
+  const [useServer, setUseServer] = useState(false);
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", state.theme !== "light");
   }, [state.theme]);
+
+  useEffect(() => {
+    const check = () =>
+      fetch("http://127.0.0.1:8765/health", { signal: AbortSignal.timeout(1500) })
+        .then(() => setServerOnline(true))
+        .catch(() => setServerOnline(false));
+    check();
+    const id = setInterval(check, 6000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let ch: BroadcastChannel;
@@ -57,8 +69,8 @@ export function CollisionWindow() {
   }, []);
 
   const sendRun = useCallback(() => {
-    chRef.current?.postMessage({ t: "run", rules: localRules } satisfies CollisionMsg);
-  }, [localRules]);
+    chRef.current?.postMessage({ t: "run", rules: localRules, useServer } satisfies CollisionMsg);
+  }, [localRules, useServer]);
 
   const sendSetStatus = useCallback((result: ClashResult, status: ClashStatus) => {
     const key = `${result.ruleId}|${result.modelIdA}:${result.expressIdA}|${result.modelIdB}:${result.expressIdB}`;
@@ -262,17 +274,46 @@ export function CollisionWindow() {
             })}
           </div>
 
-          <div className="p-3 border-t border-border shrink-0">
+          <div className="p-3 border-t border-border shrink-0 space-y-2">
+            {/* Engine toggle */}
+            <div className="flex items-center gap-1 p-0.5 bg-muted rounded-md text-[10px]">
+              <button
+                onClick={() => setUseServer(false)}
+                className={cn("flex-1 py-1 rounded transition-colors font-medium",
+                  !useServer ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
+              >
+                Lokal (BVH)
+              </button>
+              <button
+                onClick={() => setUseServer(true)}
+                className={cn("flex-1 py-1 rounded transition-colors font-medium",
+                  useServer ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
+              >
+                IfcOpenShell
+              </button>
+            </div>
+
+            {/* Server status when IfcOpenShell mode */}
+            {useServer && (
+              <div className={cn("flex items-center gap-1.5 text-[10px] px-1",
+                serverOnline ? "text-green-400" : "text-red-400")}>
+                <Circle size={6} className="fill-current shrink-0" />
+                {serverOnline === null ? "Prüfe Server…" :
+                 serverOnline ? "Python Server verbunden" :
+                 "Server offline — python server/server.py starten"}
+              </div>
+            )}
+
             <button
               onClick={sendRun}
-              disabled={state.running}
+              disabled={state.running || (useServer && !serverOnline)}
               className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
               {state.running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
               {state.running ? `${state.progress}%` : "Prüfung starten"}
             </button>
             {state.running && (
-              <div className="mt-2 h-1 bg-border rounded-full overflow-hidden">
+              <div className="h-1 bg-border rounded-full overflow-hidden">
                 <div className="h-full bg-primary transition-all" style={{ width: `${state.progress}%` }} />
               </div>
             )}

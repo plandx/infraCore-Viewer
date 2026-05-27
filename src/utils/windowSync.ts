@@ -299,7 +299,7 @@ export interface CollisionSyncState {
 export type CollisionMsg =
   | { t: "state"; s: CollisionSyncState }
   | { t: "req" }
-  | { t: "run"; rules: ClashRule[] }
+  | { t: "run"; rules: ClashRule[]; useServer?: boolean }
   | { t: "setStatus"; key: string; status: ClashStatus }
   | { t: "isolate"; modelIdA: string; expressIdA: number; modelIdB: string; expressIdB: number };
 
