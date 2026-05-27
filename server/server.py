@@ -65,6 +65,7 @@ import ifcopenshell.util.element
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="infraCore Python Server", version="1.0.0")
@@ -120,6 +121,27 @@ def delete_model(name: str):
         raise HTTPException(status_code=404, detail="Model not found")
     del _models[name]
     return {"deleted": name}
+
+
+@app.get("/download/{name}")
+def download_model(name: str):
+    """Serialisiert das (ggf. modifizierte) Modell als IFC-Datei zurück an den Browser."""
+    if name not in _models:
+        raise HTTPException(status_code=404, detail="Model not found")
+    model = _models[name]
+    with tempfile.NamedTemporaryFile(suffix=".ifc", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        model.write(tmp_path)
+        data = Path(tmp_path).read_bytes()
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+    safe_name = name.encode("utf-8").decode("latin-1", errors="replace")
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
 
 
 class ExecuteRequest(BaseModel):

@@ -40,7 +40,8 @@ Kommuniziert mit dem lokalen FastAPI-Companion-Server auf `http://127.0.0.1:8765
 | Monaco Editor | Python-Syntax, Ctrl+Enter = Run, Theme folgt App-Theme |
 | Konsole | stdout (grün), stderr (gelb), Error (rot), Info (grau) |
 
-**Sync:** Überträgt alle sichtbaren Modelle (mit `model.file !== null`) per `multipart/form-data POST /upload` an den Server.  
+**Sync ↑:** Überträgt alle sichtbaren Modelle (mit `model.file !== null`) per `multipart/form-data POST /upload` an den Server.  
+**Sync ↓ (Reload):** Server-Modell-Leiste zeigt alle auf dem Server geladenen Modelle. Klick auf einen Button ruft `GET /download/{name}`, erstellt daraus ein neues `File`-Objekt, evictet den alten Prop-Cache und ruft `loadIFCFile()` erneut auf. `updateModel()` ersetzt `mesh`, `spatialTree`, `elementsByType` usw. — ViewportContainer erkennt den neuen `THREE.Group`-Verweis und tauscht die Szene automatisch.  
 **Server-Polling:** Alle 5 Sekunden `/health`-Ping zur Statusanzeige.  
 **Toggle:** Taste `Y` oder Analyse-Tab → Python-Button.
 

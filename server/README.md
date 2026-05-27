@@ -65,6 +65,7 @@ python server/server.py
 | POST | `/upload` | IFC-Datei hochladen (multipart: `name` + `file`) |
 | DELETE | `/models/{name}` | Modell entfernen |
 | POST | `/execute` | Skript ausführen (`{"script": "..."}`) |
+| GET | `/download/{name}` | (Modifiziertes) Modell als IFC-Bytes zurückgeben |
 
 ## Hinweis zur vendor/-Ablage
 
