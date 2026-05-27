@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .claude/
+
+# Python server — auto-installierte Bibliotheken (plattformspezifisch)
+server/vendor/

@@ -1,18 +1,63 @@
 """infraCore-Viewer — lokaler Python/IfcOpenShell-Companion-Server
 
-Start:
-    pip install -r server/requirements.txt
+Start (einmalig reicht):
     python server/server.py
 
-Der Server läuft auf http://127.0.0.1:8765 und akzeptiert nur Verbindungen
-vom Vite-Dev-Server (localhost:5173 / 127.0.0.1:5173).
+Beim ersten Start werden alle Abhängigkeiten automatisch in server/vendor/
+installiert — kein manuelles pip install notwendig.
+
+Der Server läuft auf http://127.0.0.1:8765 (nur localhost).
 """
+
+# ── Bootstrap: Abhängigkeiten automatisch installieren ────────────────────────
+import subprocess
+import sys
+from pathlib import Path
+
+_HERE    = Path(__file__).parent.resolve()
+_VENDOR  = _HERE / "vendor"
+_MARKER  = _VENDOR / ".bootstrap_ok"
+_REQS    = _HERE / "requirements.txt"
+
+def _bootstrap() -> None:
+    if _MARKER.exists():
+        sys.path.insert(0, str(_VENDOR))
+        return
+
+    print("=" * 60)
+    print("infraCore: Erster Start — installiere Python-Bibliotheken …")
+    print(f"  Ziel: {_VENDOR}")
+    print("  (dauert ca. 30–60 Sekunden, danach sofortiger Start)")
+    print("=" * 60, flush=True)
+
+    _VENDOR.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "pip", "install",
+            "--target", str(_VENDOR),
+            "--requirement", str(_REQS),
+            "--no-cache-dir",
+        ],
+        capture_output=False,
+    )
+    if result.returncode != 0:
+        print("\n[FEHLER] Installation fehlgeschlagen.", file=sys.stderr)
+        print("Bitte manuell ausführen:", file=sys.stderr)
+        print(f"  pip install -r {_REQS}", file=sys.stderr)
+        sys.exit(1)
+
+    _MARKER.touch()
+    sys.path.insert(0, str(_VENDOR))
+    print("\n✓ Installation abgeschlossen — Server startet …\n", flush=True)
+
+_bootstrap()
+
+# ── Ab hier normale Imports (aus vendor/ oder System) ─────────────────────────
 
 import io
 import tempfile
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from pathlib import Path
 from typing import Dict
 
 import ifcopenshell
@@ -86,7 +131,7 @@ def execute_script(req: ExecuteRequest):
     """Führt ein Python-Skript aus. Verfügbar im Kontext:
     - ifc_models  dict[name, ifcopenshell.file]
     - ifcopenshell
-    - ifcopenshell.util.element
+    - ifcopenshell.util.element (als `util`)
     """
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
@@ -115,5 +160,4 @@ def execute_script(req: ExecuteRequest):
 
 if __name__ == "__main__":
     print("infraCore Python Server — http://127.0.0.1:8765")
-    print("Verfügbare Modelle werden aus dem Viewer übertragen.")
     uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")

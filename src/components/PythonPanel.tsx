@@ -227,7 +227,7 @@ export function PythonPanel() {
       {serverStatus === "offline" && (
         <div className="px-3 py-1.5 text-[10px] text-amber-400 bg-amber-400/10 border-b border-border shrink-0 font-mono">
           Server starten: <span className="font-semibold">python server/server.py</span>
-          <span className="text-muted-foreground ml-2">(pip install -r server/requirements.txt)</span>
+          <span className="text-muted-foreground ml-2">— installiert Bibliotheken beim ersten Start automatisch</span>
         </div>
       )}
 

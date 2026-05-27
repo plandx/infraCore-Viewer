@@ -1,24 +1,20 @@
 # infraCore Python Server
 
 Lokaler FastAPI-Companion-Server, der IfcOpenShell bereitstellt.  
-Der Viewer überträgt die geladenen IFC-Modelle per HTTP an diesen Server;  
-Skripte laufen in einem Python-Kontext mit direktem Zugriff auf die Modelle.
-
-## Voraussetzungen
-
-- Python 3.11+
-- IfcOpenShell muss für die Python-Version verfügbar sein
+Der Viewer überträgt die geladenen IFC-Modelle per HTTP; Skripte laufen
+in einem Python-Kontext mit direktem Zugriff auf die Modelle.
 
 ## Start
 
 ```bash
-# Im Projekt-Root
-pip install -r server/requirements.txt
 python server/server.py
 ```
 
-Der Server startet auf **http://127.0.0.1:8765** und akzeptiert nur
-Verbindungen von localhost (Vite Dev-Server Port 5173/4173).
+**Beim ersten Start** werden alle Abhängigkeiten automatisch in `server/vendor/`
+installiert (dauert ca. 30–60 Sekunden). Danach startet der Server sofort —
+**kein manuelles `pip install` notwendig**.
+
+Einzige Voraussetzung: **Python 3.10+** muss installiert sein.
 
 ## Im Skript verfügbare Objekte
 
@@ -33,8 +29,7 @@ Verbindungen von localhost (Vite Dev-Server Port 5173/4173).
 ```python
 # Alle Wände eines Modells auflisten
 model = ifc_models["Gebäude.ifc"]
-walls = model.by_type("IfcWall")
-for w in walls:
+for w in model.by_type("IfcWall"):
     print(w.GlobalId, w.Name)
 ```
 
@@ -47,11 +42,18 @@ print(psets)
 ```
 
 ```python
-# Property setzen (nur im Server-Kontext, nicht zurück in den Viewer)
-model = ifc_models["Gebäude.ifc"]
-for wall in model.by_type("IfcWall"):
-    wall.Name = (wall.Name or "") + "_geprüft"
-print("Fertig")
+# Mengen auswerten
+for name, model in ifc_models.items():
+    for slab in model.by_type("IfcSlab"):
+        q = util.get_psets(slab).get("Qto_SlabBaseQuantities", {})
+        print(name, slab.Name, q.get("GrossArea"))
+```
+
+## Neuinstallation erzwingen
+
+```bash
+rm server/vendor/.bootstrap_ok
+python server/server.py
 ```
 
 ## Endpunkte
@@ -63,3 +65,10 @@ print("Fertig")
 | POST | `/upload` | IFC-Datei hochladen (multipart: `name` + `file`) |
 | DELETE | `/models/{name}` | Modell entfernen |
 | POST | `/execute` | Skript ausführen (`{"script": "..."}`) |
+
+## Hinweis zur vendor/-Ablage
+
+`server/vendor/` ist in `.gitignore` — plattformspezifische Binaries
+(ifcopenshell enthält kompilierte C++-Bibliotheken) können nicht
+sinnvoll plattformübergreifend ins Repo eingecheckt werden.
+Der Bootstrap erledigt das automatisch für jede Plattform.
