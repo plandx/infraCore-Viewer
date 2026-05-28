@@ -51,48 +51,7 @@ const MEP_TYPES   = ["IfcDuctSegment","IfcPipeSegment","IfcCableCarrierSegment",
 const STRUCT_TYPES= ["IfcBeam","IfcColumn","IfcWall","IfcSlab","IfcFoundation","IfcPile","IfcMember"];
 const ARCH_TYPES  = ["IfcWall","IfcSlab","IfcRoof","IfcCurtainWall","IfcStair","IfcRamp"];
 
-const DEFAULT_RULES: ClashRule[] = [
-  {
-    id: "rule-struct-mep",
-    name: "Tragwerk / TGA Kollision",
-    enabled: true,
-    severity: "error",
-    checkType: "hard-clash",
-    tolerance: 0.0005,
-    componentA: { ifcTypes: STRUCT_TYPES, conditions: [] },
-    componentB: { ifcTypes: MEP_TYPES,   conditions: [] },
-  },
-  {
-    id: "rule-arch-struct",
-    name: "Architektur / Tragwerk Kollision",
-    enabled: true,
-    severity: "warning",
-    checkType: "hard-clash",
-    tolerance: 0.001,
-    componentA: { ifcTypes: ARCH_TYPES,   conditions: [] },
-    componentB: { ifcTypes: STRUCT_TYPES, conditions: [] },
-  },
-  {
-    id: "rule-mep-clearance",
-    name: "TGA Mindestabstand (0.3 m)",
-    enabled: true,
-    severity: "warning",
-    checkType: "clearance",
-    tolerance: 0.3,
-    componentA: { ifcTypes: MEP_TYPES, conditions: [] },
-    componentB: { ifcTypes: MEP_TYPES, conditions: [] },
-  },
-  {
-    id: "rule-duplicate",
-    name: "Duplikat-Elemente",
-    enabled: true,
-    severity: "info",
-    checkType: "duplicate",
-    tolerance: 0.01,
-    componentA: { ifcTypes: [], conditions: [] },
-    componentB: { ifcTypes: [], conditions: [] },
-  },
-];
+const DEFAULT_RULES: ClashRule[] = [];
 
 // ── AABB helpers ──────────────────────────────────────────────────────────────
 
