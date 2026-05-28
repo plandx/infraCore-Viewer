@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import {
   RefreshCw, ChevronDown, ChevronUp, Search, Plus, Pencil, Trash2, X, Check, Glasses, Play, Copy,
   Download, Upload,
@@ -59,8 +59,11 @@ function PropKeyPicker({ value, onChange }: { value: string; onChange: (k: strin
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const allKeys = [...BUILTIN_KEYS.map((b) => b.key), ...loadedPropKeys];
-  const filtered = search ? allKeys.filter((k) => k.toLowerCase().includes(search.toLowerCase())) : allKeys;
+  const allKeys = useMemo(() => [...BUILTIN_KEYS.map((b) => b.key), ...loadedPropKeys], [loadedPropKeys]);
+  const filtered = useMemo(
+    () => search ? allKeys.filter((k) => k.toLowerCase().includes(search.toLowerCase())) : allKeys,
+    [search, allKeys],
+  );
   const displayLabel = (k: string) => BUILTIN_KEYS.find((b) => b.key === k)?.label ?? k;
 
   return (
@@ -377,7 +380,22 @@ export function SmartViewsPanel() {
   const [draftView, setDraftView] = useState<SmartView | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
-  const namedViews = smartViews.filter((sv) => sv.id !== "__quick_filter__");
+  const namedViews = useMemo(() => smartViews.filter((sv) => sv.id !== "__quick_filter__"), [smartViews]);
+
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const requestDelete = useCallback((e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (confirmDeleteId === id) {
+      clearTimeout(confirmTimerRef.current);
+      setConfirmDeleteId(null);
+      removeSmartView(id);
+    } else {
+      clearTimeout(confirmTimerRef.current);
+      setConfirmDeleteId(id);
+      confirmTimerRef.current = setTimeout(() => setConfirmDeleteId(null), 2500);
+    }
+  }, [confirmDeleteId, removeSmartView]);
 
   function handleExport() {
     const blob = new Blob([JSON.stringify(namedViews, null, 2)], { type: "application/json" });
@@ -510,7 +528,7 @@ export function SmartViewsPanel() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className={cn("text-[11px] font-medium truncate", activeSmartViewId === sv.id && "text-primary")}>
+                      <span className={cn("text-[11px] font-medium truncate", activeSmartViewId === sv.id && "text-primary")} title={sv.name}>
                         {sv.name}
                       </span>
                       <span className="text-[10px] text-muted-foreground/60 shrink-0">
@@ -546,10 +564,14 @@ export function SmartViewsPanel() {
                       title="Bearbeiten" disabled={editingId !== null}
                       onClick={(e) => { e.stopPropagation(); startEdit(sv.id); }}
                     ><Pencil size={10} /></button>
-                    <button className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      title="Löschen"
-                      onClick={(e) => { e.stopPropagation(); removeSmartView(sv.id); }}
-                    ><Trash2 size={10} /></button>
+                    <button
+                      className={cn("p-1 rounded transition-colors text-[9px] font-medium",
+                        confirmDeleteId === sv.id
+                          ? "bg-destructive/15 text-destructive border border-destructive/30 px-1.5"
+                          : "text-muted-foreground hover:text-destructive hover:bg-destructive/10")}
+                      title={confirmDeleteId === sv.id ? "Nochmal klicken zum Bestätigen" : "Löschen"}
+                      onClick={(e) => requestDelete(e, sv.id)}
+                    >{confirmDeleteId === sv.id ? "Löschen?" : <Trash2 size={10} />}</button>
                   </div>
                 </div>
                 {editingId === sv.id && draftView && (

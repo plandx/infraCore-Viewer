@@ -467,7 +467,9 @@ export function QuantityListPanel() {
   const [openFilterCol, setOpenFilterCol] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [editorOpen, setEditorOpen] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const confirmDeleteTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const activeList = qtoLists.find((l) => l.id === activeListId) ?? null;
 
@@ -658,10 +660,24 @@ export function QuantityListPanel() {
               </span>
             )}
             <button
-              onClick={() => { removeQTOList(activeList.id); setActiveListId(null); setResults(null); }}
-              className="toolbar-button p-1 text-muted-foreground hover:text-destructive"
-              title="Liste löschen">
-              <Trash2 size={13} />
+              onClick={() => {
+                if (confirmDelete) {
+                  clearTimeout(confirmDeleteTimerRef.current);
+                  setConfirmDelete(false);
+                  removeQTOList(activeList.id);
+                  setActiveListId(null);
+                  setResults(null);
+                } else {
+                  setConfirmDelete(true);
+                  confirmDeleteTimerRef.current = setTimeout(() => setConfirmDelete(false), 2500);
+                }
+              }}
+              className={cn("toolbar-button p-1 transition-colors text-[9px] font-medium",
+                confirmDelete
+                  ? "bg-destructive/15 text-destructive border border-destructive/30 px-1.5 rounded"
+                  : "text-muted-foreground hover:text-destructive")}
+              title={confirmDelete ? "Nochmal klicken zum Bestätigen" : "Liste löschen"}>
+              {confirmDelete ? "Löschen?" : <Trash2 size={13} />}
             </button>
           </div>
 

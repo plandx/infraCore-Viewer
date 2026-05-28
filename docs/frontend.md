@@ -333,6 +333,10 @@ Gruppenbasierte Farb- und Isolier-Ansicht:
 
 Regelbasierte mehrstufige Ansichten mit Inline-Editor (`SmartViewEditor`) und `TierEditor` pro Ebene. Vollständige Aktions-Typen: add, remove, removeOthers, color, transparent, opaque, autoColor und Kombinationen.
 
+- **Löschen mit Bestätigung** (2-Klick-Muster): Erster Klick zeigt „Löschen?"-Button; zweiter Klick innerhalb 2,5 s führt aus. Danach automatischer Reset.
+- **`PropKeyPicker`**: `allKeys` und `filtered`-Liste sind per `useMemo` stabilisiert (kein unnötiges Re-render bei jedem Keystroke).
+- **`namedViews`**: per `useMemo` aus dem Store-Array gefiltert (stabile Referenz).
+
 ---
 
 ## CollisionWindow
@@ -341,6 +345,9 @@ Regelbasierte mehrstufige Ansichten mit Inline-Editor (`SmartViewEditor`) und `T
 **Öffnet:** als eigenständiges Sekundär-Fenster via `openCollisionWindow()` · Kommunikation per `BroadcastChannel(COLLISION_CHANNEL)`
 
 Regelbasierte Kollisionsprüfung (AABB) zwischen zwei Komponentenfiltern. Der Haupt-Prozess läuft serverseitig via FastAPI-Companion; der Client schickt `{ t: "run", rules }` und empfängt Ergebnisse über den Channel.
+
+- **Regel-Löschen mit Bestätigung** (2-Klick-Muster): Erster Klick zeigt „Löschen?"; zweiter Klick innerhalb 2,5 s führt aus.
+- Regel-Name und Element-Namen tragen `title`-Attribut für vollständige Anzeige beim Hovern.
 
 ### Sub-Komponenten
 
@@ -379,6 +386,8 @@ Ergebnis-Status: `new` → `approved` → `resolved` — via `{ t: "setStatus" }
 **Shortcut:** `T` · **Sekundärfenster:** `"qto"`
 
 Quantity Take-Off: Benutzer definieren benannte Listen mit Filterregeln und konfigurierbaren Spalten.
+
+- **Listen-Löschen mit Bestätigung** (2-Klick-Muster): Erster Klick zeigt „Löschen?"; zweiter Klick innerhalb 2,5 s führt aus.
 
 ### Sub-Komponenten
 

@@ -40,6 +40,8 @@ export function CollisionWindow() {
   const [groupBy,  setGroupBy]  = useState<GroupBy>("none");
   const [sortBy,   setSortBy]   = useState<SortBy>("severity");
   const [sortAsc,  setSortAsc]  = useState(true);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -113,6 +115,19 @@ export function CollisionWindow() {
     setLocalRules(prev => prev.filter(r => r.id !== id));
     if (editingRule?.id === id) closeEditor();
   };
+
+  const requestDeleteRule = useCallback((e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (confirmDeleteId === id) {
+      clearTimeout(confirmTimerRef.current);
+      setConfirmDeleteId(null);
+      deleteRule(id);
+    } else {
+      clearTimeout(confirmTimerRef.current);
+      setConfirmDeleteId(id);
+      confirmTimerRef.current = setTimeout(() => setConfirmDeleteId(null), 2500);
+    }
+  }, [confirmDeleteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const newEmptyRule = (): ClashRule => ({
     id: `rule-${Date.now()}`, name: "Neue Regel", enabled: true,
@@ -281,7 +296,7 @@ export function CollisionWindow() {
                         if (viewMode === "editor") closeEditor();
                       }}
                     >
-                      <p className="text-[11px] font-medium truncate leading-snug">{rule.name}</p>
+                      <p className="text-[11px] font-medium truncate leading-snug" title={rule.name}>{rule.name}</p>
                       <p className="text-[9px] text-muted-foreground mt-0.5">
                         {rule.checkType === "hard-clash" ? "Kollision" :
                          rule.checkType === "clearance"  ? `Abstand ${rule.tolerance}m` : "Duplikat"}
@@ -292,9 +307,14 @@ export function CollisionWindow() {
                         className={cn("p-1 rounded transition-colors", isEditing ? "text-primary" : "text-muted-foreground hover:text-foreground")}>
                         <Pencil size={10} />
                       </button>
-                      <button onClick={() => deleteRule(rule.id)} title="Löschen"
-                        className="p-1 rounded text-muted-foreground hover:text-red-400 transition-colors">
-                        <Trash2 size={10} />
+                      <button
+                        onClick={(e) => requestDeleteRule(e, rule.id)}
+                        title={confirmDeleteId === rule.id ? "Nochmal klicken zum Bestätigen" : "Löschen"}
+                        className={cn("p-1 rounded transition-colors text-[9px] font-medium",
+                          confirmDeleteId === rule.id
+                            ? "bg-red-500/15 text-red-400 border border-red-400/30 px-1.5"
+                            : "text-muted-foreground hover:text-red-400")}>
+                        {confirmDeleteId === rule.id ? "Löschen?" : <Trash2 size={10} />}
                       </button>
                     </div>
                   </div>
