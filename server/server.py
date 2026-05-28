@@ -58,7 +58,9 @@ import io
 import tempfile
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+import numpy as np
 
 import ifcopenshell
 import ifcopenshell.util.element
@@ -283,48 +285,117 @@ def _filter_by_conditions(elems: list, conditions: List[PropCondition]) -> list:
     return result
 
 
-def _tessellate_aabbs(
+# Geometry entry: (aabb_6, obb_c, obb_ax, obb_h)
+#   aabb_6  : (xmin,ymin,zmin,xmax,ymax,zmax)  – axis-aligned bounding box
+#   obb_c   : np.ndarray (3,)                   – OBB center in world coords
+#   obb_ax  : np.ndarray (3,3)                  – OBB axes (columns = axis vectors)
+#   obb_h   : np.ndarray (3,)                   – OBB half-extents per axis
+
+
+def _compute_obb(verts_flat: Any) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute Oriented Bounding Box from tessellated vertex array via PCA."""
+    pts = np.array(verts_flat, dtype=np.float64).reshape(-1, 3)
+    center = pts.mean(axis=0)
+    pts_c = pts - center
+    cov = (pts_c.T @ pts_c) / max(len(pts) - 1, 1)
+    try:
+        _, axes = np.linalg.eigh(cov)   # columns = eigenvectors
+    except np.linalg.LinAlgError:
+        axes = np.eye(3)
+    proj = pts_c @ axes
+    lo, hi = proj.min(axis=0), proj.max(axis=0)
+    half = (hi - lo) / 2.0
+    obb_center = center + axes @ ((lo + hi) / 2.0)
+    return obb_center, axes, half
+
+
+def _tessellate_geoms(
     geo_settings: Any,
     model: Any,
     elems: list,
 ) -> Dict[int, tuple]:
-    """Tessellate elements and return {express_id: (xmin,ymin,zmin,xmax,ymax,zmax)}."""
+    """Tessellate elements and return {express_id: (aabb_6, obb_c, obb_ax, obb_h)}."""
     import ifcopenshell.geom
 
-    aabbs: Dict[int, tuple] = {}
+    result: Dict[int, tuple] = {}
     try:
         it = ifcopenshell.geom.iterator(geo_settings, model, include=elems)
     except Exception as exc:
         print(f"[clash] Iterator Fehler: {exc}", flush=True)
-        return aabbs
+        return result
 
     if not it.initialize():
-        return aabbs
+        return result
 
     while True:
         try:
             shape = it.get()
             verts = shape.geometry.verts
             if verts:
-                xs = verts[0::3]
-                ys = verts[1::3]
-                zs = verts[2::3]
-                aabbs[shape.id] = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+                xs = verts[0::3]; ys = verts[1::3]; zs = verts[2::3]
+                aabb = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+                obb_c, obb_ax, obb_h = _compute_obb(verts)
+                result[shape.id] = (aabb, obb_c, obb_ax, obb_h)
         except Exception:
             pass
         if not it.next():
             break
 
-    return aabbs
+    return result
 
 
 def _aabbs_overlap(a: tuple, b: tuple, extend: float) -> bool:
-    """Return True if two AABBs overlap when A is expanded by extend."""
+    """Fast AABB overlap check — coarse filter before OBB test."""
     return (
         a[0] - extend <= b[3] and a[3] + extend >= b[0] and
         a[1] - extend <= b[4] and a[4] + extend >= b[1] and
         a[2] - extend <= b[5] and a[5] + extend >= b[2]
     )
+
+
+def _obb_overlap_sat(
+    c_a: np.ndarray, ax_a: np.ndarray, h_a: np.ndarray,
+    c_b: np.ndarray, ax_b: np.ndarray, h_b: np.ndarray,
+    extend: float,
+) -> bool:
+    """OBB–OBB Separating Axis Theorem test (15 axes).
+
+    Returns True if the oriented bounding boxes overlap (or are within
+    `extend` of each other). Each OBB is expanded by `extend` in all
+    directions before testing.
+
+    Based on the formulation in "Real-Time Collision Detection" (Ericson 2005).
+    """
+    t = c_b - c_a
+    R = ax_a.T @ ax_b          # R[i,j] = ax_a[:,i] · ax_b[:,j]
+    absR = np.abs(R) + 1e-9    # small epsilon avoids near-parallel edge degeneracy
+
+    # t projected into OBB A's local frame
+    t_a = ax_a.T @ t
+
+    # ── Face normals of OBB A ────────────────────────────────────────────────
+    for i in range(3):
+        if abs(t_a[i]) > h_a[i] + float(h_b @ absR[i, :]) + extend:
+            return False
+
+    # ── Face normals of OBB B ────────────────────────────────────────────────
+    t_b = ax_b.T @ t
+    for j in range(3):
+        if abs(t_b[j]) > float(h_a @ absR[:, j]) + h_b[j] + extend:
+            return False
+
+    # ── Cross-product edge axes A[:,ia] × B[:,ib] ───────────────────────────
+    for ia in range(3):
+        ia1, ia2 = (ia + 1) % 3, (ia + 2) % 3
+        for ib in range(3):
+            ib1, ib2 = (ib + 1) % 3, (ib + 2) % 3
+            ta = abs(t_a[ia2] * R[ia1, ib] - t_a[ia1] * R[ia2, ib])
+            ra = h_a[ia1] * absR[ia2, ib] + h_a[ia2] * absR[ia1, ib]
+            rb = h_b[ib1] * absR[ia, ib2] + h_b[ib2] * absR[ia, ib1]
+            if ta > ra + rb + extend:
+                return False
+
+    return True  # no separating axis found → boxes overlap
 
 
 @app.post("/clash")
@@ -374,10 +445,10 @@ def run_clash(req: ClashPayload):
             cond_a_str = f", {len(rule.set_a.conditions)} Kond." if rule.set_a.conditions else ""
             print(f"[clash] Set-A '{mname_a}': {len(elems_a)} Elemente ({', '.join(types_a[:3])}{'…' if len(types_a) > 3 else ''}{cond_a_str})", flush=True)
 
-            # Tessellate Set-A once (reused for all Set-B models)
-            aabbs_a = _tessellate_aabbs(geo_settings, model_a, elems_a)
-            print(f"[clash] Set-A Geometrien: {len(aabbs_a)}/{len(elems_a)}", flush=True)
-            if not aabbs_a:
+            # Tessellate Set-A once (reused for all Set-B models in this rule)
+            geoms_a = _tessellate_geoms(geo_settings, model_a, elems_a)
+            print(f"[clash] Set-A Geometrien: {len(geoms_a)}/{len(elems_a)}", flush=True)
+            if not geoms_a:
                 print(f"[clash] Set-A '{mname_a}': keine Geometrie — übersprungen", flush=True)
                 continue
 
@@ -392,30 +463,47 @@ def run_clash(req: ClashPayload):
                 cond_b_str = f", {len(rule.set_b.conditions)} Kond." if rule.set_b.conditions else ""
                 print(f"[clash] Set-B '{mname_b}': {len(elems_b)} Elemente ({', '.join(types_b[:3])}{'…' if len(types_b) > 3 else ''}{cond_b_str})", flush=True)
 
-                aabbs_b = _tessellate_aabbs(geo_settings, model_b, elems_b)
-                print(f"[clash] Set-B Geometrien: {len(aabbs_b)}/{len(elems_b)}", flush=True)
-                if not aabbs_b:
+                geoms_b = _tessellate_geoms(geo_settings, model_b, elems_b)
+                print(f"[clash] Set-B Geometrien: {len(geoms_b)}/{len(elems_b)}", flush=True)
+                if not geoms_b:
                     print(f"[clash] Set-B '{mname_b}': keine Geometrie — übersprungen", flush=True)
                     continue
 
-                # Extend for AABB overlap check
+                # Extend value per check type
                 if rule.check_type == "clearance":
                     extend = rule.tolerance if rule.tolerance > 0 else 0.05
                 elif rule.check_type == "duplicate":
                     extend = rule.tolerance if rule.tolerance > 0 else 0.002
                 else:
-                    extend = 0.0  # hard-clash: strict AABB overlap
+                    extend = 0.0  # hard-clash: strict overlap
+
+                # OBB refinement for hard-clash and clearance (eliminates AABB
+                # false positives from elongated/rotated elements).
+                # Duplicate stays AABB-only: exact-position matches are already
+                # tightly bounded.
+                use_obb = rule.check_type in ("hard-clash", "clearance")
 
                 before = len(all_results)
+                aabb_passed = 0
                 elem_a_cache: Dict[int, Any] = {}
                 elem_b_cache: Dict[int, Any] = {}
 
-                for eid_a, aabb_a in aabbs_a.items():
-                    for eid_b, aabb_b in aabbs_b.items():
+                for eid_a, (aabb_a, obb_ca, obb_axa, obb_ha) in geoms_a.items():
+                    for eid_b, (aabb_b, obb_cb, obb_axb, obb_hb) in geoms_b.items():
                         if model_a is model_b and eid_a == eid_b:
                             continue  # self-match
 
+                        # ── Coarse AABB filter ───────────────────────────────
                         if not _aabbs_overlap(aabb_a, aabb_b, extend):
+                            continue
+                        aabb_passed += 1
+
+                        # ── Precise OBB / SAT filter ─────────────────────────
+                        if use_obb and not _obb_overlap_sat(
+                            obb_ca, obb_axa, obb_ha,
+                            obb_cb, obb_axb, obb_hb,
+                            extend,
+                        ):
                             continue
 
                         pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
@@ -447,7 +535,11 @@ def run_clash(req: ClashPayload):
                             "overlap":      0.0,
                         })
 
-                print(f"[clash] '{mname_a}' × '{mname_b}': {len(all_results) - before} Treffer", flush=True)
+                print(
+                    f"[clash] '{mname_a}' × '{mname_b}': {len(all_results) - before} Treffer"
+                    f" (AABB: {aabb_passed}, OBB-gefiltert: {aabb_passed - (len(all_results) - before)})",
+                    flush=True,
+                )
 
         rule_total = sum(1 for r in all_results if r["rule_id"] == rule.id)
         print(f"[clash] Regel '{rule.name}': {rule_total} Treffer gesamt", flush=True)
@@ -473,21 +565,25 @@ def clash_test():
     for mname, model in _models.items():
         products = _by_type_safe(model, "IfcProduct")
         sample = products[:20]
-        aabbs = _tessellate_aabbs(geo_settings, model, sample)
+        geoms = _tessellate_geoms(geo_settings, model, sample)
 
-        # Self-clash test: how many sample pairs overlap?
-        overlapping = 0
-        ids = list(aabbs.keys())
+        # Self-clash test: how many sample pairs overlap (AABB + OBB)?
+        aabb_hits, obb_hits = 0, 0
+        ids = list(geoms.keys())
         for i in range(len(ids)):
             for j in range(i + 1, len(ids)):
-                if _aabbs_overlap(aabbs[ids[i]], aabbs[ids[j]], 0.0):
-                    overlapping += 1
+                a = geoms[ids[i]]; b = geoms[ids[j]]
+                if _aabbs_overlap(a[0], b[0], 0.0):
+                    aabb_hits += 1
+                    if _obb_overlap_sat(a[1], a[2], a[3], b[1], b[2], b[3], 0.0):
+                        obb_hits += 1
 
         report[mname] = {
             "products_total": len(products),
             "sample_size": len(sample),
-            "sample_with_geometry": len(aabbs),
-            "sample_overlapping_pairs": overlapping,
+            "sample_with_geometry": len(geoms),
+            "sample_aabb_pairs": aabb_hits,
+            "sample_obb_pairs": obb_hits,
             "ok": True,
         }
 
