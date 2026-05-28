@@ -205,9 +205,15 @@ def download_model(name: str):
 
 # ── Clash Detection ────────────────────────────────────────────────────────────
 
+class PropCondition(BaseModel):
+    prop_name: str
+    operator: str   # "contains" | "equals" | "startsWith" | "notEmpty"
+    value: str = ""
+
 class ClashComponentFilter(BaseModel):
-    ifc_types: List[str] = []    # empty → all IfcProduct subtypes
-    model_names: List[str] = []  # empty → all loaded models
+    ifc_types: List[str] = []       # empty → all IfcProduct subtypes
+    model_names: List[str] = []     # empty → all loaded models
+    conditions: List[PropCondition] = []  # property filter conditions (AND-combined)
 
 class ClashRulePayload(BaseModel):
     id: str
@@ -220,6 +226,61 @@ class ClashRulePayload(BaseModel):
 
 class ClashPayload(BaseModel):
     rules: List[ClashRulePayload]
+
+
+def _get_all_pset_props(elem: Any) -> Dict[str, str]:
+    """Collect all Pset / property values for an element as a flat dict.
+
+    Keys: "PsetName.PropertyName" and bare "PropertyName".
+    Values: string representation of the nominal value.
+    """
+    props: Dict[str, str] = {}
+    try:
+        psets = ifcopenshell.util.element.get_psets(elem)
+        for pset_name, pset_dict in psets.items():
+            for k, v in pset_dict.items():
+                if k == "id":
+                    continue
+                sv = str(v) if v is not None else ""
+                props[f"{pset_name}.{k}"] = sv
+                # Also index by bare key (last-write-wins for duplicates)
+                props[k] = sv
+    except Exception:
+        pass
+    # Direct attributes (Name, Description, ObjectType, Tag, …)
+    for attr in ("Name", "Description", "ObjectType", "Tag", "LongName"):
+        v = getattr(elem, attr, None)
+        if v is not None:
+            props[attr] = str(v)
+    return props
+
+
+def _match_condition(props: Dict[str, str], cond: PropCondition) -> bool:
+    """Return True if the element's properties satisfy the condition."""
+    val = props.get(cond.prop_name, "")
+    cv = cond.value
+    op = cond.operator
+    if op == "notEmpty":
+        return bool(val.strip())
+    if op == "equals":
+        return val == cv
+    if op == "contains":
+        return cv.lower() in val.lower()
+    if op == "startsWith":
+        return val.lower().startswith(cv.lower())
+    return True
+
+
+def _filter_by_conditions(elems: list, conditions: List[PropCondition]) -> list:
+    """Return subset of elems that satisfy ALL conditions (AND logic)."""
+    if not conditions:
+        return elems
+    result = []
+    for elem in elems:
+        props = _get_all_pset_props(elem)
+        if all(_match_condition(props, c) for c in conditions):
+            result.append(elem)
+    return result
 
 
 @app.post("/clash")
@@ -262,19 +323,25 @@ def run_clash(req: ClashPayload):
             elems_a: list = []
             for t in types_a:
                 elems_a.extend(_by_type_safe(model_a, t))
+            # Apply property conditions (AND logic) to Set-A
+            elems_a = _filter_by_conditions(elems_a, rule.set_a.conditions)
             if not elems_a:
-                print(f"[clash] Set-A '{mname_a}': keine Elemente der Typen {types_a[:3]} — übersprungen", flush=True)
+                print(f"[clash] Set-A '{mname_a}': keine Elemente nach Typ+Kondition-Filter — übersprungen", flush=True)
                 continue
-            print(f"[clash] Set-A '{mname_a}': {len(elems_a)} Elemente ({', '.join(types_a[:3])}{'…' if len(types_a) > 3 else ''})", flush=True)
+            cond_a_str = f", {len(rule.set_a.conditions)} Kond." if rule.set_a.conditions else ""
+            print(f"[clash] Set-A '{mname_a}': {len(elems_a)} Elemente ({', '.join(types_a[:3])}{'…' if len(types_a) > 3 else ''}{cond_a_str})", flush=True)
 
             for mname_b, model_b in models_b.items():
                 elems_b: list = []
                 for t in types_b:
                     elems_b.extend(_by_type_safe(model_b, t))
+                # Apply property conditions (AND logic) to Set-B
+                elems_b = _filter_by_conditions(elems_b, rule.set_b.conditions)
                 if not elems_b:
-                    print(f"[clash] Set-B '{mname_b}': keine Elemente der Typen {types_b[:3]} — übersprungen", flush=True)
+                    print(f"[clash] Set-B '{mname_b}': keine Elemente nach Typ+Kondition-Filter — übersprungen", flush=True)
                     continue
-                print(f"[clash] Set-B '{mname_b}': {len(elems_b)} Elemente ({', '.join(types_b[:3])}{'…' if len(types_b) > 3 else ''})", flush=True)
+                cond_b_str = f", {len(rule.set_b.conditions)} Kond." if rule.set_b.conditions else ""
+                print(f"[clash] Set-B '{mname_b}': {len(elems_b)} Elemente ({', '.join(types_b[:3])}{'…' if len(types_b) > 3 else ''}{cond_b_str})", flush=True)
 
                 # Build BVH tree with ONLY the typed elements from both sets
                 clash_tree = ifcopenshell.geom.tree()

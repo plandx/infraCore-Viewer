@@ -42,8 +42,22 @@ function toServerRule(rule: ClashRule): Record<string, any> {
     severity:   rule.severity,
     check_type: rule.checkType,
     tolerance:  rule.tolerance,
-    set_a: { ifc_types: rule.componentA.ifcTypes },
-    set_b: { ifc_types: rule.componentB.ifcTypes },
+    set_a: {
+      ifc_types:  rule.componentA.ifcTypes,
+      conditions: rule.componentA.conditions.map(c => ({
+        prop_name: c.propName,
+        operator:  c.operator,
+        value:     c.value,
+      })),
+    },
+    set_b: {
+      ifc_types:  rule.componentB.ifcTypes,
+      conditions: rule.componentB.conditions.map(c => ({
+        prop_name: c.propName,
+        operator:  c.operator,
+        value:     c.value,
+      })),
+    },
   };
 }
 
