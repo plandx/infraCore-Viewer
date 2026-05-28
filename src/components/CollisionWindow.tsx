@@ -38,7 +38,6 @@ export function CollisionWindow() {
   const [groupBy,  setGroupBy]  = useState<GroupBy>("none");
   const [sortBy,   setSortBy]   = useState<SortBy>("severity");
   const [sortAsc,  setSortAsc]  = useState(true);
-  const [useServer,    setUseServer]    = useState(false);
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -68,8 +67,8 @@ export function CollisionWindow() {
   }, []);
 
   const sendRun = useCallback(() =>
-    chRef.current?.postMessage({ t: "run", rules: localRules, useServer } satisfies CollisionMsg),
-    [localRules, useServer]);
+    chRef.current?.postMessage({ t: "run", rules: localRules } satisfies CollisionMsg),
+    [localRules]);
 
   const sendSetStatus = useCallback((r: ClashResult, status: ClashStatus) => {
     const key = `${r.ruleId}|${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}`;
@@ -305,31 +304,19 @@ export function CollisionWindow() {
             })}
           </div>
 
-          {/* Engine toggle + Run */}
+          {/* Server status + Run */}
           <div className="p-3 border-t border-border shrink-0 space-y-2 bg-muted/5">
-            <div className="flex items-center gap-0.5 p-0.5 bg-muted rounded text-[10px]">
-              <button onClick={() => setUseServer(false)}
-                className={cn("flex-1 py-1 rounded transition-colors font-medium",
-                  !useServer ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                Lokal (BVH)
-              </button>
-              <button onClick={() => setUseServer(true)}
-                className={cn("flex-1 py-1 rounded transition-colors font-medium",
-                  useServer ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                IfcOpenShell
-              </button>
+            <div className={cn("flex items-center gap-1.5 text-[9px] px-0.5",
+              serverOnline === true  ? "text-green-400" :
+              serverOnline === false ? "text-red-400" :
+              "text-muted-foreground")}>
+              <Circle size={6} className="fill-current shrink-0" />
+              {serverOnline === null  ? "Python Server wird geprüft…" :
+               serverOnline === true  ? "Python Server verbunden" :
+               "Server offline — start-python-server.bat starten"}
             </div>
-            {useServer && (
-              <div className={cn("flex items-center gap-1.5 text-[9px] px-0.5",
-                serverOnline ? "text-green-400" : "text-amber-400")}>
-                <Circle size={6} className="fill-current shrink-0" />
-                {serverOnline === null ? "Server wird geprüft…" :
-                 serverOnline ? "Python Server verbunden" :
-                 "Server offline — python server/server.py"}
-              </div>
-            )}
             <button onClick={sendRun}
-              disabled={state.running || (useServer && !serverOnline)}
+              disabled={state.running || serverOnline === false}
               className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity">
               {state.running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
               {state.running ? `Analysiere… ${state.progress}%` : "Prüfung starten"}

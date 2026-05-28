@@ -165,7 +165,12 @@ class ClashPayload(BaseModel):
 
 @app.post("/clash")
 def run_clash(req: ClashPayload):
-    """Kollisionsprüfung via ifcopenshell.geom.tree (OBB-Intersection)."""
+    """Kollisionsprüfung via ifcopenshell.geom.tree (OBB-Intersection).
+
+    Wichtig: tree.add_file() statt add_element() damit die Settings im Baum
+    gespeichert werden — sonst kann tree.select(elem) die Geometrie des
+    Anfrage-Elements nicht tessellieren und liefert leer zurück.
+    """
     import ifcopenshell.geom  # lazy import — not available until bootstrap
 
     geo_settings = ifcopenshell.geom.settings()
@@ -174,74 +179,85 @@ def run_clash(req: ClashPayload):
     all_results: List[Dict[str, Any]] = []
 
     for rule in req.rules:
-        # ── Build one spatial tree per Set-B model ────────────────────────────
-        b_trees: Dict[str, Any] = {}  # model_name → tree
-        types_b = rule.set_b.ifc_types or ["IfcProduct"]
+        types_b_set = set(rule.set_b.ifc_types)   # leer = alle Typen akzeptieren
+        types_a     = rule.set_a.ifc_types or ["IfcProduct"]
+        extend      = rule.tolerance if rule.check_type in ("clearance", "duplicate") else 0.0
+        seen: set   = set()
 
+        # ── Build one BVH tree per Set-B model via add_file ───────────────────
+        # add_file() speichert die Settings im Baum → select(elem) funktioniert.
+        # Der Baum enthält alle Elemente; Set-B-Typen werden beim Auswerten gefiltert.
+        b_trees: Dict[str, Any] = {}
         for mname, model in _models.items():
             if rule.set_b.model_names and mname not in rule.set_b.model_names:
                 continue
-            tree = ifcopenshell.geom.tree()
-            added = 0
-            for t in types_b:
-                try:
-                    for elem in model.by_type(t, include_subtypes=True):
-                        try:
-                            tree.add_element(elem, geo_settings)
-                            added += 1
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            if added:
+            try:
+                tree = ifcopenshell.geom.tree()
+                tree.add_file(model, geo_settings)
                 b_trees[mname] = tree
+            except Exception as exc:
+                print(f"[clash] Baum für '{mname}' fehlgeschlagen: {exc}", flush=True)
 
         if not b_trees:
+            print(f"[clash] Regel '{rule.name}': keine B-Bäume erstellt", flush=True)
             continue
 
-        # ── Collect Set-A elements and query ─────────────────────────────────
-        types_a = rule.set_a.ifc_types or ["IfcProduct"]
-        extend  = rule.tolerance if rule.check_type in ("clearance", "duplicate") else 0.0
-        seen: set = set()
-
+        # ── Query Set-A elements against every B-tree ────────────────────────
         for mname_a, model_a in _models.items():
             if rule.set_a.model_names and mname_a not in rule.set_a.model_names:
                 continue
+
+            elems_a: list = []
             for t in types_a:
                 try:
-                    elems_a = model_a.by_type(t, include_subtypes=True)
-                except Exception:
-                    continue
-                for elem_a in elems_a:
-                    for mname_b, tree_b in b_trees.items():
-                        try:
-                            overlapping = tree_b.select(elem_a, extend=extend, completely_within=False)
-                        except Exception:
+                    elems_a.extend(model_a.by_type(t))   # kein include_subtypes — Standard
+                except Exception as exc:
+                    print(f"[clash] by_type({t}) fehlgeschlagen: {exc}", flush=True)
+
+            print(f"[clash] Regel '{rule.name}': {len(elems_a)} Set-A-Elemente aus '{mname_a}'", flush=True)
+
+            for elem_a in elems_a:
+                for mname_b, tree_b in b_trees.items():
+                    try:
+                        overlapping = tree_b.select(elem_a, extend=extend)
+                    except Exception as exc:
+                        print(f"[clash] select fehlgeschlagen: {exc}", flush=True)
+                        continue
+
+                    for ov in overlapping:
+                        eid_a = elem_a.id()
+                        eid_b = ov.id()
+
+                        # Selbst-Kollision überspringen
+                        if mname_a == mname_b and eid_a == eid_b:
                             continue
-                        for ov in overlapping:
-                            eid_b = ov.id()
-                            # Skip self-clash and already-seen pairs
-                            if mname_a == mname_b and elem_a.id() == eid_b:
-                                continue
-                            pair = tuple(sorted([(mname_a, elem_a.id()), (mname_b, eid_b)]))
-                            if pair in seen:
-                                continue
-                            seen.add(pair)
-                            all_results.append({
-                                "rule_id":      rule.id,
-                                "rule_name":    rule.name,
-                                "severity":     rule.severity,
-                                "check_type":   rule.check_type,
-                                "model_name_a": mname_a,
-                                "express_id_a": elem_a.id(),
-                                "name_a":       getattr(elem_a, "Name", None) or "",
-                                "type_a":       elem_a.is_a(),
-                                "model_name_b": mname_b,
-                                "express_id_b": eid_b,
-                                "name_b":       getattr(ov, "Name", None) or "",
-                                "type_b":       ov.is_a(),
-                                "overlap":      0.0,
-                            })
+
+                        # Set-B-Typenfilter anwenden (Baum enthält alle Typen)
+                        if types_b_set and not any(ov.is_a(t) for t in types_b_set):
+                            continue
+
+                        pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
+                        if pair in seen:
+                            continue
+                        seen.add(pair)
+
+                        all_results.append({
+                            "rule_id":      rule.id,
+                            "rule_name":    rule.name,
+                            "severity":     rule.severity,
+                            "check_type":   rule.check_type,
+                            "model_name_a": mname_a,
+                            "express_id_a": eid_a,
+                            "name_a":       getattr(elem_a, "Name", None) or "",
+                            "type_a":       elem_a.is_a(),
+                            "model_name_b": mname_b,
+                            "express_id_b": eid_b,
+                            "name_b":       getattr(ov, "Name", None) or "",
+                            "type_b":       ov.is_a(),
+                            "overlap":      0.0,
+                        })
+
+        print(f"[clash] Regel '{rule.name}': {sum(1 for r in all_results if r['rule_id'] == rule.id)} Treffer", flush=True)
 
     return {"results": all_results, "count": len(all_results)}
 
