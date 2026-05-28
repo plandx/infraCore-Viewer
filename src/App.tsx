@@ -479,6 +479,7 @@ function useCollisionSync() {
           { modelId: msg.modelIdA, expressId: msg.expressIdA },
           { modelId: msg.modelIdB, expressId: msg.expressIdB },
         ]);
+        window.dispatchEvent(new Event("viewer:fitAll"));
       }
     };
 
