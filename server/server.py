@@ -773,16 +773,14 @@ def run_clash(req: ClashPayload):
                 b_tree = ifcopenshell.geom.tree()
                 tree_ok = True
                 try:
-                    it_a = ifcopenshell.geom.iterator(geo_settings, model_a, include=cand_elems_a)
-                    if it_a.initialize():
-                        b_tree.add_iterator(it_a)
-                    else:
-                        tree_ok = False
-                    it_b = ifcopenshell.geom.iterator(geo_settings, model_b_w, include=cand_elems_b_w)
-                    if it_b.initialize():
-                        b_tree.add_iterator(it_b)
-                    else:
-                        tree_ok = False
+                    # Frische (nicht-initialisierte) Iteratoren übergeben —
+                    # add_iterator ruft intern initialize() selbst auf.
+                    b_tree.add_iterator(
+                        ifcopenshell.geom.iterator(geo_settings, model_a, include=cand_elems_a)
+                    )
+                    b_tree.add_iterator(
+                        ifcopenshell.geom.iterator(geo_settings, model_b_w, include=cand_elems_b_w)
+                    )
                 except Exception as exc:
                     print(f"[clash] CGAL-Baum Fehler: {exc}", flush=True)
                     tree_ok = False
