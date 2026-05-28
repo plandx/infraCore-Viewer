@@ -11,6 +11,7 @@ import type {
   CollisionMsg, CollisionSyncState, ClashRule, ClashResult, ClashStatus,
   Severity, PropCondition, ComponentFilter, CheckType,
 } from "../utils/windowSync";
+import type { SmartView } from "../types/ifc";
 
 type ViewMode = "results" | "editor";
 type GroupBy  = "none" | "rule" | "severity" | "typePair" | "status";
@@ -29,7 +30,7 @@ export function CollisionWindow() {
 
   const [state, setState] = useState<CollisionSyncState>({
     rules: DEFAULT_CLASH_RULES, results: [], running: false, progress: 0,
-    allTypes: [], loadedPropKeys: [], propValues: {}, theme: "dark",
+    allTypes: [], loadedPropKeys: [], propValues: {}, smartViews: [], theme: "dark",
   });
   const [localRules,   setLocalRules]   = useState<ClashRule[]>(DEFAULT_CLASH_RULES);
   const [viewMode,     setViewMode]     = useState<ViewMode>("results");
@@ -342,6 +343,7 @@ export function CollisionWindow() {
             allTypes={state.allTypes}
             loadedPropKeys={state.loadedPropKeys}
             propValues={state.propValues ?? {}}
+            smartViews={state.smartViews ?? []}
             onSave={saveRule}
             onClose={closeEditor}
           />
@@ -558,11 +560,31 @@ const IFC_PRESETS = [
 
 // ── RuleEditorPanel — inline right panel, no modal ────────────────────────────
 
-function RuleEditorPanel({ rule, allTypes, loadedPropKeys, propValues, onSave, onClose }: {
+function smartViewToFilter(sv: SmartView): ComponentFilter {
+  const tier = sv.tiers[0];
+  if (!tier) return { ifcTypes: [], conditions: [] };
+  const ifcTypes: string[] = [];
+  const conditions: PropCondition[] = [];
+  for (const rule of tier.rules) {
+    if (rule.property === "_type" && rule.condition === "eq") {
+      if (rule.value) ifcTypes.push(rule.value);
+    } else if (rule.property !== "_name" && rule.property !== "_model") {
+      let operator: PropCondition["operator"] = "equals";
+      if (rule.condition === "contains") operator = "contains";
+      else if (rule.condition === "starts_with") operator = "startsWith";
+      else if (rule.condition === "exists" || rule.condition === "not_exists") operator = "notEmpty";
+      conditions.push({ propName: rule.property, operator, value: rule.value });
+    }
+  }
+  return { ifcTypes, conditions };
+}
+
+function RuleEditorPanel({ rule, allTypes, loadedPropKeys, propValues, smartViews, onSave, onClose }: {
   rule: ClashRule;
   allTypes: string[];
   loadedPropKeys: string[];
   propValues: Record<string, string[]>;
+  smartViews: SmartView[];
   onSave(r: ClashRule): void;
   onClose(): void;
 }) {
@@ -668,10 +690,12 @@ function RuleEditorPanel({ rule, allTypes, loadedPropKeys, propValues, onSave, o
         <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
           <FilterEditor side="A" filter={draft.componentA} allTypes={allTypes}
             loadedPropKeys={loadedPropKeys} propValues={propValues}
+            smartViews={smartViews}
             onToggleType={t => toggleType("A", t)} onSetTypes={ts => setTypes("A", ts)}
             onAddCondition={() => addCondition("A")}
             onUpdateCondition={(i, p) => updateCondition("A", i, p)}
-            onRemoveCondition={i => removeCondition("A", i)} />
+            onRemoveCondition={i => removeCondition("A", i)}
+            onApplySmartView={f => setDraft(prev => ({ ...prev, componentA: f }))} />
 
           <div className="flex flex-col items-center self-stretch gap-1 pt-8">
             <div className="w-px flex-1 bg-border/50" />
@@ -681,10 +705,12 @@ function RuleEditorPanel({ rule, allTypes, loadedPropKeys, propValues, onSave, o
 
           <FilterEditor side="B" filter={draft.componentB} allTypes={allTypes}
             loadedPropKeys={loadedPropKeys} propValues={propValues}
+            smartViews={smartViews}
             onToggleType={t => toggleType("B", t)} onSetTypes={ts => setTypes("B", ts)}
             onAddCondition={() => addCondition("B")}
             onUpdateCondition={(i, p) => updateCondition("B", i, p)}
-            onRemoveCondition={i => removeCondition("B", i)} />
+            onRemoveCondition={i => removeCondition("B", i)}
+            onApplySmartView={f => setDraft(prev => ({ ...prev, componentB: f }))} />
         </div>
       </div>
 
@@ -705,17 +731,19 @@ function RuleEditorPanel({ rule, allTypes, loadedPropKeys, propValues, onSave, o
 
 // ── FilterEditor ──────────────────────────────────────────────────────────────
 
-function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, onToggleType, onSetTypes, onAddCondition, onUpdateCondition, onRemoveCondition }: {
+function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, smartViews, onToggleType, onSetTypes, onAddCondition, onUpdateCondition, onRemoveCondition, onApplySmartView }: {
   side: "A" | "B";
   filter: ComponentFilter;
   allTypes: string[];
   loadedPropKeys: string[];
   propValues: Record<string, string[]>;
+  smartViews: SmartView[];
   onToggleType(t: string): void;
   onSetTypes(types: string[]): void;
   onAddCondition(): void;
   onUpdateCondition(i: number, p: Partial<PropCondition>): void;
   onRemoveCondition(i: number): void;
+  onApplySmartView(f: ComponentFilter): void;
 }) {
   const [typeSearch,    setTypeSearch]    = useState("");
   const [typeListOpen,  setTypeListOpen]  = useState(false);
@@ -758,6 +786,21 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, onTo
           </p>
         </div>
       </div>
+
+      {/* SmartView import */}
+      <select
+        className="w-full px-2 py-1 text-[10px] bg-background border border-border rounded-lg focus:outline-none text-foreground"
+        value=""
+        onChange={(e) => {
+          const sv = smartViews.find((v) => v.id === e.target.value);
+          if (sv) onApplySmartView(smartViewToFilter(sv));
+        }}
+      >
+        <option value="">{smartViews.length === 0 ? "— Keine SmartViews —" : "Aus SmartView laden…"}</option>
+        {smartViews.map((sv) => (
+          <option key={sv.id} value={sv.id}>{sv.name}</option>
+        ))}
+      </select>
 
       {/* Quick presets */}
       <div className="flex flex-wrap gap-1">

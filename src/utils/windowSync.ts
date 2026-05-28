@@ -1,4 +1,4 @@
-import type { SyncState, ColorGroup, ViewerSettings, BasketMode } from "../types/ifc";
+import type { SyncState, ColorGroup, ViewerSettings, BasketMode, SmartView } from "../types/ifc";
 
 export const SYNC_CHANNEL = "infracore-sync";
 
@@ -295,6 +295,7 @@ export interface CollisionSyncState {
   loadedPropKeys: string[];
   /** Distinct values per property key — populated after "Properties laden" */
   propValues: Record<string, string[]>;
+  smartViews: SmartView[];
   theme?: "light" | "dark";
 }
 
