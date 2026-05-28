@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, RefreshCw, Check, ListFilter, Search, ShoppingBasket, ScanEye } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
 import { evaluateRule, CONDITION_LABELS, CONDITIONS_WITHOUT_VALUE } from "../utils/smartViewUtils";
-import type { QTOList, QTOFilter, QTOColumn, SmartCondition, FlatElementProps } from "../types/ifc";
+import type { QTOList, QTOFilter, QTOColumn, SmartCondition, FlatElementProps, SmartView } from "../types/ifc";
 import { cn } from "../lib/utils";
 
 const BUILTIN_KEYS = ["_type", "_name", "_model"];
@@ -113,9 +113,10 @@ function PropKeyInput({ value, onChange, onSelect, propKeys, placeholder = "Eige
 
 // ── Filter section ────────────────────────────────────────────────────────────
 
-function FilterSection({ filters, filterLogic, propKeys, onUpdate }: {
+function FilterSection({ filters, filterLogic, propKeys, onUpdate, smartViews }: {
   filters: QTOFilter[]; filterLogic: "AND" | "OR"; propKeys: string[];
   onUpdate: (f: QTOFilter[], logic: "AND" | "OR") => void;
+  smartViews: SmartView[];
 }) {
   const add = () => onUpdate([...filters, { id: uuidv4(), key: "_type", condition: "contains", value: "" }], filterLogic);
   const remove = (id: string) => onUpdate(filters.filter((f) => f.id !== id), filterLogic);
@@ -126,6 +127,24 @@ function FilterSection({ filters, filterLogic, propKeys, onUpdate }: {
       <div className="flex items-center justify-between mb-2">
         <span className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wide">Filter</span>
         <div className="flex items-center gap-1.5">
+          <select
+            className="text-[10px] bg-muted/30 border border-border rounded px-1 py-0.5 text-foreground focus:outline-none disabled:opacity-50"
+            value=""
+            disabled={smartViews.length === 0}
+            title={smartViews.length === 0 ? "Keine SmartViews vorhanden" : "Filter aus SmartView laden"}
+            onChange={(e) => {
+              const sv = smartViews.find((v) => v.id === e.target.value);
+              if (!sv?.tiers[0]) return;
+              const tier = sv.tiers[0];
+              onUpdate(
+                tier.rules.map((r) => ({ id: uuidv4(), key: r.property, condition: r.condition, value: r.value })),
+                tier.logic,
+              );
+            }}
+          >
+            <option value="">{smartViews.length === 0 ? "Keine SmartViews" : "SmartView laden…"}</option>
+            {smartViews.map((sv) => <option key={sv.id} value={sv.id}>{sv.name}</option>)}
+          </select>
           {filters.length >= 2 && (
             <button
               onClick={() => onUpdate(filters, filterLogic === "AND" ? "OR" : "AND")}
@@ -489,6 +508,7 @@ export function QuantityListPanel() {
   const loadedPropKeys   = useModelStore((s) => s.loadedPropKeys);
   const addToBasket    = useModelStore((s) => s.addToBasket);
   const isolateEntries = useModelStore((s) => s.isolateEntries);
+  const smartViews     = useModelStore((s) => s.smartViews.filter((v) => v.id !== "__quick_filter__"));
 
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
@@ -722,6 +742,7 @@ export function QuantityListPanel() {
                 filters={activeList.filters}
                 filterLogic={activeList.filterLogic}
                 propKeys={loadedPropKeys}
+                smartViews={smartViews}
                 onUpdate={(filters, filterLogic) => patch({ filters, filterLogic })} />
               <ColumnSection
                 columns={activeList.columns}
