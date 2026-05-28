@@ -3,8 +3,8 @@ import { Download, Eye, EyeOff, Play, RotateCcw, RefreshCw, ChevronDown, Search 
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
-import { PALETTE } from "../utils/smartViewUtils";
-import type { ColorGroup, IFCModelEntry, SpatialNode, FlatElementProps } from "../types/ifc";
+import { PALETTE, evaluateTier } from "../utils/smartViewUtils";
+import type { ColorGroup, IFCModelEntry, SpatialNode, FlatElementProps, SmartView } from "../types/ifc";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -201,13 +201,20 @@ export function LensRulesPanel() {
   const loadedProperties = useModelStore((s) => s.loadedProperties);
   const isolateEntries = useModelStore((s) => s.isolateEntries);
   const showAll = useModelStore((s) => s.showAll);
+  const smartViews = useModelStore((s) => s.smartViews);
 
   const [groupBy, setGroupBy] = useState<GroupBy>("type");
   const [propKey, setPropKey] = useState("");
   const [localGroups, setLocalGroups] = useState<ColorGroup[]>([]);
   const [isolatedGroupId, setIsolatedGroupId] = useState<string | null>(null);
+  const [smartViewFilterId, setSmartViewFilterId] = useState<string | null>(null);
   const colorInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
   const isApplied = colorGroups !== null;
+
+  const namedSmartViews = useMemo(
+    () => (smartViews as SmartView[]).filter((v) => v.id !== "__quick_filter__"),
+    [smartViews],
+  );
 
   const visibleModels = useMemo(() => {
     const m = new Map<string, IFCModelEntry>();
@@ -235,6 +242,33 @@ export function LensRulesPanel() {
     return () => window.removeEventListener("keydown", handler);
   }, [isolatedGroupId, showAll]);
 
+  const elementBasePropsMap = useMemo(() => {
+    const map = new Map<string, { _type: string; _name: string; _model: string }>();
+    visibleModels.forEach((m) => {
+      for (const [type, els] of Object.entries(m.elementsByType)) {
+        for (const el of els as Array<{ expressId: number; name: string }>) {
+          map.set(`${m.id}:${el.expressId}`, { _type: type, _name: el.name ?? "", _model: m.name });
+        }
+      }
+    });
+    return map;
+  }, [visibleModels]);
+
+  const filteredLocalGroups = useMemo(() => {
+    if (!smartViewFilterId) return localGroups;
+    const sv = namedSmartViews.find((v) => v.id === smartViewFilterId);
+    if (!sv || sv.tiers.length === 0) return localGroups;
+    return localGroups.map((g) => ({
+      ...g,
+      entries: g.entries.filter(({ modelId, expressId }) => {
+        const base = elementBasePropsMap.get(`${modelId}:${expressId}`) ?? { _type: "", _name: "", _model: "" };
+        const loaded = (loadedProperties?.get(modelId)?.get(expressId) as Record<string, unknown>) ?? {};
+        const props: FlatElementProps = { ...loaded, ...base };
+        return sv.tiers.some((tier) => evaluateTier(tier, props));
+      }),
+    })).filter((g) => g.entries.length > 0);
+  }, [localGroups, smartViewFilterId, namedSmartViews, elementBasePropsMap, loadedProperties]);
+
   function handleGroupClick(g: ColorGroup) {
     if (isolatedGroupId === g.id) {
       showAll();
@@ -247,7 +281,7 @@ export function LensRulesPanel() {
 
   function exportCSV() {
     const rows: string[][] = [["Gruppe", "Farbe", "Modell", "ExpressID"]];
-    localGroups.forEach((g) => g.entries.forEach(({ modelId, expressId }) =>
+    filteredLocalGroups.forEach((g) => g.entries.forEach(({ modelId, expressId }) =>
       rows.push([g.label, g.color, models.get(modelId)?.name ?? modelId, String(expressId)])
     ));
     const csv = rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -257,36 +291,53 @@ export function LensRulesPanel() {
   }
 
   const canBuild = groupBy !== "property" || (loadedProperties !== null && propKey !== "");
-  const total = localGroups.reduce((s, g) => s + g.entries.length, 0);
+  const total = filteredLocalGroups.reduce((s, g) => s + g.entries.length, 0);
 
   return (
     <div className="flex flex-col h-full overflow-hidden text-xs select-none">
       {/* Toolbar */}
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border shrink-0 bg-card/40">
-        <select
-          className="flex-1 bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
-          value={groupBy}
-          onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-        >
-          <option value="type">Nach Typ</option>
-          <option value="storey">Nach Geschoss</option>
-          <option value="model">Nach Modell</option>
-          <option value="property">Nach Attribut</option>
-        </select>
-        <button
-          className={cn("flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors shrink-0",
-            isApplied ? "bg-primary text-primary-foreground hover:opacity-90" : "bg-muted hover:bg-muted/80 text-foreground")}
-          onClick={() => setColorGroups(localGroups)}
-          disabled={localGroups.length === 0 || !canBuild}
-        ><Play size={11} /><span>Einfärben</span></button>
-        {isApplied && (
-          <button className="p-1.5 rounded hover:bg-muted/60 text-muted-foreground" title="Zurücksetzen" onClick={() => setColorGroups(null)}>
-            <RotateCcw size={12} />
+      <div className="flex flex-col gap-1.5 px-3 py-2 border-b border-border shrink-0 bg-card/40">
+        <div className="flex items-center gap-1.5">
+          <select
+            className="flex-1 bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+          >
+            <option value="type">Nach Typ</option>
+            <option value="storey">Nach Geschoss</option>
+            <option value="model">Nach Modell</option>
+            <option value="property">Nach Attribut</option>
+          </select>
+          <button
+            className={cn("flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors shrink-0",
+              isApplied ? "bg-primary text-primary-foreground hover:opacity-90" : "bg-muted hover:bg-muted/80 text-foreground")}
+            onClick={() => setColorGroups(filteredLocalGroups)}
+            disabled={filteredLocalGroups.length === 0 || !canBuild}
+          ><Play size={11} /><span>Einfärben</span></button>
+          {isApplied && (
+            <button className="p-1.5 rounded hover:bg-muted/60 text-muted-foreground" title="Zurücksetzen" onClick={() => setColorGroups(null)}>
+              <RotateCcw size={12} />
+            </button>
+          )}
+          <button className="p-1.5 rounded hover:bg-muted/60 text-muted-foreground" title="CSV Export" onClick={exportCSV} disabled={filteredLocalGroups.length === 0}>
+            <Download size={12} />
           </button>
+        </div>
+        {namedSmartViews.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-muted-foreground shrink-0">Filter:</span>
+            <select
+              className="flex-1 bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
+              value={smartViewFilterId ?? ""}
+              onChange={(e) => setSmartViewFilterId(e.target.value || null)}
+            >
+              <option value="">Kein SmartView-Filter</option>
+              {namedSmartViews.map((sv) => (
+                <option key={sv.id} value={sv.id}>{sv.name}</option>
+              ))}
+            </select>
+          </div>
         )}
-        <button className="p-1.5 rounded hover:bg-muted/60 text-muted-foreground" title="CSV Export" onClick={exportCSV} disabled={localGroups.length === 0}>
-          <Download size={12} />
-        </button>
       </div>
 
       {/* Property mode controls */}
@@ -302,7 +353,8 @@ export function LensRulesPanel() {
       {/* Stats */}
       {localGroups.length > 0 && (
         <div className="px-3 py-1 text-[10px] text-muted-foreground border-b border-border shrink-0">
-          {localGroups.length} Gruppen · {total.toLocaleString()} Elemente
+          {filteredLocalGroups.length} Gruppen · {total.toLocaleString()} Elemente
+          {smartViewFilterId && <span className="ml-2 text-amber-400 font-medium">● gefiltert</span>}
           {isApplied && <span className="ml-2 text-primary font-medium">● aktiv</span>}
         </div>
       )}
@@ -317,9 +369,13 @@ export function LensRulesPanel() {
           <div className="flex items-center justify-center h-full text-muted-foreground text-[11px]">
             Kein Modell geladen
           </div>
+        ) : filteredLocalGroups.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-muted-foreground text-[11px] px-6 text-center leading-relaxed">
+            Keine Elemente entsprechen dem gewählten SmartView-Filter
+          </div>
         ) : (
           <div className="divide-y divide-border/40">
-            {localGroups.map((g) => {
+            {filteredLocalGroups.map((g) => {
               const isIsolated = isolatedGroupId === g.id;
               return (
                 <div
