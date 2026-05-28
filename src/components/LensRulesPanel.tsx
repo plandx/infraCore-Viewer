@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Download, Eye, EyeOff, Play, RotateCcw, RefreshCw, ChevronDown, Search } from "lucide-react";
+import { Download, Eye, EyeOff, Play, RotateCcw, ChevronDown, Search } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
@@ -88,41 +88,6 @@ function buildGroups(
   return Array.from(raw.values())
     .sort((a, b) => b.entries.length - a.entries.length)
     .map((g) => ({ id: uuidv4(), label: g.label, color: PALETTE[idx++ % PALETTE.length], entries: g.entries, visible: true }));
-}
-
-// ── property loader ────────────────────────────────────────────────────────────
-
-function PropertyLoader() {
-  const models                    = useModelStore((s) => s.models);
-  const loadedProperties          = useModelStore((s) => s.loadedProperties);
-  const loadedPropKeys            = useModelStore((s) => s.loadedPropKeys);
-  const loadAllProperties         = useModelStore((s) => s.loadAllProperties);
-  const loadingPropertiesProgress = useModelStore((s) => s.loadingPropertiesProgress);
-  const loading = loadingPropertiesProgress !== null;
-
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <button
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium bg-muted hover:bg-muted/80 text-foreground transition-colors"
-        onClick={() => loadAllProperties()}
-        disabled={loading || models.size === 0}
-      >
-        <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
-        <span>{loadedProperties ? "Neu laden" : "Properties laden"}</span>
-      </button>
-      {loading && (
-        <>
-          <div className="flex-1 h-1 bg-border rounded-full overflow-hidden min-w-[60px]">
-            <div className="h-full bg-primary rounded-full transition-all duration-150" style={{ width: `${loadingPropertiesProgress}%` }} />
-          </div>
-          <span className="text-muted-foreground text-[10px]">{loadingPropertiesProgress}%</span>
-        </>
-      )}
-      {loadedProperties && !loading && (
-        <span className="text-muted-foreground text-[10px]">{loadedPropKeys.length} Attribute</span>
-      )}
-    </div>
-  );
 }
 
 // ── property key picker ────────────────────────────────────────────────────────
@@ -326,12 +291,11 @@ export function LensRulesPanel() {
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-muted-foreground shrink-0">Filter:</span>
           <select
-            className="flex-1 bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none disabled:opacity-50"
+            className="flex-1 bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
             value={smartViewFilterId ?? ""}
             onChange={(e) => setSmartViewFilterId(e.target.value || null)}
-            disabled={namedSmartViews.length === 0}
           >
-            <option value="">{namedSmartViews.length === 0 ? "Keine SmartViews vorhanden" : "Kein SmartView-Filter"}</option>
+            <option value="">{namedSmartViews.length === 0 ? "— Keine SmartViews —" : "Kein SmartView-Filter"}</option>
             {namedSmartViews.map((sv) => (
               <option key={sv.id} value={sv.id}>{sv.name}</option>
             ))}
@@ -341,11 +305,8 @@ export function LensRulesPanel() {
 
       {/* Property mode controls */}
       {groupBy === "property" && (
-        <div className="px-3 py-2 border-b border-border shrink-0 space-y-1.5 bg-card/20">
-          <PropertyLoader />
-          {(loadedProperties || BUILTIN_KEYS.length > 0) && (
-            <PropKeyPicker value={propKey} onChange={setPropKey} />
-          )}
+        <div className="px-3 py-2 border-b border-border shrink-0 bg-card/20">
+          <PropKeyPicker value={propKey} onChange={setPropKey} />
         </div>
       )}
 
@@ -360,13 +321,9 @@ export function LensRulesPanel() {
 
       {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {groupBy === "property" && !loadedProperties && !propKey ? (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-[11px] px-6 text-center leading-relaxed">
-            Properties laden oder Typ/Name/Modell direkt wählen
-          </div>
-        ) : localGroups.length === 0 ? (
+        {localGroups.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-[11px]">
-            Kein Modell geladen
+            {groupBy === "property" && !propKey ? "Attribut auswählen" : "Kein Modell geladen"}
           </div>
         ) : filteredLocalGroups.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-[11px] px-6 text-center leading-relaxed">

@@ -218,14 +218,21 @@ export const useModelStore = create<ModelStore>((set, get) => ({
       return { models: next };
     }),
 
-  updateModel: (id, patch) =>
+  updateModel: (id, patch) => {
     set((state) => {
       const existing = state.models.get(id);
       if (!existing) return state;
       const next = new Map(state.models);
       next.set(id, { ...existing, ...patch });
       return { models: next };
-    }),
+    });
+    if (patch.status === "loaded") {
+      setTimeout(() => {
+        const { loadingPropertiesProgress, loadAllProperties } = get();
+        if (loadingPropertiesProgress === null) loadAllProperties();
+      }, 0);
+    }
+  },
 
   setWorldOrigin: (origin) => set({ worldOrigin: origin }),
   setSelected: (element) => set(element === null

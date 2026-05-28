@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
 import * as XLSX from "xlsx";
-import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, RefreshCw, Check, ListFilter, Search, ShoppingBasket, ScanEye } from "lucide-react";
+import { Plus, Trash2, Download, Play, ChevronUp, ChevronDown, X, Table2, Check, ListFilter, Search, ShoppingBasket, ScanEye } from "lucide-react";
 import { useModelStore } from "../store/modelStore";
 import { evaluateRule, CONDITION_LABELS, CONDITIONS_WITHOUT_VALUE } from "../utils/smartViewUtils";
 import type { QTOList, QTOFilter, QTOColumn, SmartCondition, FlatElementProps, SmartView } from "../types/ifc";
@@ -20,55 +20,6 @@ const ALL_CONDITIONS: SmartCondition[] = [
 interface ResultRow { modelId: string; expressId: number; data: Record<string, string> }
 
 const MAX_VISIBLE = 500;
-
-// ── Property loader ───────────────────────────────────────────────────────────
-
-function PropertyLoader() {
-  const models                    = useModelStore((s) => s.models);
-  const loadedProperties          = useModelStore((s) => s.loadedProperties);
-  const loadAllProperties         = useModelStore((s) => s.loadAllProperties);
-  const loadingPropertiesProgress = useModelStore((s) => s.loadingPropertiesProgress);
-  const loading = loadingPropertiesProgress !== null;
-
-  const isStale = !loading && loadedProperties !== null && (() => {
-    const loadedIds = new Set(loadedProperties.keys());
-    for (const [id, m] of models.entries()) {
-      if (m.status === "loaded" && !loadedIds.has(id)) return true;
-    }
-    for (const id of loadedIds) {
-      if (!models.has(id)) return true;
-    }
-    return false;
-  })();
-
-  return (
-    <div className={cn(
-      "flex items-center gap-2 px-3 py-2 border-b border-border",
-      isStale ? "bg-red-500/10" : "bg-muted/20"
-    )}>
-      <button
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium bg-muted hover:bg-muted/80 text-foreground transition-colors disabled:opacity-50"
-        onClick={() => loadAllProperties()}
-        disabled={loading || models.size === 0}
-      >
-        <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
-        {loadedProperties ? "Properties neu laden" : "Properties laden"}
-      </button>
-      {loading && <span className="text-[11px] text-muted-foreground">{loadingPropertiesProgress}%</span>}
-      {!loading && isStale && (
-        <span className="text-[11px] text-red-400">Modelle geändert — bitte neu laden</span>
-      )}
-      {!loading && !isStale && loadedProperties && (
-        <span className="text-[11px] text-emerald-500/80">
-          {useModelStore.getState().loadedPropKeys.length} Schlüssel geladen
-        </span>
-      )}
-      {!loadedProperties && !loading && models.size > 0 && (
-        <span className="text-[11px] text-muted-foreground">← Laden für vollständige Eigenschafts-Auswahl</span>
-      )}
-    </div>
-  );
-}
 
 // ── Prop key autocomplete input ───────────────────────────────────────────────
 
@@ -128,9 +79,8 @@ function FilterSection({ filters, filterLogic, propKeys, onUpdate, smartViews }:
         <span className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wide">Filter</span>
         <div className="flex items-center gap-1.5">
           <select
-            className="text-[10px] bg-muted/30 border border-border rounded px-1 py-0.5 text-foreground focus:outline-none disabled:opacity-50"
+            className="text-[10px] bg-muted/30 border border-border rounded px-1 py-0.5 text-foreground focus:outline-none"
             value=""
-            disabled={smartViews.length === 0}
             title={smartViews.length === 0 ? "Keine SmartViews vorhanden" : "Filter aus SmartView laden"}
             onChange={(e) => {
               const sv = smartViews.find((v) => v.id === e.target.value);
@@ -142,7 +92,7 @@ function FilterSection({ filters, filterLogic, propKeys, onUpdate, smartViews }:
               );
             }}
           >
-            <option value="">{smartViews.length === 0 ? "Keine SmartViews" : "SmartView laden…"}</option>
+            <option value="">{smartViews.length === 0 ? "— Keine SmartViews —" : "SmartView laden…"}</option>
             {smartViews.map((sv) => <option key={sv.id} value={sv.id}>{sv.name}</option>)}
           </select>
           {filters.length >= 2 && (
@@ -508,7 +458,8 @@ export function QuantityListPanel() {
   const loadedPropKeys   = useModelStore((s) => s.loadedPropKeys);
   const addToBasket    = useModelStore((s) => s.addToBasket);
   const isolateEntries = useModelStore((s) => s.isolateEntries);
-  const smartViews     = useModelStore((s) => s.smartViews.filter((v) => v.id !== "__quick_filter__"));
+  const allSmartViews  = useModelStore((s) => s.smartViews);
+  const smartViews     = useMemo(() => allSmartViews.filter((v) => v.id !== "__quick_filter__"), [allSmartViews]);
 
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
@@ -737,7 +688,6 @@ export function QuantityListPanel() {
           {/* ── Collapsible editor ── own scroll, capped height ── */}
           {editorOpen && (
             <div className="overflow-y-auto shrink-0 border-b border-border" style={{ maxHeight: 320 }}>
-              <PropertyLoader />
               <FilterSection
                 filters={activeList.filters}
                 filterLogic={activeList.filterLogic}

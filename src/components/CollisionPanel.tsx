@@ -775,15 +775,14 @@ function FilterEditor({ title, filter, allTypes, onToggleType, onAddCondition, o
 
       {/* SmartView import */}
       <select
-        className="w-full px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none text-foreground disabled:opacity-50"
+        className="w-full px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none text-foreground"
         value=""
-        disabled={smartViews.length === 0}
         onChange={(e) => {
           const sv = smartViews.find((v) => v.id === e.target.value);
           if (sv) onApplySmartView(smartViewToFilter(sv));
         }}
       >
-        <option value="">{smartViews.length === 0 ? "Keine SmartViews vorhanden" : "Aus SmartView laden…"}</option>
+        <option value="">{smartViews.length === 0 ? "— Keine SmartViews —" : "Aus SmartView laden…"}</option>
         {smartViews.map((sv) => (
           <option key={sv.id} value={sv.id}>{sv.name}</option>
         ))}

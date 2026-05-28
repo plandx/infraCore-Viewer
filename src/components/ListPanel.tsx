@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
-  Download, Eye, EyeOff, Play, RotateCcw, RefreshCw,
+  Download, Eye, EyeOff, Play, RotateCcw,
   ChevronDown, ChevronUp, Search, Plus, Pencil, Trash2, X, Check, Layers,
 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
@@ -98,41 +98,6 @@ function buildGroups(
   return Array.from(raw.values())
     .sort((a, b) => b.entries.length - a.entries.length)
     .map((g) => ({ id: uuidv4(), label: g.label, color: PALETTE[idx++ % PALETTE.length], entries: g.entries, visible: true }));
-}
-
-// ── shared property loader ─────────────────────────────────────────────────────
-
-function PropertyLoader() {
-  const models                    = useModelStore((s) => s.models);
-  const loadedProperties          = useModelStore((s) => s.loadedProperties);
-  const loadedPropKeys            = useModelStore((s) => s.loadedPropKeys);
-  const loadAllProperties         = useModelStore((s) => s.loadAllProperties);
-  const loadingPropertiesProgress = useModelStore((s) => s.loadingPropertiesProgress);
-  const loading = loadingPropertiesProgress !== null;
-
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <button
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium bg-muted hover:bg-muted/80 text-foreground transition-colors"
-        onClick={() => loadAllProperties()}
-        disabled={loading || models.size === 0}
-      >
-        <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
-        <span>{loadedProperties ? "Neu laden" : "Properties laden"}</span>
-      </button>
-      {loading && (
-        <>
-          <div className="flex-1 h-1 bg-border rounded-full overflow-hidden min-w-[60px]">
-            <div className="h-full bg-primary rounded-full transition-all duration-150" style={{ width: `${loadingPropertiesProgress}%` }} />
-          </div>
-          <span className="text-muted-foreground text-[10px]">{loadingPropertiesProgress}%</span>
-        </>
-      )}
-      {loadedProperties && !loading && (
-        <span className="text-muted-foreground text-[10px]">{loadedPropKeys.length} Attribute</span>
-      )}
-    </div>
-  );
 }
 
 // ── property key picker (dropdown with search) ────────────────────────────────
@@ -348,11 +313,8 @@ function ListenTab() {
 
       {/* Property mode controls */}
       {groupBy === "property" && (
-        <div className="px-3 py-2 border-b border-border shrink-0 space-y-1.5 bg-card/20">
-          <PropertyLoader />
-          {(loadedProperties || BUILTIN_KEYS.length > 0) && (
-            <PropKeyPicker value={propKey} onChange={setPropKey} />
-          )}
+        <div className="px-3 py-2 border-b border-border shrink-0 bg-card/20">
+          <PropKeyPicker value={propKey} onChange={setPropKey} />
         </div>
       )}
 
@@ -780,7 +742,6 @@ function SmartViewsTab() {
               disabled={editingId !== null}
             ><Plus size={12} />Neu</button>
           </div>
-          <PropertyLoader />
         </div>
       </div>
 
