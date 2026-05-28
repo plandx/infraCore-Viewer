@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from "react";
-import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine, Download, X, Loader2, Filter } from "lucide-react";
+import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine, Download, X, Loader2, Filter, Bookmark } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { IFC_CLASS_NAMES } from "../utils/ifcClassNames";
@@ -45,9 +45,13 @@ export function PropertiesPanel() {
   const propertyOverrides   = useModelStore((s) => s.propertyOverrides);
   const applyPropertyEdits  = useModelStore((s) => s.applyPropertyEdits);
   const loadedProperties    = useModelStore((s) => s.loadedProperties);
-  const smartViews          = useModelStore((s) => s.smartViews);
+  const smartViews            = useModelStore((s) => s.smartViews);
   const toggleQuickFilterRule = useModelStore((s) => s.toggleQuickFilterRule);
-  const removeSmartView     = useModelStore((s) => s.removeSmartView);
+  const removeSmartView       = useModelStore((s) => s.removeSmartView);
+  const saveQuickFilter       = useModelStore((s) => s.saveQuickFilter);
+
+  const [savingName, setSavingName] = useState<string | null>(null);
+  const saveInputRef = useRef<HTMLInputElement>(null);
 
   const activeQuickRules = useMemo(() => {
     const qf = smartViews.find((v) => v.id === "__quick_filter__");
@@ -198,19 +202,61 @@ export function PropertiesPanel() {
 
       {/* Quick filter indicator */}
       {activeQuickRules.size > 0 ? (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-primary/20 bg-primary/5 shrink-0">
-          <Filter size={9} className="text-primary shrink-0" />
-          <span className="text-[10px] text-primary flex-1">
-            Schnellfilter: {activeQuickRules.size} {activeQuickRules.size === 1 ? "Regel" : "Regeln"}
-          </span>
-          <button
-            onClick={() => removeSmartView("__quick_filter__")}
-            className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-            title="Schnellfilter zurücksetzen"
-          >
-            <X size={10} />
-          </button>
-        </div>
+        savingName !== null ? (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-primary/20 bg-primary/5 shrink-0">
+            <Filter size={9} className="text-primary shrink-0" />
+            <input
+              ref={saveInputRef}
+              className="flex-1 min-w-0 bg-background border border-primary rounded px-1.5 py-0.5 text-[10px] font-mono text-foreground focus:outline-none"
+              value={savingName}
+              onChange={(e) => setSavingName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && savingName.trim()) {
+                  saveQuickFilter(savingName.trim());
+                  setSavingName(null);
+                }
+                if (e.key === "Escape") setSavingName(null);
+              }}
+              placeholder="Filtername…"
+            />
+            <button
+              disabled={!savingName.trim()}
+              onClick={() => { if (savingName.trim()) { saveQuickFilter(savingName.trim()); setSavingName(null); } }}
+              className="text-green-400 hover:text-green-300 disabled:opacity-40 transition-colors shrink-0"
+              title="Speichern (Enter)"
+            >
+              <Check size={10} />
+            </button>
+            <button
+              onClick={() => setSavingName(null)}
+              className="text-muted-foreground/60 hover:text-muted-foreground transition-colors shrink-0"
+              title="Abbrechen (Esc)"
+            >
+              <X size={10} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-primary/20 bg-primary/5 shrink-0">
+            <Filter size={9} className="text-primary shrink-0" />
+            <span className="text-[10px] text-primary flex-1">
+              Schnellfilter: {activeQuickRules.size} {activeQuickRules.size === 1 ? "Regel" : "Regeln"}
+            </span>
+            <button
+              onClick={() => { setSavingName("Schnellfilter"); setTimeout(() => saveInputRef.current?.focus(), 0); }}
+              className="text-muted-foreground/60 hover:text-primary transition-colors shrink-0"
+              title="Als SmartView speichern"
+            >
+              <Bookmark size={10} />
+            </button>
+            <button
+              onClick={() => removeSmartView("__quick_filter__")}
+              className="text-muted-foreground/60 hover:text-muted-foreground transition-colors shrink-0"
+              title="Schnellfilter zurücksetzen"
+            >
+              <X size={10} />
+            </button>
+          </div>
+        )
       ) : !loadedProperties && (
         <div className="px-3 py-1 border-b border-border/30 shrink-0">
           <p className="text-[10px] text-muted-foreground/60">

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { v4 as uuidv4 } from "uuid";
 import * as THREE from "three";
 import type {
   IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement,
@@ -87,6 +88,7 @@ interface ModelStore {
   applySmartView: (id: string) => void;
   deactivateSmartView: () => void;
   toggleQuickFilterRule: (key: string, value: string) => void;
+  saveQuickFilter: (name: string) => void;
 
   // Property cache
   setLoadedProperties: (
@@ -540,6 +542,23 @@ export const useModelStore = create<ModelStore>((set, get) => ({
       set({ smartViews });
     }
     get().applySmartView(QFID);
+  },
+
+  saveQuickFilter: (name) => {
+    const QFID = "__quick_filter__";
+    const state = get();
+    const existing = state.smartViews.find((v) => v.id === QFID);
+    if (!existing) return;
+
+    const newId = uuidv4();
+    const savedView: SmartView = { ...existing, id: newId, name };
+    const smartViews = state.smartViews.map((v) => v.id === QFID ? savedView : v);
+    localStorage.setItem("infracore-smartviews", JSON.stringify(smartViews));
+    set({
+      smartViews,
+      activeSmartViewId: state.activeSmartViewId === QFID ? newId : state.activeSmartViewId,
+      stagedSmartViewId: state.stagedSmartViewId === QFID ? newId : state.stagedSmartViewId,
+    });
   },
 
   // ── Property cache ──────────────────────────────────────────────────────────
