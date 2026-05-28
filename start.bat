@@ -18,6 +18,11 @@ echo.
 
 :: ── 2. Python Server in eigenem Fenster ──────────────────────
 echo [2/4] Python Companion Server starten...
+:: Alten Server-Prozess auf Port 8765 beenden, falls vorhanden
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":8765 " ^| findstr "LISTENING"') do (
+    echo   Beende alten Server-Prozess PID %%p...
+    taskkill /PID %%p /F >nul 2>&1
+)
 start "Python Server" "%~dp0server\python-3.13.13-embed-amd64\python.exe" "%~dp0server\server.py"
 echo.
 
