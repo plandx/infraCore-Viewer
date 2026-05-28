@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import {
   RefreshCw, ChevronDown, ChevronUp, Search, Plus, Pencil, Trash2, X, Check, Glasses, Play, Copy,
+  Download, Upload,
 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "../lib/utils";
@@ -374,6 +375,39 @@ export function SmartViewsPanel() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftView, setDraftView] = useState<SmartView | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+
+  const namedViews = smartViews.filter((sv) => sv.id !== "__quick_filter__");
+
+  function handleExport() {
+    const blob = new Blob([JSON.stringify(namedViews, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "smartviews.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const raw = JSON.parse(ev.target?.result as string);
+        const views: SmartView[] = Array.isArray(raw) ? raw : (raw.views ?? []);
+        const existingIds = new Set(smartViews.map((v) => v.id));
+        for (const v of views) {
+          if (!v.id || !v.name || !Array.isArray(v.tiers)) continue;
+          if (v.id === "__quick_filter__") continue;
+          addSmartView(existingIds.has(v.id) ? { ...v, id: uuidv4() } : v);
+        }
+      } catch { /* ignore malformed file */ }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
 
   const startCreate = () => { setDraftView(emptyView()); setEditingId("new"); };
   const startEdit = (id: string) => {
@@ -400,11 +434,25 @@ export function SmartViewsPanel() {
       <div className="px-3 py-2 border-b border-border shrink-0 bg-card/40 space-y-1">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">SmartViews</span>
-          <button
-            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-40"
-            onClick={startCreate} disabled={editingId !== null}
-          ><Plus size={12} />Neu</button>
+          <div className="flex items-center gap-1">
+            <button
+              className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+              title="SmartViews importieren (.json)"
+              onClick={() => importRef.current?.click()}
+            ><Upload size={12} /></button>
+            <button
+              className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+              title="SmartViews exportieren (.json)"
+              disabled={namedViews.length === 0}
+              onClick={handleExport}
+            ><Download size={12} /></button>
+            <button
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-40 ml-1"
+              onClick={startCreate} disabled={editingId !== null}
+            ><Plus size={12} />Neu</button>
+          </div>
         </div>
+        <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
         <PropertyLoader />
       </div>
 
@@ -441,7 +489,7 @@ export function SmartViewsPanel() {
 
       {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {smartViews.filter((sv) => sv.id !== "__quick_filter__").length === 0 && editingId === null ? (
+        {namedViews.length === 0 && editingId === null ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
             <span className="text-[11px] text-center px-6 leading-relaxed">
               Noch keine SmartViews. Erstelle eine regelbasierte Ansicht.
@@ -453,7 +501,7 @@ export function SmartViewsPanel() {
           </div>
         ) : (
           <div className="divide-y divide-border/40">
-            {smartViews.filter((sv) => sv.id !== "__quick_filter__").map((sv) => (
+            {namedViews.map((sv) => (
               <div key={sv.id}>
                 <div
                   className={cn("flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/20 transition-colors",
