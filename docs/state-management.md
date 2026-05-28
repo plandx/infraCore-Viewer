@@ -164,7 +164,7 @@ interface SectionPlane {
 ```typescript
 addModel(model: IFCModelEntry): void
 removeModel(id: string): void
-updateModel(id: string, patch: Partial<IFCModelEntry>): void
+updateModel(id: string, patch: Partial<IFCModelEntry>): void  // Wenn patch.status === "loaded": löst loadAllProperties() via setTimeout aus (falls noch kein Ladevorgang läuft)
 setWorldOrigin(origin: THREE.Vector3): void
 ```
 

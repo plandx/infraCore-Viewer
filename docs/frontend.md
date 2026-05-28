@@ -319,7 +319,7 @@ Erscheint wenn das aktuell selektierte Element Overrides hat:
 
 Gruppenbasierte Farb- und Isolier-Ansicht:
 - GroupBy-Selektor: IFC-Typ / Geschoss / Modell / Eigenschaft
-- **SmartView-Filter-Dropdown** (erscheint wenn mind. 1 SmartView existiert): filtert Gruppen-Einträge auf Elemente, die min. einer Tier des SmartViews entsprechen (`evaluateTier`). Gruppen mit 0 Treffern werden ausgeblendet. Stats-Zeile zeigt amber `● gefiltert`-Indikator.
+- **SmartView-Filter-Dropdown** (immer sichtbar; zeigt „— Keine SmartViews —" wenn keine vorhanden): filtert Gruppen-Einträge auf Elemente, die min. einer Tier des SmartViews entsprechen (`evaluateTier`). Gruppen mit 0 Treffern werden ausgeblendet. Stats-Zeile zeigt amber `● gefiltert`-Indikator.
 - Farb-Swatches pro Gruppe (native Color-Picker)
 - Sichtbarkeits-Toggle pro Gruppe
 - Buttons: **Einfärben**, **Reset**, **CSV-Export** (alle respektieren den aktiven SmartView-Filter)
@@ -383,7 +383,7 @@ Quantity Take-Off: Benutzer definieren benannte Listen mit Filterregeln und konf
 
 **`ColumnSection`** — Spaltenkonfiguration.
 
-**`PropertyLoader`** — Lädt alle IFC-Eigenschaften aller geladenen Modelle via `loadAllElementProperties`, zeigt Fortschritt in %. Schreibt Ergebnis in `loadedPropKeys` Store-Feld.
+**`FilterSection`** akzeptiert `smartViews: SmartView[]`-Prop und zeigt ein SmartView-Dropdown (immer sichtbar; zeigt „— Keine SmartViews —" wenn keine vorhanden). Auswahl übersetzt den ersten Tier in QTO-Filterregeln (direktes Operator-Mapping: `eq/contains/starts_with/exists/not_exists`).
 
 **`ResultsTable`** — Sticky-Header, Excel-artige Spaltenfilter (Checkbox-Dropdown), max. 500 Zeilen, XLSX-Export.
 
