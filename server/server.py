@@ -343,72 +343,89 @@ def run_clash(req: ClashPayload):
                 cond_b_str = f", {len(rule.set_b.conditions)} Kond." if rule.set_b.conditions else ""
                 print(f"[clash] Set-B '{mname_b}': {len(elems_b)} Elemente ({', '.join(types_b[:3])}{'…' if len(types_b) > 3 else ''}{cond_b_str})", flush=True)
 
-                # Build BVH tree with ONLY the typed elements from both sets
-                clash_tree = ifcopenshell.geom.tree()
+                # ── BVH-Baum mit Set-B-Elementen aufbauen ────────────────
+                # Für same-model: Ein Iterator mit A∪B (damit select(elem_a)
+                # den Baum nach dem Modell kennt und tessellieren kann).
+                # Für cross-model: Zwei Iteratoren — A-Iterator registriert
+                # das Modell so dass select(elem_a) funktioniert.
+                b_tree = ifcopenshell.geom.tree()
                 try:
                     if model_a is model_b:
-                        # Same model: combine into one deduplicated iterator
                         ids_seen: set = set()
                         combined: list = []
                         for e in elems_a + elems_b:
                             if e.id() not in ids_seen:
                                 ids_seen.add(e.id())
                                 combined.append(e)
-                        it = ifcopenshell.geom.iterator(geo_settings, model_a, include=combined)
-                        clash_tree.add_iterator(it)
+                        b_tree.add_iterator(
+                            ifcopenshell.geom.iterator(geo_settings, model_a, include=combined)
+                        )
                     else:
-                        it_a = ifcopenshell.geom.iterator(geo_settings, model_a, include=elems_a)
-                        clash_tree.add_iterator(it_a)
-                        it_b = ifcopenshell.geom.iterator(geo_settings, model_b, include=elems_b)
-                        clash_tree.add_iterator(it_b)
+                        # A-Iterator: registriert model_a für select()-Tessellierung
+                        b_tree.add_iterator(
+                            ifcopenshell.geom.iterator(geo_settings, model_a, include=elems_a)
+                        )
+                        # B-Iterator: die eigentlichen Such-Elemente
+                        b_tree.add_iterator(
+                            ifcopenshell.geom.iterator(geo_settings, model_b, include=elems_b)
+                        )
                 except Exception as exc:
                     print(f"[clash] Baum-Aufbau fehlgeschlagen ('{mname_a}' × '{mname_b}'): {exc}", flush=True)
                     continue
 
-                # Use the dedicated clash API matching the rule's check_type
-                try:
-                    if rule.check_type == "hard-clash":
-                        clashes = clash_tree.clash_collision_many(elems_a, elems_b, allow_touching=False)
-                    elif rule.check_type == "clearance":
-                        clearance = rule.tolerance if rule.tolerance > 0 else 0.05
-                        clashes = clash_tree.clash_clearance_many(elems_a, elems_b, clearance=clearance)
-                    else:  # "duplicate"
-                        tol = rule.tolerance if rule.tolerance > 0 else 0.002
-                        clashes = clash_tree.clash_intersection_many(elems_a, elems_b, tolerance=tol)
-                except Exception as exc:
-                    print(f"[clash] clash_*_many fehlgeschlagen ('{mname_a}' × '{mname_b}'): {exc}", flush=True)
-                    continue
+                # select()-Radius je nach Prüftyp:
+                #   hard-clash  → 0 (nur echte AABB-Überschneidung)
+                #   clearance   → Mindestabstand (Elemente innerhalb dieser Distanz)
+                #   duplicate   → Toleranz (Elemente nahezu deckungsgleich)
+                if rule.check_type == "clearance":
+                    extend = rule.tolerance if rule.tolerance > 0 else 0.05
+                elif rule.check_type == "duplicate":
+                    extend = rule.tolerance if rule.tolerance > 0 else 0.002
+                else:
+                    extend = 0.0  # hard-clash: reiner AABB-Schnitt
+
+                elems_b_ids: set = {e.id() for e in elems_b}
 
                 before = len(all_results)
-                for clash in clashes:
-                    elem_a = clash.a
-                    elem_b = clash.b
-                    eid_a  = elem_a.id()
-                    eid_b  = elem_b.id()
-
-                    if mname_a == mname_b and eid_a == eid_b:
+                for elem_a in elems_a:
+                    eid_a = elem_a.id()
+                    try:
+                        candidates = b_tree.select(elem_a, extend=extend)
+                    except Exception as exc:
+                        print(f"[clash] select() Fehler für #{eid_a}: {exc}", flush=True)
                         continue
 
-                    pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
-                    if pair in seen:
-                        continue
-                    seen.add(pair)
+                    for cand in candidates:
+                        eid_b = cand.id()
 
-                    all_results.append({
-                        "rule_id":      rule.id,
-                        "rule_name":    rule.name,
-                        "severity":     rule.severity,
-                        "check_type":   rule.check_type,
-                        "model_name_a": mname_a,
-                        "express_id_a": eid_a,
-                        "name_a":       getattr(elem_a, "Name", None) or "",
-                        "type_a":       elem_a.is_a(),
-                        "model_name_b": mname_b,
-                        "express_id_b": eid_b,
-                        "name_b":       getattr(elem_b, "Name", None) or "",
-                        "type_b":       elem_b.is_a(),
-                        "overlap":      0.0,
-                    })
+                        # Selbst-Kollision überspringen
+                        if mname_a == mname_b and eid_a == eid_b:
+                            continue
+
+                        # Nur Set-B-Elemente berücksichtigen
+                        if eid_b not in elems_b_ids:
+                            continue
+
+                        pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
+                        if pair in seen:
+                            continue
+                        seen.add(pair)
+
+                        all_results.append({
+                            "rule_id":      rule.id,
+                            "rule_name":    rule.name,
+                            "severity":     rule.severity,
+                            "check_type":   rule.check_type,
+                            "model_name_a": mname_a,
+                            "express_id_a": eid_a,
+                            "name_a":       getattr(elem_a, "Name", None) or "",
+                            "type_a":       elem_a.is_a(),
+                            "model_name_b": mname_b,
+                            "express_id_b": eid_b,
+                            "name_b":       getattr(cand, "Name", None) or "",
+                            "type_b":       cand.is_a(),
+                            "overlap":      0.0,
+                        })
 
                 print(f"[clash] '{mname_a}' × '{mname_b}': {len(all_results) - before} Treffer", flush=True)
 
