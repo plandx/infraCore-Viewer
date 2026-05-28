@@ -774,21 +774,20 @@ function FilterEditor({ title, filter, allTypes, onToggleType, onAddCondition, o
       </div>
 
       {/* SmartView import */}
-      {smartViews.length > 0 && (
-        <select
-          className="w-full px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none text-foreground"
-          value=""
-          onChange={(e) => {
-            const sv = smartViews.find((v) => v.id === e.target.value);
-            if (sv) onApplySmartView(smartViewToFilter(sv));
-          }}
-        >
-          <option value="">Aus SmartView laden…</option>
-          {smartViews.map((sv) => (
-            <option key={sv.id} value={sv.id}>{sv.name}</option>
-          ))}
-        </select>
-      )}
+      <select
+        className="w-full px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none text-foreground disabled:opacity-50"
+        value=""
+        disabled={smartViews.length === 0}
+        onChange={(e) => {
+          const sv = smartViews.find((v) => v.id === e.target.value);
+          if (sv) onApplySmartView(smartViewToFilter(sv));
+        }}
+      >
+        <option value="">{smartViews.length === 0 ? "Keine SmartViews vorhanden" : "Aus SmartView laden…"}</option>
+        {smartViews.map((sv) => (
+          <option key={sv.id} value={sv.id}>{sv.name}</option>
+        ))}
+      </select>
 
       {/* IFC type picker */}
       <button onClick={() => setShowTypes(!showTypes)} className="text-[10px] text-primary hover:underline text-left">

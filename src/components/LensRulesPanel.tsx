@@ -323,21 +323,20 @@ export function LensRulesPanel() {
             <Download size={12} />
           </button>
         </div>
-        {namedSmartViews.length > 0 && (
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-muted-foreground shrink-0">Filter:</span>
-            <select
-              className="flex-1 bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
-              value={smartViewFilterId ?? ""}
-              onChange={(e) => setSmartViewFilterId(e.target.value || null)}
-            >
-              <option value="">Kein SmartView-Filter</option>
-              {namedSmartViews.map((sv) => (
-                <option key={sv.id} value={sv.id}>{sv.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground shrink-0">Filter:</span>
+          <select
+            className="flex-1 bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none disabled:opacity-50"
+            value={smartViewFilterId ?? ""}
+            onChange={(e) => setSmartViewFilterId(e.target.value || null)}
+            disabled={namedSmartViews.length === 0}
+          >
+            <option value="">{namedSmartViews.length === 0 ? "Keine SmartViews vorhanden" : "Kein SmartView-Filter"}</option>
+            {namedSmartViews.map((sv) => (
+              <option key={sv.id} value={sv.id}>{sv.name}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Property mode controls */}
