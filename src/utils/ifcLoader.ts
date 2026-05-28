@@ -842,6 +842,8 @@ export const IFC_TO_LABEL: Record<string, string> = Object.fromEntries(
   Object.entries(LABEL_TO_IFC).map(([label, ifc]) => [ifc, label])
 );
 
+/**
+ * Whitelist of IFC type codes to show in the project browser and 5D module.
  * Exactly the union of:
  *   – all physical element types from ELEMENT_LABELS
  *   – the four spatial structure types (Site, Building, Storey, Space)
