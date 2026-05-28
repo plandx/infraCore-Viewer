@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Editor from "@monaco-editor/react";
+import CodeMirror from "@uiw/react-codemirror";
+import { python } from "@codemirror/lang-python";
+import { vscodeDark, vscodeLight } from "@uiw/codemirror-theme-vscode";
+import { keymap } from "@codemirror/view";
+import { Prec } from "@codemirror/state";
 import { Play, X, RefreshCw, Upload, Circle, Trash2, RotateCcw, AlertCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
@@ -199,10 +203,9 @@ export function PythonPanel() {
     }
   }, [running, script, serverStatus]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleEditorMount = useCallback((editor: any, monaco: any) => {
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, execute);
-  }, [execute]);
+  const submitKeymap = Prec.highest(
+    keymap.of([{ key: "Ctrl-Enter", mac: "Cmd-Enter", run: () => { execute(); return true; } }]),
+  );
 
   const statusColor: Record<ServerStatus, string> = {
     unknown: "text-muted-foreground",
@@ -319,25 +322,20 @@ export function PythonPanel() {
 
       {/* Main split: editor + console */}
       <div className="flex-1 min-h-0 flex flex-col">
-        <div className="flex-1 min-h-0">
-          <Editor
-            defaultLanguage="python"
+        <div className="flex-1 min-h-0 overflow-auto">
+          <CodeMirror
             value={script}
-            onChange={(v) => setScript(v ?? "")}
-            onMount={handleEditorMount}
-            theme={isDark ? "vs-dark" : "light"}
-            options={{
-              fontSize: 12,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              lineNumbers: "on",
-              wordWrap: "on",
+            extensions={[python(), submitKeymap]}
+            theme={isDark ? vscodeDark : vscodeLight}
+            onChange={(v) => setScript(v)}
+            basicSetup={{
+              lineNumbers: true,
+              highlightActiveLine: true,
+              indentOnInput: true,
               tabSize: 4,
-              automaticLayout: true,
-              padding: { top: 8, bottom: 8 },
-              renderLineHighlight: "line",
-              scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+              foldGutter: false,
             }}
+            style={{ height: "100%", fontSize: 12 }}
           />
         </div>
 
