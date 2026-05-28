@@ -61,6 +61,19 @@ async function runScript(script: string): Promise<{ stdout: string; stderr: stri
   return r.json();
 }
 
+async function deleteServerModel(name: string): Promise<string | null> {
+  try {
+    const r = await fetch(`${SERVER_URL}/models/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!r.ok) return (await r.json()).detail ?? "Löschen fehlgeschlagen";
+    return null;
+  } catch (e) {
+    return String(e);
+  }
+}
+
 async function downloadModel(serverName: string): Promise<ArrayBuffer> {
   const r = await fetch(`${SERVER_URL}/download/${encodeURIComponent(serverName)}`, {
     signal: AbortSignal.timeout(60_000),
@@ -116,22 +129,35 @@ export function PythonPanel() {
       pushOutput([{ kind: "error", text: "Server nicht erreichbar." }]);
       return;
     }
-    const visibleModels = [...models.values()].filter((m) => m.visible && m.file);
-    if (visibleModels.length === 0) {
-      pushOutput([{ kind: "info", text: "Keine sichtbaren Modelle mit Datei gefunden." }]);
-      return;
-    }
     setSyncing(true);
-    pushOutput([{ kind: "info", text: `Übertrage ${visibleModels.length} Modell(e) an Server…` }]);
-    for (const m of visibleModels) {
-      const err = await uploadModel(m.name, m.file!);
-      if (err) pushOutput([{ kind: "error", text: `${m.name}: ${err}` }]);
-      else     pushOutput([{ kind: "info",  text: `✓ ${m.name}` }]);
+
+    const visibleModels = [...models.values()].filter((m) => m.visible && m.file);
+    const visibleNames  = new Set(visibleModels.map((m) => m.name));
+
+    // Remove server models that are no longer visible in the viewer
+    const toDelete = serverModels.filter((name) => !visibleNames.has(name));
+    for (const name of toDelete) {
+      const err = await deleteServerModel(name);
+      if (err) pushOutput([{ kind: "error", text: `Entfernen "${name}": ${err}` }]);
+      else     pushOutput([{ kind: "info",  text: `✗ ${name} entfernt` }]);
     }
+
+    // Upload all currently visible models
+    if (visibleModels.length > 0) {
+      pushOutput([{ kind: "info", text: `Übertrage ${visibleModels.length} Modell(e) an Server…` }]);
+      for (const m of visibleModels) {
+        const err = await uploadModel(m.name, m.file!);
+        if (err) pushOutput([{ kind: "error", text: `${m.name}: ${err}` }]);
+        else     pushOutput([{ kind: "info",  text: `✓ ${m.name}` }]);
+      }
+    } else if (toDelete.length === 0) {
+      pushOutput([{ kind: "info", text: "Keine sichtbaren Modelle mit Datei gefunden." }]);
+    }
+
     setSyncing(false);
     const { models: sm } = await pingServer();
     setServerModels(sm);
-  }, [models, serverStatus]);
+  }, [models, serverStatus, serverModels]);
 
   // ── Reload a server model back into the viewer ────────────────────────────
   const reloadFromServer = useCallback(async (serverName: string) => {
