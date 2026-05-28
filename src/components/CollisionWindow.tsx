@@ -6,7 +6,7 @@ import {
   DEFAULT_CLASH_RULES,
 } from "../utils/windowSync";
 import type {
-  CollisionMsg, CollisionSyncState, ClashRule, ClashResult, ClashStatus, Severity, PropCondition, ComponentFilter,
+  CollisionMsg, CollisionSyncState, ClashRule, ClashResult, ClashStatus, Severity, PropCondition, ComponentFilter, CheckType,
 } from "../utils/windowSync";
 
 type GroupBy = "none" | "rule" | "severity" | "typePair" | "status";
@@ -507,24 +507,23 @@ export function CollisionWindow() {
             </div>
           )}
         </div>
-
-        {/* Right: Rule editor */}
-        {editRule && (
-          <RuleEditor
-            rule={editRule}
-            allTypes={state.allTypes}
-            loadedPropKeys={state.loadedPropKeys}
-            onSave={r => {
-              setLocalRules(prev => {
-                const idx = prev.findIndex(x => x.id === r.id);
-                return idx >= 0 ? prev.map(x => x.id === r.id ? r : x) : [...prev, r];
-              });
-              setEditRule(null);
-            }}
-            onClose={() => setEditRule(null)}
-          />
-        )}
       </div>
+
+      {editRule && (
+        <RuleEditor
+          rule={editRule}
+          allTypes={state.allTypes}
+          loadedPropKeys={state.loadedPropKeys}
+          onSave={r => {
+            setLocalRules(prev => {
+              const idx = prev.findIndex(x => x.id === r.id);
+              return idx >= 0 ? prev.map(x => x.id === r.id ? r : x) : [...prev, r];
+            });
+            setEditRule(null);
+          }}
+          onClose={() => setEditRule(null)}
+        />
+      )}
     </div>
   );
 }
@@ -556,7 +555,8 @@ function RuleEditor({ rule, allTypes, loadedPropKeys, onSave, onClose }: {
   onSave(r: ClashRule): void;
   onClose(): void;
 }) {
-  const [draft, setDraft] = useState<ClashRule>({ ...rule,
+  const [draft, setDraft] = useState<ClashRule>({
+    ...rule,
     componentA: { ...rule.componentA, ifcTypes: [...rule.componentA.ifcTypes], conditions: rule.componentA.conditions.map(c => ({ ...c })) },
     componentB: { ...rule.componentB, ifcTypes: [...rule.componentB.ifcTypes], conditions: rule.componentB.conditions.map(c => ({ ...c })) },
   });
@@ -590,69 +590,164 @@ function RuleEditor({ rule, allTypes, loadedPropKeys, onSave, onClose }: {
     setDraft(prev => ({ ...prev, [key]: { ...prev[key], conditions: prev[key].conditions.filter((_, i) => i !== idx) } }));
   };
 
+  const severityDotColor = (s: Severity) =>
+    s === "error" ? "bg-red-400" : s === "warning" ? "bg-amber-400" : "bg-blue-400";
+
   return (
-    <div className="w-72 shrink-0 border-l border-border flex flex-col overflow-hidden bg-card">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
-        <span className="text-xs font-semibold">Regel bearbeiten</span>
-        <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-0.5"><X size={13} /></button>
-      </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 py-3 flex flex-col gap-3">
-        <FieldRow label="Name">
-          <input value={draft.name} onChange={e => setDraft(p => ({ ...p, name: e.target.value }))}
-            className="w-full px-2 py-1 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
-        </FieldRow>
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
+      <div className="w-full max-w-3xl max-h-[88vh] flex flex-col bg-card border border-border rounded-xl shadow-2xl">
 
-        <FieldRow label="Schwere">
-          <select value={draft.severity} onChange={e => setDraft(p => ({ ...p, severity: e.target.value as Severity }))}
-            className="w-full px-2 py-1 text-xs bg-background border border-border rounded">
-            <option value="error">Fehler</option>
-            <option value="warning">Warnung</option>
-            <option value="info">Info</option>
-          </select>
-        </FieldRow>
+        {/* Modal header */}
+        <div className="flex items-start justify-between px-6 py-4 border-b border-border shrink-0">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Prüfregel konfigurieren</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Definiere welche Elemente geprüft werden und nach welchen Kriterien</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors shrink-0 ml-4">
+            <X size={16} />
+          </button>
+        </div>
 
-        <FieldRow label="Prüftyp">
-          <select value={draft.checkType} onChange={e => setDraft(p => ({ ...p, checkType: e.target.value as import("../utils/windowSync").CheckType }))}
-            className="w-full px-2 py-1 text-xs bg-background border border-border rounded">
-            <option value="hard-clash">Harte Kollision</option>
-            <option value="clearance">Mindestabstand</option>
-            <option value="duplicate">Duplikat</option>
-          </select>
-        </FieldRow>
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-5 flex flex-col gap-5">
 
-        <FieldRow label={draft.checkType === "clearance" ? "Mindestabstand (m)" : "Toleranz (m³)"}>
-          <input type="number" step={draft.checkType === "clearance" ? "0.05" : "0.0001"} min="0"
-            value={draft.tolerance}
-            onChange={e => setDraft(p => ({ ...p, tolerance: parseFloat(e.target.value) || 0 }))}
-            className="w-full px-2 py-1 text-xs bg-background border border-border rounded font-mono focus:outline-none focus:ring-1 focus:ring-primary" />
-        </FieldRow>
+          {/* Basic settings row */}
+          <div className="flex gap-3 flex-wrap">
+            <div className="flex flex-col gap-1 flex-1 min-w-32">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Name</label>
+              <input
+                value={draft.name}
+                onChange={e => setDraft(p => ({ ...p, name: e.target.value }))}
+                className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
 
-        {(["A","B"] as const).map(side => (
-          <FilterEditor
-            key={side}
-            title={`Komponente ${side}`}
-            filter={side === "A" ? draft.componentA : draft.componentB}
-            allTypes={allTypes}
-            loadedPropKeys={loadedPropKeys}
-            onToggleType={t => toggleType(side, t)}
-            onAddCondition={() => addCondition(side)}
-            onUpdateCondition={(i, p) => updateCondition(side, i, p)}
-            onRemoveCondition={i => removeCondition(side, i)}
-          />
-        ))}
-      </div>
-      <div className="px-3 py-2.5 border-t border-border shrink-0">
-        <button onClick={() => onSave(draft)}
-          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium hover:opacity-90 transition-opacity">
-          <Check size={12} /> Speichern
-        </button>
+            <div className="flex flex-col gap-1 w-40">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Prüftyp</label>
+              <select
+                value={draft.checkType}
+                onChange={e => setDraft(p => ({ ...p, checkType: e.target.value as CheckType }))}
+                className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="hard-clash">Harte Kollision</option>
+                <option value="clearance">Mindestabstand</option>
+                <option value="duplicate">Duplikat</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1 w-36">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Schwere</label>
+              <div className="relative">
+                <span className={cn("absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full shrink-0", severityDotColor(draft.severity))} />
+                <select
+                  value={draft.severity}
+                  onChange={e => setDraft(p => ({ ...p, severity: e.target.value as Severity }))}
+                  className="w-full pl-7 pr-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
+                >
+                  <option value="error">Fehler</option>
+                  <option value="warning">Warnung</option>
+                  <option value="info">Info</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1 w-36">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                {draft.checkType === "clearance" ? "Mindestabstand (m)" : "Toleranz (m)"}
+              </label>
+              <input
+                type="number"
+                step={draft.checkType === "clearance" ? "0.05" : "0.0001"}
+                min="0"
+                value={draft.tolerance}
+                onChange={e => setDraft(p => ({ ...p, tolerance: parseFloat(e.target.value) || 0 }))}
+                className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+          </div>
+
+          <div className="h-px bg-border" />
+
+          {/* Two-column group editors */}
+          <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
+            {/* Gruppe A */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-start gap-2.5">
+                <span className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">A</span>
+                <div>
+                  <p className="text-xs font-semibold text-foreground">Gruppe A — Geprüfte Elemente</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">Elemente die aktiv auf Kollision geprüft werden (z.B. Tragwerk, Wände)</p>
+                </div>
+              </div>
+              <FilterEditor
+                filter={draft.componentA}
+                allTypes={allTypes}
+                loadedPropKeys={loadedPropKeys}
+                onToggleType={t => toggleType("A", t)}
+                onAddCondition={() => addCondition("A")}
+                onUpdateCondition={(i, p) => updateCondition("A", i, p)}
+                onRemoveCondition={i => removeCondition("A", i)}
+              />
+            </div>
+
+            {/* Center divider + badge */}
+            <div className="flex flex-col items-center pt-8 gap-2 self-stretch">
+              <div className="w-px flex-1 bg-border" />
+              <span className="text-[10px] font-semibold text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5 shrink-0">↔</span>
+              <div className="w-px flex-1 bg-border" />
+            </div>
+
+            {/* Gruppe B */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-start gap-2.5">
+                <span className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">B</span>
+                <div>
+                  <p className="text-xs font-semibold text-foreground">Gruppe B — Referenzelemente</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">Elemente gegen die Gruppe A geprüft wird (z.B. TGA, Leitungen)</p>
+                </div>
+              </div>
+              <FilterEditor
+                filter={draft.componentB}
+                allTypes={allTypes}
+                loadedPropKeys={loadedPropKeys}
+                onToggleType={t => toggleType("B", t)}
+                onAddCondition={() => addCondition("B")}
+                onUpdateCondition={(i, p) => updateCondition("B", i, p)}
+                onRemoveCondition={i => removeCondition("B", i)}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 rounded-lg transition-colors"
+          >
+            Abbrechen
+          </button>
+          <button
+            onClick={() => onSave(draft)}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            <Check size={14} /> Speichern
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function FilterEditor({ title, filter, allTypes, loadedPropKeys, onToggleType, onAddCondition, onUpdateCondition, onRemoveCondition }: {
-  title: string;
+// ── FilterEditor ──────────────────────────────────────────────────────────────
+
+const IFC_PRESETS: Array<{ label: string; types: string[] }> = [
+  { label: "Tragwerk", types: ["IfcBeam", "IfcColumn", "IfcWall", "IfcSlab", "IfcFoundation", "IfcPile", "IfcMember"] },
+  { label: "TGA", types: ["IfcDuctSegment", "IfcPipeSegment", "IfcCableCarrierSegment", "IfcFlowSegment", "IfcDistributionFlowElement", "IfcDuctFitting", "IfcPipeFitting", "IfcFlowController", "IfcFlowTerminal"] },
+  { label: "Architektur", types: ["IfcWall", "IfcSlab", "IfcRoof", "IfcCurtainWall", "IfcStair", "IfcRamp"] },
+];
+
+function FilterEditor({ filter, allTypes, loadedPropKeys, onToggleType, onAddCondition, onUpdateCondition, onRemoveCondition }: {
   filter: ComponentFilter;
   allTypes: string[];
   loadedPropKeys: string[];
@@ -661,76 +756,181 @@ function FilterEditor({ title, filter, allTypes, loadedPropKeys, onToggleType, o
   onUpdateCondition(i: number, p: Partial<PropCondition>): void;
   onRemoveCondition(i: number): void;
 }) {
-  const [showTypes, setShowTypes] = useState(false);
-  const datalistId = `props-${title.replace(/\s/g,"")}`;
-  return (
-    <div className="border border-border rounded p-2 flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
-        <span className="text-[9px] text-primary/70">{filter.ifcTypes.length === 0 ? "alle Typen" : `${filter.ifcTypes.length} Typen`}</span>
-      </div>
+  const anyPresetSelected = IFC_PRESETS.some(preset => {
+    const available = preset.types.filter(t => allTypes.includes(t));
+    return available.length > 0 && available.every(t => filter.ifcTypes.includes(t));
+  });
+  const [typeListOpen, setTypeListOpen] = useState(!anyPresetSelected && filter.ifcTypes.length === 0);
+  const [typeSearch, setTypeSearch] = useState("");
 
-      <button onClick={() => setShowTypes(!showTypes)} className="text-[10px] text-primary hover:underline text-left">
-        {showTypes ? "▲" : "▼"} IFC-Typen auswählen
-      </button>
-      {showTypes && (
-        <div className="max-h-28 overflow-y-auto scrollbar-thin flex flex-col gap-0.5">
-          {allTypes.map(t => (
-            <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-              <input type="checkbox" checked={filter.ifcTypes.includes(t)}
-                onChange={() => onToggleType(t)} className="shrink-0" />
-              <span className="text-[9px] text-foreground truncate">{t}</span>
-            </label>
-          ))}
-        </div>
-      )}
-
-      {loadedPropKeys.length > 0 && (
-        <datalist id={datalistId}>
-          {loadedPropKeys.map(k => <option key={k} value={k} />)}
-        </datalist>
-      )}
-
-      <div className="flex flex-col gap-1">
-        {filter.conditions.map((c, i) => (
-          <div key={i} className="flex items-center gap-1">
-            <input
-              value={c.propName}
-              placeholder="Eigenschaft"
-              list={loadedPropKeys.length > 0 ? datalistId : undefined}
-              onChange={e => onUpdateCondition(i, { propName: e.target.value })}
-              className="flex-1 px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none"
-              style={{ minWidth: 0 }}
-            />
-            <select value={c.operator} onChange={e => onUpdateCondition(i, { operator: e.target.value as PropCondition["operator"] })}
-              className="px-1 py-0.5 text-[10px] bg-background border border-border rounded" style={{ width: 70 }}>
-              <option value="contains">enthält</option>
-              <option value="equals">gleich</option>
-              <option value="startsWith">beginnt</option>
-              <option value="notEmpty">nicht leer</option>
-            </select>
-            {c.operator !== "notEmpty" && (
-              <input value={c.value} placeholder="Wert" onChange={e => onUpdateCondition(i, { value: e.target.value })}
-                className="w-16 px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none" />
-            )}
-            <button onClick={() => onRemoveCondition(i)} className="text-muted-foreground hover:text-red-400 shrink-0">
-              <X size={10} />
-            </button>
-          </div>
-        ))}
-        <button onClick={onAddCondition} className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary">
-          <Plus size={10} /> Bedingung
-        </button>
-      </div>
-    </div>
+  const sortedTypes = useMemo(() => [...allTypes].sort(), [allTypes]);
+  const filteredTypes = useMemo(
+    () => typeSearch.trim() ? sortedTypes.filter(t => t.toLowerCase().includes(typeSearch.toLowerCase())) : sortedTypes,
+    [sortedTypes, typeSearch]
   );
-}
 
-function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+  const togglePreset = (preset: typeof IFC_PRESETS[number]) => {
+    const available = preset.types.filter(t => allTypes.includes(t));
+    const allSelected = available.every(t => filter.ifcTypes.includes(t));
+    available.forEach(t => {
+      const isSelected = filter.ifcTypes.includes(t);
+      if (allSelected && isSelected) onToggleType(t);
+      else if (!allSelected && !isSelected) onToggleType(t);
+    });
+  };
+
+  const typeCount = filter.ifcTypes.length;
+
   return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[10px] font-medium text-muted-foreground">{label}</label>
-      {children}
+    <div className="flex flex-col gap-4">
+
+      {/* Section A: IFC-Typen */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-foreground">IFC-Typen</span>
+          <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium", typeCount > 0 ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>
+            {typeCount > 0 ? `${typeCount} gewählt` : "alle"}
+          </span>
+        </div>
+
+        {/* Quick presets */}
+        {IFC_PRESETS.some(p => p.types.some(t => allTypes.includes(t))) && (
+          <div className="flex flex-wrap gap-1.5">
+            {IFC_PRESETS.map(preset => {
+              const available = preset.types.filter(t => allTypes.includes(t));
+              if (available.length === 0) return null;
+              const allSelected = available.every(t => filter.ifcTypes.includes(t));
+              return (
+                <button
+                  key={preset.label}
+                  onClick={() => togglePreset(preset)}
+                  className={cn(
+                    "text-[10px] px-2 py-0.5 rounded border transition-colors",
+                    allSelected
+                      ? "bg-primary/15 border-primary/40 text-primary"
+                      : "bg-muted border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  )}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Selected type chips */}
+        {typeCount > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {filter.ifcTypes.map(t => (
+              <span
+                key={t}
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-primary/10 border border-primary/25 text-primary rounded"
+              >
+                {t}
+                <button onClick={() => onToggleType(t)} className="hover:text-red-400 transition-colors">
+                  <X size={9} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {typeCount === 0 && (
+          <p className="text-[10px] text-muted-foreground italic">(leer = alle Typen geprüft)</p>
+        )}
+
+        {/* Collapsible type list */}
+        <button
+          onClick={() => setTypeListOpen(o => !o)}
+          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors self-start"
+        >
+          {typeListOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          Alle Typen {typeListOpen ? "ausblenden" : "anzeigen"}
+        </button>
+        {typeListOpen && (
+          <div className="flex flex-col gap-1.5 border border-border rounded-lg p-2 bg-background/50">
+            <input
+              value={typeSearch}
+              onChange={e => setTypeSearch(e.target.value)}
+              placeholder="Typ suchen…"
+              className="w-full px-2 py-1 text-[10px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+            <div className="max-h-40 overflow-y-auto scrollbar-thin flex flex-col gap-0.5">
+              {filteredTypes.map(t => (
+                <label key={t} className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-foreground text-muted-foreground transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={filter.ifcTypes.includes(t)}
+                    onChange={() => onToggleType(t)}
+                    className="shrink-0"
+                  />
+                  <span className="text-[10px] truncate">{t}</span>
+                </label>
+              ))}
+              {filteredTypes.length === 0 && (
+                <p className="text-[10px] text-muted-foreground py-1 px-1">Keine Typen gefunden</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Section B: Eigenschaftsfilter */}
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-semibold text-foreground">Eigenschaftsfilter</span>
+
+        {loadedPropKeys.length === 0 && (
+          <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-400/8 border border-amber-400/25 rounded-lg text-[10px] text-amber-400">
+            <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">Properties nicht geladen</p>
+              <p className="text-amber-400/80 mt-0.5">Für Filterbedingungen nach Eigenschaften bitte im Hauptfenster: Analyse → Properties laden</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-1.5">
+          {filter.conditions.map((c, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <select
+                value={c.propName}
+                onChange={e => onUpdateCondition(i, { propName: e.target.value })}
+                className="flex-1 min-w-0 px-2 py-1 text-[10px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/50"
+              >
+                <option value="">Eigenschaft wählen…</option>
+                {loadedPropKeys.map(k => <option key={k} value={k}>{k}</option>)}
+              </select>
+              <select
+                value={c.operator}
+                onChange={e => onUpdateCondition(i, { operator: e.target.value as PropCondition["operator"] })}
+                className="px-2 py-1 text-[10px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/50 w-24 shrink-0"
+              >
+                <option value="contains">enthält</option>
+                <option value="equals">gleich</option>
+                <option value="startsWith">beginnt mit</option>
+                <option value="notEmpty">nicht leer</option>
+              </select>
+              {c.operator !== "notEmpty" && (
+                <input
+                  value={c.value}
+                  placeholder="Wert"
+                  onChange={e => onUpdateCondition(i, { value: e.target.value })}
+                  className="w-20 shrink-0 px-2 py-1 text-[10px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+              )}
+              <button onClick={() => onRemoveCondition(i)} className="text-muted-foreground hover:text-red-400 shrink-0 transition-colors p-0.5">
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={onAddCondition}
+            disabled={loadedPropKeys.length === 0}
+            className="flex items-center gap-1.5 text-[10px] text-primary/70 hover:text-primary transition-colors self-start disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Plus size={11} /> Filterbedingung
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
