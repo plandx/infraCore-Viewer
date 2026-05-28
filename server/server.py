@@ -398,14 +398,88 @@ def _obb_overlap_sat(
     return True  # no separating axis found → boxes overlap
 
 
+def _cgal_clash(
+    tree: Any,
+    elems_a: list,
+    elems_b: list,
+    check_type: str,
+    tolerance: float,
+) -> List[tuple]:
+    """Run CGAL clash_*_many and return [(elem_a, elem_b, distance), ...].
+
+    Mapping:
+      hard-clash + tol=0  → clash_intersection_many  (exact mesh intersection)
+      hard-clash + tol>0  → clash_clearance_many(tol) (near-miss within tolerance)
+      clearance           → clash_clearance_many(tol)
+      duplicate           → clash_clearance_many(tol)
+    """
+    if check_type == "hard-clash" and tolerance <= 0:
+        raw = tree.clash_intersection_many(elems_a, elems_b)
+        label = "clash_intersection_many"
+    else:
+        tol = tolerance if tolerance > 0 else (0.05 if check_type == "clearance" else 0.001)
+        try:
+            raw = tree.clash_clearance_many(elems_a, elems_b, tol)
+        except TypeError:
+            raw = tree.clash_clearance_many(elems_a, elems_b, tol, False)
+        label = f"clash_clearance_many(tol={tol})"
+
+    pairs = []
+    for clash in raw:
+        try:
+            ea = clash.a if hasattr(clash, "a") else clash[0]
+            eb = clash.b if hasattr(clash, "b") else clash[1]
+            pairs.append((ea, eb, float(getattr(clash, "distance", 0.0))))
+        except Exception:
+            pass
+
+    print(f"[clash] CGAL {label}: {len(raw)} Roh-Paare → {len(pairs)} verarbeitbar", flush=True)
+    return pairs
+
+
+def _aabb_obb_clash(
+    geoms_a: Dict[int, tuple],
+    geoms_b: Dict[int, tuple],
+    model_a: Any,
+    model_b: Any,
+    check_type: str,
+    tolerance: float,
+) -> List[tuple]:
+    """Fallback: AABB coarse + OBB/SAT fine filter. Returns [(ea, eb, 0.0), ...]."""
+    extend = tolerance if tolerance >= 0 else 0.0
+    use_obb = check_type in ("hard-clash", "clearance")
+
+    pairs = []
+    for eid_a, (aabb_a, obb_ca, obb_axa, obb_ha) in geoms_a.items():
+        for eid_b, (aabb_b, obb_cb, obb_axb, obb_hb) in geoms_b.items():
+            if model_a is model_b and eid_a == eid_b:
+                continue
+            if not _aabbs_overlap(aabb_a, aabb_b, extend):
+                continue
+            if use_obb and not _obb_overlap_sat(obb_ca, obb_axa, obb_ha, obb_cb, obb_axb, obb_hb, extend):
+                continue
+            pairs.append((model_a.by_id(eid_a), model_b.by_id(eid_b), 0.0))
+
+    return pairs
+
+
 @app.post("/clash")
 def run_clash(req: ClashPayload):
-    """Kollisionsprüfung via explizite AABB-Vergleiche auf tessellierter Geometrie.
+    """Kollisionsprüfung im IfcClash-Stil.
 
-    Tesselliert Set-A und Set-B separat mit dem ifcopenshell-Iterator, berechnet
-    die Bounding-Boxes direkt aus den Vertices und vergleicht alle A×B-Paare.
-    Kein same-file-Skip, kein tree.select(), keine clash_*_many — funktioniert
-    zuverlässig für same-model und cross-model.
+    Primär: CGAL clash_intersection_many / clash_clearance_many — echte
+    Dreiecks-Geometrie wie in IfcClash / BlenderBIM.
+
+    Same-model: Datei zweimal als separate file-Objekte laden, damit der
+    C++-interne same-file-Skip nicht greift.
+
+    Fallback: AABB-Grobfilter + OBB/SAT-Feinfilter (numpy PCA), falls CGAL
+    eine Exception wirft.
+
+    Toleranz:
+      hard-clash + tol=0  → clash_intersection_many (exakter Schnitt)
+      hard-clash + tol>0  → clash_clearance_many(tol) (auch Beinahe-Treffer)
+      clearance / dup     → clash_clearance_many(tol)
     """
     import ifcopenshell.geom
 
@@ -419,7 +493,10 @@ def run_clash(req: ClashPayload):
     all_results: List[Dict[str, Any]] = []
 
     for rule in req.rules:
-        print(f"\n[clash] === Regel '{rule.name}' ({rule.check_type}, tol={rule.tolerance}) ===", flush=True)
+        print(
+            f"\n[clash] === Regel '{rule.name}' ({rule.check_type}, tol={rule.tolerance}) ===",
+            flush=True,
+        )
 
         types_a = rule.set_a.ifc_types or ["IfcProduct"]
         types_b = rule.set_b.ifc_types or ["IfcProduct"]
@@ -443,14 +520,11 @@ def run_clash(req: ClashPayload):
                 print(f"[clash] Set-A '{mname_a}': keine Elemente — übersprungen", flush=True)
                 continue
             cond_a_str = f", {len(rule.set_a.conditions)} Kond." if rule.set_a.conditions else ""
-            print(f"[clash] Set-A '{mname_a}': {len(elems_a)} Elemente ({', '.join(types_a[:3])}{'…' if len(types_a) > 3 else ''}{cond_a_str})", flush=True)
-
-            # Tessellate Set-A once (reused for all Set-B models in this rule)
-            geoms_a = _tessellate_geoms(geo_settings, model_a, elems_a)
-            print(f"[clash] Set-A Geometrien: {len(geoms_a)}/{len(elems_a)}", flush=True)
-            if not geoms_a:
-                print(f"[clash] Set-A '{mname_a}': keine Geometrie — übersprungen", flush=True)
-                continue
+            print(
+                f"[clash] Set-A '{mname_a}': {len(elems_a)} Elemente"
+                f" ({', '.join(types_a[:3])}{'…' if len(types_a) > 3 else ''}{cond_a_str})",
+                flush=True,
+            )
 
             for mname_b, model_b in models_b.items():
                 elems_b: list = []
@@ -461,83 +535,113 @@ def run_clash(req: ClashPayload):
                     print(f"[clash] Set-B '{mname_b}': keine Elemente — übersprungen", flush=True)
                     continue
                 cond_b_str = f", {len(rule.set_b.conditions)} Kond." if rule.set_b.conditions else ""
-                print(f"[clash] Set-B '{mname_b}': {len(elems_b)} Elemente ({', '.join(types_b[:3])}{'…' if len(types_b) > 3 else ''}{cond_b_str})", flush=True)
+                print(
+                    f"[clash] Set-B '{mname_b}': {len(elems_b)} Elemente"
+                    f" ({', '.join(types_b[:3])}{'…' if len(types_b) > 3 else ''}{cond_b_str})",
+                    flush=True,
+                )
 
-                geoms_b = _tessellate_geoms(geo_settings, model_b, elems_b)
-                print(f"[clash] Set-B Geometrien: {len(geoms_b)}/{len(elems_b)}", flush=True)
-                if not geoms_b:
-                    print(f"[clash] Set-B '{mname_b}': keine Geometrie — übersprungen", flush=True)
-                    continue
-
-                # Extend value per check type
-                if rule.check_type == "clearance":
-                    extend = rule.tolerance if rule.tolerance > 0 else 0.05
-                elif rule.check_type == "duplicate":
-                    extend = rule.tolerance if rule.tolerance > 0 else 0.002
+                # ── Same-model: load second copy to bypass C++ same-file skip ──
+                _tmp_copy = None
+                if model_a is model_b:
+                    tmp_path = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".ifc", delete=False) as tmp:
+                            tmp_path = tmp.name
+                        model_a.write(tmp_path)
+                        _tmp_copy = ifcopenshell.open(tmp_path)
+                        model_b_w = _tmp_copy
+                        elems_b_w = [model_b_w.by_id(e.id()) for e in elems_b]
+                        print(
+                            f"[clash] Same-model: Kopie geladen"
+                            f" (ptr_a={id(model_a)}, ptr_b={id(model_b_w)})",
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        print(f"[clash] Kopie fehlgeschlagen: {exc} — übersprungen", flush=True)
+                        continue
+                    finally:
+                        if tmp_path:
+                            Path(tmp_path).unlink(missing_ok=True)
                 else:
-                    extend = 0.0  # hard-clash: strict overlap
+                    model_b_w = model_b
+                    elems_b_w = elems_b
 
-                # OBB refinement for hard-clash and clearance (eliminates AABB
-                # false positives from elongated/rotated elements).
-                # Duplicate stays AABB-only: exact-position matches are already
-                # tightly bounded.
-                use_obb = rule.check_type in ("hard-clash", "clearance")
+                # ── Build BVH tree ───────────────────────────────────────────
+                b_tree = ifcopenshell.geom.tree()
+                tree_ok = True
+                try:
+                    b_tree.add_iterator(
+                        ifcopenshell.geom.iterator(geo_settings, model_a, include=elems_a)
+                    )
+                    b_tree.add_iterator(
+                        ifcopenshell.geom.iterator(geo_settings, model_b_w, include=elems_b_w)
+                    )
+                except Exception as exc:
+                    print(f"[clash] Baum-Aufbau fehlgeschlagen: {exc}", flush=True)
+                    tree_ok = False
 
+                # ── Primary: CGAL clash_*_many ───────────────────────────────
+                raw_pairs: List[tuple] = []
+                cgal_ok = False
+                if tree_ok:
+                    try:
+                        raw_pairs = _cgal_clash(
+                            b_tree, elems_a, elems_b_w,
+                            rule.check_type, rule.tolerance,
+                        )
+                        cgal_ok = True
+                    except Exception as exc:
+                        print(f"[clash] CGAL fehlgeschlagen: {exc}", flush=True)
+
+                # ── Fallback: AABB + OBB/SAT ────────────────────────────────
+                if not cgal_ok:
+                    print("[clash] Fallback: AABB + OBB/SAT", flush=True)
+                    geoms_a = _tessellate_geoms(geo_settings, model_a, elems_a)
+                    geoms_b = _tessellate_geoms(geo_settings, model_b, elems_b)
+                    raw_pairs = _aabb_obb_clash(
+                        geoms_a, geoms_b, model_a, model_b,
+                        rule.check_type, rule.tolerance,
+                    )
+                    print(f"[clash] AABB+OBB Fallback: {len(raw_pairs)} Paare", flush=True)
+
+                # ── Deduplicate and build results ────────────────────────────
                 before = len(all_results)
-                aabb_passed = 0
-                elem_a_cache: Dict[int, Any] = {}
-                elem_b_cache: Dict[int, Any] = {}
+                for ea, eb, dist in raw_pairs:
+                    eid_a = ea.id()
+                    eid_b = eb.id()
 
-                for eid_a, (aabb_a, obb_ca, obb_axa, obb_ha) in geoms_a.items():
-                    for eid_b, (aabb_b, obb_cb, obb_axb, obb_hb) in geoms_b.items():
-                        if model_a is model_b and eid_a == eid_b:
-                            continue  # self-match
+                    if mname_a == mname_b and eid_a == eid_b:
+                        continue
 
-                        # ── Coarse AABB filter ───────────────────────────────
-                        if not _aabbs_overlap(aabb_a, aabb_b, extend):
-                            continue
-                        aabb_passed += 1
+                    pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
+                    if pair in seen:
+                        continue
+                    seen.add(pair)
 
-                        # ── Precise OBB / SAT filter ─────────────────────────
-                        if use_obb and not _obb_overlap_sat(
-                            obb_ca, obb_axa, obb_ha,
-                            obb_cb, obb_axb, obb_hb,
-                            extend,
-                        ):
-                            continue
+                    # eb may be from the copy; get original for name/type
+                    eb_orig = model_b.by_id(eid_b) if _tmp_copy is not None else eb
 
-                        pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
-                        if pair in seen:
-                            continue
-                        seen.add(pair)
+                    all_results.append({
+                        "rule_id":      rule.id,
+                        "rule_name":    rule.name,
+                        "severity":     rule.severity,
+                        "check_type":   rule.check_type,
+                        "model_name_a": mname_a,
+                        "express_id_a": eid_a,
+                        "name_a":       getattr(ea, "Name", None) or "",
+                        "type_a":       ea.is_a(),
+                        "model_name_b": mname_b,
+                        "express_id_b": eid_b,
+                        "name_b":       getattr(eb_orig, "Name", None) or "",
+                        "type_b":       eb_orig.is_a(),
+                        "overlap":      dist,
+                    })
 
-                        if eid_a not in elem_a_cache:
-                            elem_a_cache[eid_a] = model_a.by_id(eid_a)
-                        if eid_b not in elem_b_cache:
-                            elem_b_cache[eid_b] = model_b.by_id(eid_b)
-
-                        ea = elem_a_cache[eid_a]
-                        eb = elem_b_cache[eid_b]
-
-                        all_results.append({
-                            "rule_id":      rule.id,
-                            "rule_name":    rule.name,
-                            "severity":     rule.severity,
-                            "check_type":   rule.check_type,
-                            "model_name_a": mname_a,
-                            "express_id_a": eid_a,
-                            "name_a":       getattr(ea, "Name", None) or "",
-                            "type_a":       ea.is_a(),
-                            "model_name_b": mname_b,
-                            "express_id_b": eid_b,
-                            "name_b":       getattr(eb, "Name", None) or "",
-                            "type_b":       eb.is_a(),
-                            "overlap":      0.0,
-                        })
-
+                del _tmp_copy
                 print(
                     f"[clash] '{mname_a}' × '{mname_b}': {len(all_results) - before} Treffer"
-                    f" (AABB: {aabb_passed}, OBB-gefiltert: {aabb_passed - (len(all_results) - before)})",
+                    f" ({'CGAL' if cgal_ok else 'AABB+OBB'})",
                     flush=True,
                 )
 
