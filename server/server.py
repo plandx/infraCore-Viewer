@@ -629,6 +629,32 @@ def _cgal_clash(
     return pairs
 
 
+def _meshes_within_tol(
+    verts_a: np.ndarray,
+    verts_b: np.ndarray,
+    tol: float,
+    max_verts: int = 512,
+) -> bool:
+    """True if the minimum vertex-to-vertex distance between the two meshes is <= tol.
+
+    Used as Near-Miss proxy when CGAL clearance_many is unavailable.
+    Vertex-sampling keeps memory bounded; for dense meshes the approximation
+    is conservative (may miss sub-millimetre gaps in coarse meshes).
+    """
+    if tol <= 0:
+        return False
+    tol_sq = tol * tol
+
+    va = verts_a if len(verts_a) <= max_verts else verts_a[
+        np.linspace(0, len(verts_a) - 1, max_verts, dtype=int)]
+    vb = verts_b if len(verts_b) <= max_verts else verts_b[
+        np.linspace(0, len(verts_b) - 1, max_verts, dtype=int)]
+
+    # Vectorised pairwise squared distance (Va, Vb, 3) → (Va, Vb)
+    diff = va[:, np.newaxis, :] - vb[np.newaxis, :, :]
+    return float((diff * diff).sum(axis=2).min()) <= tol_sq
+
+
 @app.post("/clash")
 def run_clash(req: ClashPayload):
     """Kollisionsprüfung im IfcClash-Stil (3-stufige Pipeline).
@@ -797,16 +823,24 @@ def run_clash(req: ClashPayload):
                     except Exception as exc:
                         print(f"[clash] CGAL fehlgeschlagen: {exc}", flush=True)
 
-                # ── Fallback: exakte Mesh-Intersection auf AABB+OBB-Kandidaten ─
-                # Greift wenn CGAL fehlschlägt ODER für hard-clash/duplicate keine
-                # Ergebnisse liefert (typisch: Same-Model CGAL Express-ID-Skip).
-                # Statt rohe OBB-Kandidaten durchzureichen wird jedes Paar per
-                # Triangle-Triangle-Intersection (Möller 1997) exakt geprüft.
-                if not raw_pairs and rule.check_type in ("hard-clash", "duplicate"):
+                # ── Fallback: exakte Mesh-Prüfung auf AABB+OBB-Kandidaten ───────
+                # Greift wenn CGAL fehlschlägt ODER 0 liefert trotz Kandidaten.
+                # Prüft jedes Paar mit Triangle-Intersection (Möller 1997) +
+                # Vertex-Abstandstest für Near-Miss (Toleranz > 0).
+                #
+                # check_type  | intersection  | near-miss (tol > 0)
+                # ------------|---------------|--------------------
+                # hard-clash  |      ✓        |         ✓
+                # duplicate   |      ✓        |         ✓
+                # clearance   |      –        |         ✓
+                if not raw_pairs:
                     reason = "CGAL-Exception" if not cgal_ok else "CGAL liefert 0 trotz Kandidaten"
+                    check_intersect = rule.check_type in ("hard-clash", "duplicate")
+                    check_near_miss = rule.tolerance > 0
                     print(
                         f"[clash] Fallback: {reason}"
-                        f" → exakte Mesh-Intersection auf {len(candidate_pairs)} Paaren",
+                        f" → Mesh-Intersection auf {len(candidate_pairs)} Paaren"
+                        f" (intersect={check_intersect}, near-miss tol={rule.tolerance})",
                         flush=True,
                     )
                     exact_pairs: List[tuple] = []
@@ -817,12 +851,17 @@ def run_clash(req: ClashPayload):
                             continue
                         va, fa = ga[4], ga[5]
                         vb, fb = gb[4], gb[5]
-                        if _meshes_intersect(va, fa, vb, fb):
+                        hit = False
+                        if check_intersect and _meshes_intersect(va, fa, vb, fb):
+                            hit = True
+                        if not hit and check_near_miss:
+                            hit = _meshes_within_tol(va, vb, rule.tolerance)
+                        if hit:
                             exact_pairs.append(
                                 (model_a.by_id(eid_a_c), model_b_w.by_id(eid_b_c), 0.0)
                             )
                     print(
-                        f"[clash] Mesh-Intersection: {len(exact_pairs)} echte Treffer"
+                        f"[clash] Mesh-Fallback: {len(exact_pairs)} Treffer"
                         f" aus {len(candidate_pairs)} Kandidaten",
                         flush=True,
                     )
