@@ -319,9 +319,10 @@ Erscheint wenn das aktuell selektierte Element Overrides hat:
 
 Gruppenbasierte Farb- und Isolier-Ansicht:
 - GroupBy-Selektor: IFC-Typ / Geschoss / Modell / Eigenschaft
+- **SmartView-Filter-Dropdown** (erscheint wenn mind. 1 SmartView existiert): filtert Gruppen-Einträge auf Elemente, die min. einer Tier des SmartViews entsprechen (`evaluateTier`). Gruppen mit 0 Treffern werden ausgeblendet. Stats-Zeile zeigt amber `● gefiltert`-Indikator.
 - Farb-Swatches pro Gruppe (native Color-Picker)
 - Sichtbarkeits-Toggle pro Gruppe
-- Buttons: **Einfärben**, **Reset**, **CSV-Export**
+- Buttons: **Einfärben**, **Reset**, **CSV-Export** (alle respektieren den aktiven SmartView-Filter)
 
 ---
 
@@ -331,6 +332,39 @@ Gruppenbasierte Farb- und Isolier-Ansicht:
 **Shortcut:** `V` · **Sekundärfenster:** `"smartviews"`
 
 Regelbasierte mehrstufige Ansichten mit Inline-Editor (`SmartViewEditor`) und `TierEditor` pro Ebene. Vollständige Aktions-Typen: add, remove, removeOthers, color, transparent, opaque, autoColor und Kombinationen.
+
+---
+
+## CollisionPanel
+
+**Datei:** `src/components/CollisionPanel.tsx`
+**Öffnet:** wenn `collisionPanelOpen` im Store
+
+Regelbasierte Kollisionsprüfung (AABB) zwischen zwei Komponentenfiltern.
+
+### Sub-Komponenten
+
+**`RuleEditor`** — Bearbeitet eine einzelne `ClashRule` (Name, Schwere, Prüftyp, Toleranz, Komponentenfilter A+B).
+
+**`FilterEditor`** — Definiert einen `ComponentFilter` (IFC-Typen + Property-Bedingungen):
+- **SmartView-Dropdown** (`Aus SmartView laden…`): Wandelt den ersten Tier eines SmartViews in einen `ComponentFilter` um:
+  - `_type eq <wert>` → `ifcTypes`-Liste
+  - Andere Regeln → `PropCondition` mit Operator-Mapping: `eq→equals`, `contains→contains`, `starts_with→startsWith`, `exists/not_exists→notEmpty`
+  - `_name`/`_model`-Regeln werden übersprungen (nicht in CollisionPanel-Props verfügbar)
+- IFC-Typ-Checkboxen (auf-/zuklappbar)
+- Property-Bedingungszeilen (propName + Operator + Wert)
+
+### ClashRule-Felder
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `checkType` | `"hard-clash"/"clearance"/"duplicate"` | Prüfart |
+| `tolerance` | `number` | m³ (hard-clash) oder m (clearance) |
+| `componentA/B` | `ComponentFilter` | Elementfilter je Seite |
+
+### Ergebnis-Statuse
+
+`new` → `approved` → `resolved` — persistent über Prüfläufe via `statusRef`.
 
 ---
 
