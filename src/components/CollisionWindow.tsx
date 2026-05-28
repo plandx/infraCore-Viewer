@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { COLLISION_CHANNEL, DEFAULT_CLASH_RULES } from "../utils/windowSync";
+import { IFC_TO_LABEL } from "../utils/ifcLoader";
 import type {
   CollisionMsg, CollisionSyncState, ClashRule, ClashResult, ClashStatus,
   Severity, PropCondition, ComponentFilter, CheckType,
@@ -725,7 +726,10 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, onTo
     : "bg-orange-500/20 text-orange-400 border-orange-400/30";
 
   const filteredTypes = useMemo(
-    () => allTypes.filter(t => t.toLowerCase().includes(typeSearch.toLowerCase())),
+    () => allTypes.filter(t => {
+      const q = typeSearch.toLowerCase();
+      return t.toLowerCase().includes(q) || (IFC_TO_LABEL[t] ?? "").toLowerCase().includes(q);
+    }),
     [allTypes, typeSearch],
   );
 
@@ -783,7 +787,7 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, onTo
         <div className="flex flex-wrap gap-1">
           {filter.ifcTypes.map(t => (
             <span key={t} className={cn("flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border", badgeCls)}>
-              {t.replace("Ifc","")}
+              {IFC_TO_LABEL[t] ?? t.replace("Ifc","")}
               <button onClick={() => onToggleType(t)} className="hover:opacity-70 transition-opacity"><X size={8} /></button>
             </span>
           ))}
@@ -812,7 +816,7 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, onTo
                   <label key={t} className="flex items-center gap-2 px-3 py-1 hover:bg-muted/30 cursor-pointer">
                     <input type="checkbox" checked={filter.ifcTypes.includes(t)}
                       onChange={() => onToggleType(t)} className="h-3 w-3 shrink-0" />
-                    <span className="text-[10px]">{t}</span>
+                    <span className="text-[10px]">{IFC_TO_LABEL[t] ?? t}</span>
                   </label>
                 ))
               }

@@ -34,7 +34,7 @@ import { FaceCrossSectionPanel } from "./alignment/FaceCrossSectionPanel";
 import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
-import { loadIFCFile, loadIFCProperties, evictPropModelCache } from "./utils/ifcLoader";
+import { loadIFCFile, loadIFCProperties, evictPropModelCache, LABEL_TO_IFC } from "./utils/ifcLoader";
 import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
 import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel } from "./utils/windowSync";
 import { runServerClash } from "./utils/serverClash";
@@ -435,7 +435,7 @@ function useCollisionSync() {
       const key = Array.from(st.models.keys()).sort().join("|");
       if (key !== cachedAllTypesKey) {
         const s = new Set<string>();
-        for (const [, m] of st.models) for (const t of Object.keys(m.elementsByType)) s.add(t);
+        for (const [, m] of st.models) for (const t of Object.keys(m.elementsByType)) s.add(LABEL_TO_IFC[t] ?? t);
         cachedAllTypes = Array.from(s).sort();
         cachedAllTypesKey = key;
       }
