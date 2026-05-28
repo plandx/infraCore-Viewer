@@ -554,10 +554,20 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     const savedView: SmartView = { ...existing, id: newId, name };
     const smartViews = state.smartViews.map((v) => v.id === QFID ? savedView : v);
     localStorage.setItem("infracore-smartviews", JSON.stringify(smartViews));
+
+    // Restore the pre-filter state so the saved filter is stored in SmartViewsPanel
+    // and the view returns to normal, ready for a fresh new quick filter.
+    const pre = state.activeSmartViewId === QFID ? state.preSmartViewState : null;
     set({
       smartViews,
-      activeSmartViewId: state.activeSmartViewId === QFID ? newId : state.activeSmartViewId,
-      stagedSmartViewId: state.stagedSmartViewId === QFID ? newId : state.stagedSmartViewId,
+      activeSmartViewId: null,
+      stagedSmartViewId: null,
+      preSmartViewState: null,
+      ...(pre ? {
+        hiddenElements: pre.hiddenElements,
+        isolatedElements: pre.isolatedElements,
+        colorGroups: pre.colorGroups,
+      } : {}),
     });
   },
 
