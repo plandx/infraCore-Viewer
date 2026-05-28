@@ -2,8 +2,11 @@
 
 ## Übersicht
 
-infraCore-Viewer ist eine **rein clientseitige** Single-Page-Application ohne Backend-Server.
+infraCore-Viewer ist primär eine **clientseitige** Single-Page-Application.
 IFC-Dateien werden lokal im Browser geparst (WASM), alle Daten liegen im Arbeitsspeicher.
+
+Ein optionaler **Python/IfcOpenShell Companion-Server** (`server/server.py`, Port 8765)
+ermöglicht serverseitige Operationen: Kollisionsprüfung, Python-Skripting auf IFC-Modellen.
 
 ```
 Browser
@@ -15,9 +18,17 @@ Browser
 │   ├── LensRulesPanel / SmartViews          ├── HierarchyPanel
 │   ├── SQLPanel                             ├── PropertiesPanel
 │   ├── SelectionBasket                      ├── LensRulesPanel
-│   ├── BatchPanel (Modal)                   ├── SQLPanel
-│   └── GeometryInspectorPanel (Overlay)     └── BasketListPanel
+│   ├── PythonPanel                          ├── SQLPanel
+│   ├── CollisionWindow (eigenes Fenster)    └── BasketListPanel
+│   └── BatchPanel (Modal)
 └── web-ifc WASM (IFC-Parser)
+
+Python Companion Server (optional, http://127.0.0.1:8765)
+├── POST /upload          ← IFC-Datei von Browser empfangen
+├── DELETE /models/{name} ← Modell entfernen
+├── POST /clash           ← Kollisionsprüfung via ifcopenshell.geom.tree
+├── GET  /clash/test      ← Diagnose-Endpunkt (Tessellierung prüfen)
+└── POST /execute         ← Python-Skript ausführen (ifc_models im Kontext)
 ```
 
 ## Verzeichnisstruktur
@@ -34,6 +45,9 @@ Browser
 │   └── window-system.md
 ├── public/
 │   └── wasm/                  ← web-ifc WASM-Binaries
+├── server/
+│   ├── server.py              ← FastAPI + ifcopenshell Companion-Server
+│   └── requirements.txt       ← fastapi, uvicorn, ifcopenshell, python-multipart
 ├── src/
 │   ├── App.tsx                ← Root: erkennt Sekundär-Fenster, rendert MainApp
 │   ├── main.tsx               ← Erkennt ?billing → BillingApp, sonst App
@@ -68,7 +82,8 @@ Browser
 │       ├── ifcWriter.ts       ← IFC-Export mit Eigenschafts-Overrides
 │       ├── sqlEngine.ts       ← Mini-SQL über alasql
 │       ├── smartViewUtils.ts  ← SmartView-Regelauswertung
-│       ├── windowSync.ts      ← BroadcastChannel-Protokoll
+│       ├── windowSync.ts      ← BroadcastChannel-Protokoll + Clash-Typen
+│       ├── serverClash.ts     ← HTTP-Client für /clash (Upload + Query)
 │       └── coordinateUtils.ts ← Formatierungs-Helfer
 └── package.json
 ```
@@ -238,6 +253,41 @@ border-border    → var(--ic-border)
 ### Theme-Initialisierung
 
 `App.tsx` liest beim Mount `settings.theme` aus dem Zustand-Store und schaltet `document.documentElement.classList` (`.dark`) entsprechend, **bevor** der erste Paint passiert → kein Flash beim Laden. Default-Theme ist `"light"`.
+
+## Datenfluss Kollisionsprüfung (Python Server)
+
+```
+User öffnet CollisionWindow (eigenes Browser-Tab/?collision)
+      ↓
+BroadcastChannel ← Main-Fenster sendet State (Regeln, Ergebnisse, allTypes)
+      ↓
+User klickt „Prüfung starten"
+      ↓
+CollisionWindow → BroadcastChannel: { t: "run", rules }
+      ↓
+Main-Fenster (useCollisionSync in App.tsx) empfängt Message
+      ↓
+runServerClash(models, rules, onProgress)  [serverClash.ts]
+  ├── GET /health → Liste geladener Server-Modelle
+  ├── POST /upload → sichtbare Modelle hochladen (falls nicht vorhanden)
+  └── POST /clash → { rules: [...] }
+          ↓
+        Python Server (server.py)
+          ├── Pro Regel: EINEN kombinierten BVH-Baum mit allen relevanten Modellen
+          │   (add_file für Set-A ∪ Set-B → cross-file Tessellierung möglich)
+          ├── by_type(t, include_subtypes=True) für alle Set-A-Typen
+          ├── tree.select(elem_a, extend=tolerance) → überlappende Elemente
+          ├── Modell-Identifikation via GlobalId (GUID) — robust gegen gleiche Express-IDs
+          └── Set-B-Typenfilter + Duplikat-Deduplication
+          ↓
+        { results: [...], count: N }
+      ↓
+runServerClash mappt model_name → viewer UUID (nameToId)
+      ↓
+Main-Fenster → BroadcastChannel: { t: "state", results }
+      ↓
+CollisionWindow zeigt Ergebnistabelle
+```
 
 ## Kritische Abhängigkeiten
 
