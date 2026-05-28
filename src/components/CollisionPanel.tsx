@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { X, Play, Loader2, AlertTriangle, ChevronDown, ChevronRight, Download, Plus, Trash2, Check, Clock, AlertCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
-import type { IFCModelEntry } from "../types/ifc";
+import type { IFCModelEntry, SmartView } from "../types/ifc";
 
 // ── Rule types ─────────────────────────────────────────────────────────────────
 
@@ -627,6 +627,7 @@ function RuleEditor({ rule, allTypes, onSave, onClose }: {
   onSave(r: ClashRule): void;
   onClose(): void;
 }) {
+  const smartViews = useModelStore((s) => s.smartViews.filter((v) => v.id !== "__quick_filter__"));
   const [draft, setDraft] = useState<ClashRule>({ ...rule,
     componentA: { ...rule.componentA, ifcTypes: [...rule.componentA.ifcTypes], conditions: rule.componentA.conditions.map(c => ({ ...c })) },
     componentB: { ...rule.componentB, ifcTypes: [...rule.componentB.ifcTypes], conditions: rule.componentB.conditions.map(c => ({ ...c })) },
@@ -713,6 +714,11 @@ function RuleEditor({ rule, allTypes, onSave, onClose }: {
             onAddCondition={() => addCondition(side)}
             onUpdateCondition={(i, p) => updateCondition(side, i, p)}
             onRemoveCondition={i => removeCondition(side, i)}
+            smartViews={smartViews}
+            onApplySmartView={(f) => {
+              const key = side === "A" ? "componentA" : "componentB";
+              setDraft((prev) => ({ ...prev, [key]: f }));
+            }}
           />
         ))}
       </div>
@@ -726,7 +732,29 @@ function RuleEditor({ rule, allTypes, onSave, onClose }: {
   );
 }
 
-function FilterEditor({ title, filter, allTypes, onToggleType, onAddCondition, onUpdateCondition, onRemoveCondition }: {
+function smartViewToFilter(sv: SmartView): ComponentFilter {
+  const tier = sv.tiers[0];
+  if (!tier) return { ifcTypes: [], conditions: [] };
+
+  const ifcTypes: string[] = [];
+  const conditions: PropCondition[] = [];
+
+  for (const rule of tier.rules) {
+    if (rule.property === "_type" && rule.condition === "eq") {
+      if (rule.value) ifcTypes.push(rule.value);
+    } else if (rule.property !== "_name" && rule.property !== "_model") {
+      let operator: PropCondition["operator"] = "equals";
+      if (rule.condition === "contains") operator = "contains";
+      else if (rule.condition === "starts_with") operator = "startsWith";
+      else if (rule.condition === "exists" || rule.condition === "not_exists") operator = "notEmpty";
+      conditions.push({ propName: rule.property, operator, value: rule.value });
+    }
+  }
+
+  return { ifcTypes, conditions };
+}
+
+function FilterEditor({ title, filter, allTypes, onToggleType, onAddCondition, onUpdateCondition, onRemoveCondition, smartViews, onApplySmartView }: {
   title: string;
   filter: ComponentFilter;
   allTypes: string[];
@@ -734,6 +762,8 @@ function FilterEditor({ title, filter, allTypes, onToggleType, onAddCondition, o
   onAddCondition(): void;
   onUpdateCondition(i: number, p: Partial<PropCondition>): void;
   onRemoveCondition(i: number): void;
+  smartViews: SmartView[];
+  onApplySmartView(f: ComponentFilter): void;
 }) {
   const [showTypes, setShowTypes] = useState(false);
   return (
@@ -742,6 +772,23 @@ function FilterEditor({ title, filter, allTypes, onToggleType, onAddCondition, o
         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
         <span className="text-[9px] text-primary/70">{filter.ifcTypes.length === 0 ? "alle Typen" : `${filter.ifcTypes.length} Typen`}</span>
       </div>
+
+      {/* SmartView import */}
+      {smartViews.length > 0 && (
+        <select
+          className="w-full px-1.5 py-0.5 text-[10px] bg-background border border-border rounded focus:outline-none text-foreground"
+          value=""
+          onChange={(e) => {
+            const sv = smartViews.find((v) => v.id === e.target.value);
+            if (sv) onApplySmartView(smartViewToFilter(sv));
+          }}
+        >
+          <option value="">Aus SmartView laden…</option>
+          {smartViews.map((sv) => (
+            <option key={sv.id} value={sv.id}>{sv.name}</option>
+          ))}
+        </select>
+      )}
 
       {/* IFC type picker */}
       <button onClick={() => setShowTypes(!showTypes)} className="text-[10px] text-primary hover:underline text-left">
