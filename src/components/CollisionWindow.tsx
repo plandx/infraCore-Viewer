@@ -44,13 +44,17 @@ export function CollisionWindow() {
     document.documentElement.classList.toggle("dark", state.theme !== "light");
   }, [state.theme]);
 
+  const failCountRef = useRef(0);
   useEffect(() => {
     const check = () =>
-      fetch("http://127.0.0.1:8765/health", { signal: AbortSignal.timeout(1500) })
-        .then(() => setServerOnline(true))
-        .catch(() => setServerOnline(false));
+      fetch("http://127.0.0.1:8765/health", { signal: AbortSignal.timeout(5000) })
+        .then(() => { failCountRef.current = 0; setServerOnline(true); })
+        .catch(() => {
+          failCountRef.current += 1;
+          if (failCountRef.current >= 2) setServerOnline(false);
+        });
     check();
-    const id = setInterval(check, 6000);
+    const id = setInterval(check, 8000);
     return () => clearInterval(id);
   }, []);
 
@@ -308,11 +312,12 @@ export function CollisionWindow() {
           <div className="p-3 border-t border-border shrink-0 space-y-2 bg-muted/5">
             <div className={cn("flex items-center gap-1.5 text-[9px] px-0.5",
               serverOnline === true  ? "text-green-400" :
-              serverOnline === false ? "text-red-400" :
+              serverOnline === false && !state.running ? "text-red-400" :
               "text-muted-foreground")}>
               <Circle size={6} className="fill-current shrink-0" />
               {serverOnline === null  ? "Python Server wird geprüft…" :
                serverOnline === true  ? "Python Server verbunden" :
+               state.running         ? "Python Server arbeitet…" :
                "Server offline — start-python-server.bat starten"}
             </div>
             <button onClick={sendRun}
