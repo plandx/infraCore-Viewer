@@ -697,7 +697,6 @@ const ELEMENT_LABELS: Partial<Record<number, string>> = {
   [WebIFC.IFCLINEARPOSITIONINGELEMENT]: "Linienpositionierung",
   // Storage / Misc
   [WebIFC.IFCELECTRICFLOWSTORAGEDEVICE]: "Stromspeicher",
-  [WebIFC.IFCSTORAGESHELF]:            "Regal",
 };
 
 /**
@@ -831,7 +830,6 @@ export const LABEL_TO_IFC: Record<string, string> = {
   "Signal":                     "IfcSignal",
   "Linienpositionierung":       "IfcLinearPositioningElement",
   "Stromspeicher":              "IfcElectricFlowStorageDevice",
-  "Regal":                      "IfcStorageShelf",
   "Standort":                   "IfcSite",
   "Gebäude":                    "IfcBuilding",
   "Geschoss":                   "IfcBuildingStorey",
