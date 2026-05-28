@@ -314,7 +314,12 @@ def _tessellate_geoms(
     model: Any,
     elems: list,
 ) -> Dict[int, tuple]:
-    """Tessellate elements and return {express_id: (aabb_6, obb_c, obb_ax, obb_h)}."""
+    """Tessellate elements.
+
+    Returns {express_id: (aabb_6, obb_c, obb_ax, obb_h, verts_arr, faces_arr)}
+      verts_arr : np.ndarray (N, 3) – world-space vertices
+      faces_arr : np.ndarray (M, 3) – triangle indices into verts_arr
+    """
     import ifcopenshell.geom
 
     result: Dict[int, tuple] = {}
@@ -335,13 +340,139 @@ def _tessellate_geoms(
                 xs = verts[0::3]; ys = verts[1::3]; zs = verts[2::3]
                 aabb = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
                 obb_c, obb_ax, obb_h = _compute_obb(verts)
-                result[shape.id] = (aabb, obb_c, obb_ax, obb_h)
+                verts_arr = np.array(verts, dtype=np.float64).reshape(-1, 3)
+                faces_raw = shape.geometry.faces
+                faces_arr = np.array(faces_raw, dtype=np.int32).reshape(-1, 3) if faces_raw else np.empty((0, 3), dtype=np.int32)
+                result[shape.id] = (aabb, obb_c, obb_ax, obb_h, verts_arr, faces_arr)
         except Exception:
             pass
         if not it.next():
             break
 
     return result
+
+
+def _poly_overlap_2d(A: np.ndarray, B: np.ndarray) -> bool:
+    """SAT overlap test for two 2D convex polygons (used for coplanar triangles)."""
+    def _sat(poly_a: np.ndarray, poly_b: np.ndarray) -> bool:
+        n = len(poly_a)
+        for i in range(n):
+            edge = poly_a[(i + 1) % n] - poly_a[i]
+            ax = np.array([-edge[1], edge[0]])
+            pA = poly_a @ ax
+            pB = poly_b @ ax
+            if pA.max() < pB.min() - 1e-7 or pB.max() < pA.min() - 1e-7:
+                return False
+        return True
+    return _sat(A, B) and _sat(B, A)
+
+
+def _tri_tri_3d(
+    v0: np.ndarray, v1: np.ndarray, v2: np.ndarray,
+    u0: np.ndarray, u1: np.ndarray, u2: np.ndarray,
+    tol: float = 1e-7,
+) -> bool:
+    """Möller (1997) exact 3-D triangle–triangle intersection test.
+
+    Returns True if the two triangles share any interior point — including the
+    coplanar-overlap case.  Degenerate triangles (zero area) return False.
+    """
+    # ── Plane of T1 ──────────────────────────────────────────────────────────
+    N1 = np.cross(v1 - v0, v2 - v0)
+    if np.dot(N1, N1) < 1e-14:
+        return False
+    d1 = np.dot(N1, v0)
+    dU = np.array([np.dot(N1, u0), np.dot(N1, u1), np.dot(N1, u2)]) - d1
+
+    # All T2 vertices strictly same side → no intersection
+    if dU[0] * dU[1] > tol * tol and dU[0] * dU[2] > tol * tol:
+        return False
+
+    # ── Coplanar branch ───────────────────────────────────────────────────────
+    if abs(dU[0]) < tol and abs(dU[1]) < tol and abs(dU[2]) < tol:
+        ax = int(np.argmax(np.abs(N1)))
+        axes = [x for x in (0, 1, 2) if x != ax]
+        def _proj(p: np.ndarray) -> np.ndarray:
+            return np.array([p[axes[0]], p[axes[1]]])
+        A2 = np.array([_proj(v0), _proj(v1), _proj(v2)])
+        B2 = np.array([_proj(u0), _proj(u1), _proj(u2)])
+        return _poly_overlap_2d(A2, B2)
+
+    # ── Plane of T2 ──────────────────────────────────────────────────────────
+    N2 = np.cross(u1 - u0, u2 - u0)
+    if np.dot(N2, N2) < 1e-14:
+        return False
+    d2 = np.dot(N2, u0)
+    dV = np.array([np.dot(N2, v0), np.dot(N2, v1), np.dot(N2, v2)]) - d2
+
+    if dV[0] * dV[1] > tol * tol and dV[0] * dV[2] > tol * tol:
+        return False
+
+    # ── Intersection-line interval test ──────────────────────────────────────
+    D = np.cross(N1, N2)
+    idx = int(np.argmax(np.abs(D)))
+
+    pv = np.array([v0[idx], v1[idx], v2[idx]])
+    pu = np.array([u0[idx], u1[idx], u2[idx]])
+
+    def _interval(p: np.ndarray, d: np.ndarray) -> Tuple[float, float]:
+        # Identify the lone vertex (on the opposite side)
+        if d[0] * d[1] >= 0 and d[0] * d[2] < 0:
+            lone, others = 2, (0, 1)
+        elif d[0] * d[1] < 0 and d[0] * d[2] >= 0:
+            lone, others = 1, (0, 2)
+        else:
+            lone, others = 0, (1, 2)
+        dlo = d[lone]
+        t = [
+            p[lone] + (p[others[k]] - p[lone]) * dlo / (dlo - d[others[k]])
+            for k in range(2)
+            if abs(dlo - d[others[k]]) > 1e-14
+        ]
+        if len(t) < 2:
+            t = [p[lone], p[lone]]
+        return (min(t), max(t))
+
+    try:
+        iv = _interval(pv, dV)
+        iu = _interval(pu, dU)
+    except Exception:
+        return False
+
+    return iv[0] <= iu[1] + tol and iu[0] <= iv[1] + tol
+
+
+def _meshes_intersect(
+    verts_a: np.ndarray, faces_a: np.ndarray,
+    verts_b: np.ndarray, faces_b: np.ndarray,
+) -> bool:
+    """Exact triangle-mesh intersection check.
+
+    Uses per-triangle AABB prefilter to avoid O(n²) brute force.
+    Returns True on the first intersecting triangle pair found.
+    """
+    if len(faces_a) == 0 or len(faces_b) == 0:
+        return False
+
+    T1 = verts_a[faces_a]  # (n1, 3, 3)
+    T2 = verts_b[faces_b]  # (n2, 3, 3)
+
+    T1_min = T1.min(axis=1)  # (n1, 3)
+    T1_max = T1.max(axis=1)
+    T2_min = T2.min(axis=1)  # (n2, 3)
+    T2_max = T2.max(axis=1)
+
+    for i in range(len(T1)):
+        # Vectorised AABB check of T1[i] against all T2 triangles
+        cand = np.where(
+            np.all(T1_min[i] <= T2_max, axis=1) &
+            np.all(T2_min <= T1_max[i], axis=1)
+        )[0]
+        for j in cand:
+            if _tri_tri_3d(T1[i, 0], T1[i, 1], T1[i, 2],
+                           T2[j, 0], T2[j, 1], T2[j, 2]):
+                return True
+    return False
 
 
 def _aabbs_overlap(a: tuple, b: tuple, extend: float) -> bool:
@@ -411,8 +542,10 @@ def _aabb_obb_filter(
     in same-model checks).
     """
     pairs: List[Tuple[int, int]] = []
-    for eid_a, (aabb_a, obb_ca, obb_axa, obb_ha) in geoms_a.items():
-        for eid_b, (aabb_b, obb_cb, obb_axb, obb_hb) in geoms_b.items():
+    for eid_a, geom_a in geoms_a.items():
+        aabb_a, obb_ca, obb_axa, obb_ha = geom_a[:4]
+        for eid_b, geom_b in geoms_b.items():
+            aabb_b, obb_cb, obb_axb, obb_hb = geom_b[:4]
             if skip_same_eid and eid_a == eid_b:
                 continue
             if not _aabbs_overlap(aabb_a, aabb_b, extend):
@@ -666,22 +799,36 @@ def run_clash(req: ClashPayload):
                     except Exception as exc:
                         print(f"[clash] CGAL fehlgeschlagen: {exc}", flush=True)
 
-                # ── Fallback: AABB+OBB Kandidaten direkt verwenden ───────────
-                # Greift wenn CGAL fehlschlägt ODER für hard-clash/duplicate
-                # keine Ergebnisse liefert obwohl Kandidaten vorhanden sind.
+                # ── Fallback: exakte Mesh-Intersection auf AABB+OBB-Kandidaten ─
+                # Greift wenn CGAL fehlschlägt ODER für hard-clash/duplicate keine
+                # Ergebnisse liefert (typisch: Same-Model CGAL Express-ID-Skip).
+                # Statt rohe OBB-Kandidaten durchzureichen wird jedes Paar per
+                # Triangle-Triangle-Intersection (Möller 1997) exakt geprüft.
                 if not raw_pairs and rule.check_type in ("hard-clash", "duplicate"):
-                    if not cgal_ok:
-                        print("[clash] Fallback: CGAL-Exception → AABB+OBB Kandidaten", flush=True)
-                    else:
-                        print(
-                            "[clash] Fallback: CGAL liefert 0 trotz Kandidaten"
-                            " → AABB+OBB Kandidaten",
-                            flush=True,
-                        )
-                    raw_pairs = [
-                        (model_a.by_id(ea), model_b_w.by_id(eb), 0.0)
-                        for ea, eb in candidate_pairs
-                    ]
+                    reason = "CGAL-Exception" if not cgal_ok else "CGAL liefert 0 trotz Kandidaten"
+                    print(
+                        f"[clash] Fallback: {reason}"
+                        f" → exakte Mesh-Intersection auf {len(candidate_pairs)} Paaren",
+                        flush=True,
+                    )
+                    exact_pairs: List[tuple] = []
+                    for eid_a_c, eid_b_c in candidate_pairs:
+                        ga = geoms_a_d.get(eid_a_c)
+                        gb = geoms_b_d.get(eid_b_c)
+                        if ga is None or gb is None:
+                            continue
+                        va, fa = ga[4], ga[5]
+                        vb, fb = gb[4], gb[5]
+                        if _meshes_intersect(va, fa, vb, fb):
+                            exact_pairs.append(
+                                (model_a.by_id(eid_a_c), model_b_w.by_id(eid_b_c), 0.0)
+                            )
+                    print(
+                        f"[clash] Mesh-Intersection: {len(exact_pairs)} echte Treffer"
+                        f" aus {len(candidate_pairs)} Kandidaten",
+                        flush=True,
+                    )
+                    raw_pairs = exact_pairs
                     cgal_ok = False
 
                 # ── Deduplicate and build results ────────────────────────────
