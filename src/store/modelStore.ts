@@ -363,11 +363,16 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     const view = state.smartViews.find((v) => v.id === id);
     if (!view) return;
 
-    const pre: PreSmartViewState = {
-      hiddenElements: new Set(state.hiddenElements),
-      isolatedElements: state.isolatedElements ? new Set(state.isolatedElements) : null,
-      colorGroups: state.colorGroups ? [...state.colorGroups] : null,
-    };
+    // If this SmartView is already active, keep the original pre-state so
+    // deleting it always restores the state from before the first activation.
+    const pre: PreSmartViewState =
+      state.activeSmartViewId === id && state.preSmartViewState
+        ? state.preSmartViewState
+        : {
+            hiddenElements: new Set(state.hiddenElements),
+            isolatedElements: state.isolatedElements ? new Set(state.isolatedElements) : null,
+            colorGroups: state.colorGroups ? [...state.colorGroups] : null,
+          };
 
     const newHidden = new Set(state.hiddenElements);
     const allColorGroups: ColorGroup[] = [];
