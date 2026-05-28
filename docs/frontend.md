@@ -286,6 +286,16 @@ Zeigt Eigenschaften des selektierten Elements (`selectedElement` aus Store). Vie
 - **Mengen** — Quantity-Sets (`Qto_`-Präfix)
 - **`</>`** — Raw JSON-Ansicht mit Kopier-Button
 
+### Schnellfilter (Quick Filter)
+
+Klick auf eine Eigenschaftszeile → `toggleQuickFilterRule(key, value)` im Store:
+- Erstellt/aktualisiert den reservierten SmartView `__quick_filter__` mit `action: "removeOthers"`
+- Weitere Klicks fügen zusätzliche Regeln hinzu (AND-Logik)
+- Aktive Regeln werden in der Zeile hervorgehoben (primärfarben)
+- Schnellfilter-Indikator unter den Tabs zeigt Regelanzahl + `×`-Button zum Zurücksetzen
+- Erneuter Klick auf eine aktive Zeile entfernt die Regel (Toggle)
+- Letzter Regel entfernt → SmartView wird gelöscht + deaktiviert
+
 ### Inline-Bearbeitung
 
 Jede Eigenschaftszeile hat einen Bearbeiten-Button:

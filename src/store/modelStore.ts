@@ -86,6 +86,7 @@ interface ModelStore {
   setStagedSmartViewId: (id: string | null) => void;
   applySmartView: (id: string) => void;
   deactivateSmartView: () => void;
+  toggleQuickFilterRule: (key: string, value: string) => void;
 
   // Property cache
   setLoadedProperties: (
@@ -491,6 +492,50 @@ export const useModelStore = create<ModelStore>((set, get) => ({
         colorGroups: pre?.colorGroups ?? null,
       };
     }),
+
+  toggleQuickFilterRule: (key, value) => {
+    const QFID = "__quick_filter__";
+    const state = get();
+    const ruleId = `${key}=${value}`;
+    const existing = state.smartViews.find((v) => v.id === QFID);
+
+    if (existing) {
+      const tier = existing.tiers[0];
+      const hasRule = tier.rules.some((r) => r.id === ruleId);
+      const newRules = hasRule
+        ? tier.rules.filter((r) => r.id !== ruleId)
+        : [...tier.rules, { id: ruleId, property: key, condition: "eq" as const, value }];
+
+      if (newRules.length === 0) {
+        get().removeSmartView(QFID);
+        return;
+      }
+
+      const updatedView: SmartView = { ...existing, tiers: [{ ...tier, rules: newRules }] };
+      const smartViews = state.smartViews.map((v) => v.id === QFID ? updatedView : v);
+      localStorage.setItem("infracore-smartviews", JSON.stringify(smartViews));
+      set({ smartViews });
+    } else {
+      const newView: SmartView = {
+        id: QFID,
+        name: "Schnellfilter",
+        tiers: [{
+          id: "__quick_filter_tier__",
+          name: "Filter",
+          rules: [{ id: ruleId, property: key, condition: "eq" as const, value }],
+          logic: "AND",
+          action: "removeOthers",
+          color: "#4ade80",
+          colorByKey: "",
+          opacity: 0.15,
+        }],
+      };
+      const smartViews = [...state.smartViews, newView];
+      localStorage.setItem("infracore-smartviews", JSON.stringify(smartViews));
+      set({ smartViews });
+    }
+    get().applySmartView(QFID);
+  },
 
   // ── Property cache ──────────────────────────────────────────────────────────
 

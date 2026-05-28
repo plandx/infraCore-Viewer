@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from "react";
-import { Tag, List, Hash, Code, Copy, Check, Eye, EyeOff, ScanLine, PencilLine, Download, X, Loader2, ScanEye, Filter } from "lucide-react";
+import { useState, useCallback, useRef, useMemo } from "react";
+import { Tag, List, Hash, Code, Copy, Check, Eye, ScanLine, PencilLine, Download, X, Loader2, Filter } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { IFC_CLASS_NAMES } from "../utils/ifcClassNames";
@@ -40,45 +40,20 @@ export function PropertiesPanel() {
   const hideElement       = useModelStore((s) => s.hideElement);
   const isolateElement    = useModelStore((s) => s.isolateElement);
   const showAll           = useModelStore((s) => s.showAll);
-  const isolatedElements  = useModelStore((s) => s.isolatedElements);
-  const hiddenElements    = useModelStore((s) => s.hiddenElements);
+  const isolatedElements    = useModelStore((s) => s.isolatedElements);
+  const hiddenElements      = useModelStore((s) => s.hiddenElements);
   const propertyOverrides   = useModelStore((s) => s.propertyOverrides);
   const applyPropertyEdits  = useModelStore((s) => s.applyPropertyEdits);
   const loadedProperties    = useModelStore((s) => s.loadedProperties);
-  const isolateEntries      = useModelStore((s) => s.isolateEntries);
-  const hideElements        = useModelStore((s) => s.hideElements);
-  // Filter selection: which property + value the user pinned for isolate/hide actions
-  const [filterProp, setFilterProp] = useState<{ key: string; value: string; label: string } | null>(null);
-  const [filterBusy, setFilterBusy] = useState<"isolate" | "hide" | null>(null);
+  const smartViews          = useModelStore((s) => s.smartViews);
+  const toggleQuickFilterRule = useModelStore((s) => s.toggleQuickFilterRule);
+  const removeSmartView     = useModelStore((s) => s.removeSmartView);
 
-  const handleIsolateSimilar = useCallback((key: string, value: string) => {
-    if (!loadedProperties) return;
-    setFilterBusy("isolate");
-    const entries: Array<{ modelId: string; expressId: number }> = [];
-    loadedProperties.forEach((modelMap, modelId) => {
-      modelMap.forEach((flatProps, expressId) => {
-        if (renderVal(flatProps[key]) === value) entries.push({ modelId, expressId });
-      });
-    });
-    if (entries.length > 0) isolateEntries(entries);
-    setFilterBusy(null);
-  }, [loadedProperties, isolateEntries]);
-
-  const handleHideSimilar = useCallback((key: string, value: string) => {
-    if (!loadedProperties) return;
-    setFilterBusy("hide");
-    const byModel = new Map<string, number[]>();
-    loadedProperties.forEach((modelMap, modelId) => {
-      modelMap.forEach((flatProps, expressId) => {
-        if (renderVal(flatProps[key]) === value) {
-          if (!byModel.has(modelId)) byModel.set(modelId, []);
-          byModel.get(modelId)!.push(expressId);
-        }
-      });
-    });
-    byModel.forEach((ids, modelId) => hideElements(modelId, ids));
-    setFilterBusy(null);
-  }, [loadedProperties, hideElements]);
+  const activeQuickRules = useMemo(() => {
+    const qf = smartViews.find((v) => v.id === "__quick_filter__");
+    if (!qf?.tiers[0]) return new Set<string>();
+    return new Set(qf.tiers[0].rules.map((r) => `${r.property}=${r.value}`));
+  }, [smartViews]);
 
   if (!selected) {
     return (
@@ -221,39 +196,25 @@ export function PropertiesPanel() {
         ))}
       </div>
 
-      {/* Filter action bar */}
-      {filterProp ? (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-primary/30 bg-primary/5 shrink-0">
-          <Filter size={10} className="text-primary shrink-0" />
-          <span className="text-[10px] text-primary font-mono truncate flex-1" title={`${filterProp.label} = ${filterProp.value}`}>
-            {filterProp.label} = <strong>{filterProp.value}</strong>
+      {/* Quick filter indicator */}
+      {activeQuickRules.size > 0 ? (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-primary/20 bg-primary/5 shrink-0">
+          <Filter size={9} className="text-primary shrink-0" />
+          <span className="text-[10px] text-primary flex-1">
+            Schnellfilter: {activeQuickRules.size} {activeQuickRules.size === 1 ? "Regel" : "Regeln"}
           </span>
           <button
-            disabled={!loadedProperties || filterBusy !== null}
-            onClick={() => handleIsolateSimilar(filterProp.key, filterProp.value)}
-            title={loadedProperties ? "Alle mit diesem Wert isolieren" : "Properties zuerst in SmartViews laden"}
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-primary/15 hover:bg-primary/25 text-primary border border-primary/25 disabled:opacity-40 transition-colors shrink-0"
+            onClick={() => removeSmartView("__quick_filter__")}
+            className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            title="Schnellfilter zurücksetzen"
           >
-            {filterBusy === "isolate" ? <Loader2 size={9} className="animate-spin" /> : <ScanEye size={9} />}
-            Isolieren
-          </button>
-          <button
-            disabled={!loadedProperties || filterBusy !== null}
-            onClick={() => handleHideSimilar(filterProp.key, filterProp.value)}
-            title={loadedProperties ? "Alle mit diesem Wert ausblenden" : "Properties zuerst in SmartViews laden"}
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-muted hover:bg-muted/80 text-muted-foreground border border-border disabled:opacity-40 transition-colors shrink-0"
-          >
-            {filterBusy === "hide" ? <Loader2 size={9} className="animate-spin" /> : <EyeOff size={9} />}
-            Ausblenden
-          </button>
-          <button onClick={() => setFilterProp(null)} className="text-muted-foreground/60 hover:text-muted-foreground transition-colors shrink-0 ml-0.5">
-            <X size={11} />
+            <X size={10} />
           </button>
         </div>
       ) : !loadedProperties && (
         <div className="px-3 py-1 border-b border-border/30 shrink-0">
           <p className="text-[10px] text-muted-foreground/60">
-            Zeile anklicken → Filteraktionen. Properties laden via <span className="text-primary">SmartViews</span>.
+            Zeile anklicken → Schnellfilter. Properties laden via <span className="text-primary">SmartViews</span>.
           </p>
         </div>
       )}
@@ -265,8 +226,8 @@ export function PropertiesPanel() {
             properties={selected.properties}
             overrides={overrides}
             onEdit={onEdit}
-            onSelectProp={setFilterProp}
-            activePropKey={filterProp?.key ?? null}
+            onSelectProp={(p) => toggleQuickFilterRule(p.key, p.value)}
+            activeRuleIds={activeQuickRules}
           />
         )}
         {activeTab === "properties" && (
@@ -274,8 +235,8 @@ export function PropertiesPanel() {
             psets={selected.psets.filter(p => !p.name.startsWith("Qto_"))}
             overrides={overrides}
             onEdit={onEdit}
-            onSelectProp={setFilterProp}
-            activePropKey={filterProp?.key ?? null}
+            onSelectProp={(p) => toggleQuickFilterRule(p.key, p.value)}
+            activeRuleIds={activeQuickRules}
           />
         )}
         {activeTab === "quantities" && (
@@ -284,8 +245,8 @@ export function PropertiesPanel() {
             overrides={overrides}
             onEdit={onEdit}
             emptyMsg="Keine Mengen vorhanden"
-            onSelectProp={setFilterProp}
-            activePropKey={filterProp?.key ?? null}
+            onSelectProp={(p) => toggleQuickFilterRule(p.key, p.value)}
+            activeRuleIds={activeQuickRules}
           />
         )}
         {activeTab === "raw" && (
@@ -305,16 +266,16 @@ function PanelHeader({ children }: { children?: React.ReactNode }) {
   );
 }
 
-type SelectPropFn = (p: { key: string; value: string; label: string } | null) => void;
+type SelectPropFn = (p: { key: string; value: string; label: string }) => void;
 
 function AttributesTab({
-  properties, overrides, onEdit, onSelectProp, activePropKey,
+  properties, overrides, onEdit, onSelectProp, activeRuleIds,
 }: {
   properties: Record<string, unknown>;
   overrides: Record<string, PropOverride>;
   onEdit: (key: string, value: string, ifcType?: number) => void;
   onSelectProp: SelectPropFn;
-  activePropKey: string | null;
+  activeRuleIds: Set<string>;
 }) {
   const ifcTypeCode = typeof properties.type === "number" ? properties.type : null;
   const ifcTypeName = ifcTypeCode ? lookupIfcTypeName(ifcTypeCode) : null;
@@ -339,21 +300,21 @@ function AttributesTab({
           )}
         </tbody>
       </table>
-      <PropTable rows={entries} overrides={overrides} onEdit={onEdit} onSelectProp={onSelectProp} activePropKey={activePropKey} />
+      <PropTable rows={entries} overrides={overrides} onEdit={onEdit} onSelectProp={onSelectProp} activeRuleIds={activeRuleIds} />
     </div>
   );
 }
 
 function PropertySetsTab({
   psets, overrides, onEdit, emptyMsg = "Keine Eigenschaften vorhanden",
-  onSelectProp, activePropKey,
+  onSelectProp, activeRuleIds,
 }: {
   psets: { name: string; properties: { name: string; value: unknown; type: string }[] }[];
   overrides: Record<string, PropOverride>;
   onEdit: (key: string, value: string, ifcType?: number) => void;
   emptyMsg?: string;
   onSelectProp: SelectPropFn;
-  activePropKey: string | null;
+  activeRuleIds: Set<string>;
 }) {
   if (!psets.length) return <EmptyState msg={emptyMsg} />;
   return (
@@ -361,7 +322,7 @@ function PropertySetsTab({
       {psets.map((pset, i) => (
         <div key={`${pset.name}-${i}`}>
           <SectionHeader title={pset.name} count={pset.properties.length} />
-          <PropTable rows={pset.properties} overrides={overrides} psetName={pset.name} onEdit={onEdit} onSelectProp={onSelectProp} activePropKey={activePropKey} />
+          <PropTable rows={pset.properties} overrides={overrides} psetName={pset.name} onEdit={onEdit} onSelectProp={onSelectProp} activeRuleIds={activeRuleIds} />
         </div>
       ))}
     </div>
@@ -401,14 +362,14 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
 }
 
 function PropTable({
-  rows, overrides, psetName, onEdit, onSelectProp, activePropKey,
+  rows, overrides, psetName, onEdit, onSelectProp, activeRuleIds,
 }: {
   rows: { name: string; value: unknown; type?: string }[];
   overrides: Record<string, PropOverride>;
   psetName?: string;
   onEdit: (key: string, value: string, ifcType?: number) => void;
   onSelectProp: SelectPropFn;
-  activePropKey: string | null;
+  activeRuleIds: Set<string>;
 }) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -451,7 +412,7 @@ function PropTable({
 
           const displayVal = isOverridden ? override.value : renderVal(r.value);
 
-          const isActive = activePropKey === overrideKey;
+          const isActive = activeRuleIds.has(`${overrideKey}=${displayVal}`);
 
           return (
             <tr
@@ -462,7 +423,7 @@ function PropTable({
               )}
               onClick={() => {
                 if (isEditing) return;
-                onSelectProp(isActive ? null : { key: overrideKey, value: displayVal, label: psetName ? `${psetName}.${r.name}` : r.name });
+                onSelectProp({ key: overrideKey, value: displayVal, label: psetName ? `${psetName}.${r.name}` : r.name });
               }}
             >
               <td

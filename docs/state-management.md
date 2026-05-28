@@ -220,6 +220,14 @@ applySmartView(id: string): void
 
 deactivateSmartView(): void
 // Stellt preSmartViewState wieder her
+
+toggleQuickFilterRule(key: string, value: string): void
+// Erstellt/aktualisiert den reservierten SmartView "__quick_filter__" (Name: "Schnellfilter")
+// mit action "removeOthers". Klick auf eine Eigenschaftszeile im PropertiesPanel
+// fügt eine eq-Regel für key+value hinzu oder entfernt sie (Toggle).
+// Mehrere Regeln werden mit AND-Logik kombiniert.
+// Wenn alle Regeln entfernt wurden → removeSmartView("__quick_filter__").
+// Nach jeder Änderung wird applySmartView("__quick_filter__") automatisch aufgerufen.
 ```
 
 ### Quantity Take-Off
