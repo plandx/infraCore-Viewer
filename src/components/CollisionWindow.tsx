@@ -1,39 +1,44 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { AlertTriangle, Play, Loader2, ChevronDown, ChevronRight, Download, Plus, Trash2, Check, AlertCircle, X, Focus, ArrowUpDown, Circle } from "lucide-react";
-import { cn } from "../lib/utils";
 import {
-  COLLISION_CHANNEL,
-  DEFAULT_CLASH_RULES,
-} from "../utils/windowSync";
+  AlertTriangle, Play, Loader2, ChevronDown, ChevronRight,
+  Download, Plus, Trash2, Check, X, Focus, ArrowUpDown,
+  Circle, Pencil, ArrowLeft,
+} from "lucide-react";
+import { cn } from "../lib/utils";
+import { COLLISION_CHANNEL, DEFAULT_CLASH_RULES } from "../utils/windowSync";
 import type {
-  CollisionMsg, CollisionSyncState, ClashRule, ClashResult, ClashStatus, Severity, PropCondition, ComponentFilter, CheckType,
+  CollisionMsg, CollisionSyncState, ClashRule, ClashResult, ClashStatus,
+  Severity, PropCondition, ComponentFilter, CheckType,
 } from "../utils/windowSync";
 
-type GroupBy = "none" | "rule" | "severity" | "typePair" | "status";
-type SortBy = "severity" | "rule" | "nameA" | "overlap" | "status";
+type ViewMode = "results" | "editor";
+type GroupBy  = "none" | "rule" | "severity" | "typePair" | "status";
+type SortBy   = "severity" | "rule" | "nameA" | "overlap" | "status";
 
-const SEVERITY_ORDER: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
-const STATUS_ORDER: Record<ClashStatus, number> = { new: 0, approved: 1, resolved: 2 };
+const SEV_ORDER:  Record<Severity, number>    = { error: 0, warning: 1, info: 2 };
+const STAT_ORDER: Record<ClashStatus, number> = { new: 0, approved: 1, resolved: 2 };
+
+const ROW = "grid items-center gap-0" as const;
+const COL_TEMPLATE = "grid-cols-[4px_1fr_18px_1fr_90px_76px_34px]" as const;
+
+// ── CollisionWindow ───────────────────────────────────────────────────────────
 
 export function CollisionWindow() {
   const chRef = useRef<BroadcastChannel | null>(null);
+
   const [state, setState] = useState<CollisionSyncState>({
-    rules: DEFAULT_CLASH_RULES,
-    results: [],
-    running: false,
-    progress: 0,
-    allTypes: [],
-    loadedPropKeys: [],
-    theme: "dark",
+    rules: DEFAULT_CLASH_RULES, results: [], running: false, progress: 0,
+    allTypes: [], loadedPropKeys: [], propValues: {}, theme: "dark",
   });
-  const [activeRule, setActiveRule] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [editRule, setEditRule] = useState<ClashRule | null>(null);
-  const [localRules, setLocalRules] = useState<ClashRule[]>(DEFAULT_CLASH_RULES);
-  const [groupBy, setGroupBy] = useState<GroupBy>("none");
-  const [sortBy, setSortBy] = useState<SortBy>("severity");
-  const [sortAsc, setSortAsc] = useState(true);
-  const [useServer, setUseServer] = useState(false);
+  const [localRules,   setLocalRules]   = useState<ClashRule[]>(DEFAULT_CLASH_RULES);
+  const [viewMode,     setViewMode]     = useState<ViewMode>("results");
+  const [editingRule,  setEditingRule]  = useState<ClashRule | null>(null);
+  const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
+  const [expandedKey,  setExpandedKey]  = useState<string | null>(null);
+  const [groupBy,  setGroupBy]  = useState<GroupBy>("none");
+  const [sortBy,   setSortBy]   = useState<SortBy>("severity");
+  const [sortAsc,  setSortAsc]  = useState(true);
+  const [useServer,    setUseServer]    = useState(false);
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -54,67 +59,93 @@ export function CollisionWindow() {
     let ch: BroadcastChannel;
     try { ch = new BroadcastChannel(COLLISION_CHANNEL); } catch { return; }
     chRef.current = ch;
-
     ch.onmessage = (e: MessageEvent<CollisionMsg>) => {
       const msg = e.data;
-      if (msg.t === "state") {
-        setState(msg.s);
-        setLocalRules(msg.s.rules);
-      }
+      if (msg.t === "state") { setState(msg.s); setLocalRules(msg.s.rules); }
     };
-
     ch.postMessage({ t: "req" } satisfies CollisionMsg);
-
     return () => { ch.close(); chRef.current = null; };
   }, []);
 
-  const sendRun = useCallback(() => {
-    chRef.current?.postMessage({ t: "run", rules: localRules, useServer } satisfies CollisionMsg);
-  }, [localRules, useServer]);
+  const sendRun = useCallback(() =>
+    chRef.current?.postMessage({ t: "run", rules: localRules, useServer } satisfies CollisionMsg),
+    [localRules, useServer]);
 
-  const sendSetStatus = useCallback((result: ClashResult, status: ClashStatus) => {
-    const key = `${result.ruleId}|${result.modelIdA}:${result.expressIdA}|${result.modelIdB}:${result.expressIdB}`;
+  const sendSetStatus = useCallback((r: ClashResult, status: ClashStatus) => {
+    const key = `${r.ruleId}|${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}`;
     chRef.current?.postMessage({ t: "setStatus", key, status } satisfies CollisionMsg);
   }, []);
 
-  const sendIsolate = useCallback((result: ClashResult) => {
+  const sendIsolate = useCallback((r: ClashResult) =>
     chRef.current?.postMessage({
       t: "isolate",
-      modelIdA: result.modelIdA, expressIdA: result.expressIdA,
-      modelIdB: result.modelIdB, expressIdB: result.expressIdB,
-    } satisfies CollisionMsg);
+      modelIdA: r.modelIdA, expressIdA: r.expressIdA,
+      modelIdB: r.modelIdB, expressIdB: r.expressIdB,
+    } satisfies CollisionMsg), []);
+
+  // ── Rule editing — replaces right panel, no modal ─────────────────────────
+
+  const openEditor = useCallback((rule: ClashRule) => {
+    setEditingRule({
+      ...rule,
+      componentA: { ...rule.componentA, ifcTypes: [...rule.componentA.ifcTypes], conditions: rule.componentA.conditions.map(c => ({ ...c })) },
+      componentB: { ...rule.componentB, ifcTypes: [...rule.componentB.ifcTypes], conditions: rule.componentB.conditions.map(c => ({ ...c })) },
+    });
+    setViewMode("editor");
   }, []);
 
+  const closeEditor = useCallback(() => { setEditingRule(null); setViewMode("results"); }, []);
+
+  const saveRule = useCallback((rule: ClashRule) => {
+    setLocalRules(prev => {
+      const idx = prev.findIndex(x => x.id === rule.id);
+      return idx >= 0 ? prev.map(x => x.id === rule.id ? rule : x) : [...prev, rule];
+    });
+    closeEditor();
+  }, [closeEditor]);
+
+  const deleteRule = (id: string) => {
+    setLocalRules(prev => prev.filter(r => r.id !== id));
+    if (editingRule?.id === id) closeEditor();
+  };
+
+  const newEmptyRule = (): ClashRule => ({
+    id: `rule-${Date.now()}`, name: "Neue Regel", enabled: true,
+    severity: "warning", checkType: "hard-clash", tolerance: 0.001,
+    componentA: { ifcTypes: [], conditions: [] },
+    componentB: { ifcTypes: [], conditions: [] },
+  });
+
+  // ── Derived results ───────────────────────────────────────────────────────
+
   const baseResults = useMemo(() =>
-    activeRule ? state.results.filter(r => r.ruleId === activeRule) : state.results,
-    [state.results, activeRule]
-  );
+    activeRuleId ? state.results.filter(r => r.ruleId === activeRuleId) : state.results,
+    [state.results, activeRuleId]);
 
   const sortedResults = useMemo(() => {
     const arr = [...baseResults];
     arr.sort((a, b) => {
       let cmp = 0;
       switch (sortBy) {
-        case "severity": cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]; break;
-        case "rule":     cmp = a.ruleName.localeCompare(b.ruleName); break;
-        case "nameA":    cmp = a.nameA.localeCompare(b.nameA); break;
-        case "overlap":  cmp = b.overlap - a.overlap; break;
-        case "status":   cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status]; break;
+        case "severity": cmp = SEV_ORDER[a.severity]  - SEV_ORDER[b.severity]; break;
+        case "rule":     cmp = a.ruleName.localeCompare(b.ruleName);            break;
+        case "nameA":    cmp = a.nameA.localeCompare(b.nameA);                  break;
+        case "overlap":  cmp = b.overlap - a.overlap;                           break;
+        case "status":   cmp = STAT_ORDER[a.status]   - STAT_ORDER[b.status];  break;
       }
       return sortAsc ? cmp : -cmp;
     });
     return arr;
   }, [baseResults, sortBy, sortAsc]);
 
-  const groupedResults = useMemo((): Array<{ label: string; items: ClashResult[] }> => {
+  const groupedResults = useMemo((): { label: string; items: ClashResult[] }[] => {
     if (groupBy === "none") return [{ label: "", items: sortedResults }];
     const map = new Map<string, ClashResult[]>();
     for (const r of sortedResults) {
-      const key =
-        groupBy === "rule"     ? r.ruleName :
-        groupBy === "severity" ? r.severity.toUpperCase() :
-        groupBy === "typePair" ? `${r.typeA.replace("Ifc","")} ↔ ${r.typeB.replace("Ifc","")}` :
-        /* status */             r.status.toUpperCase();
+      const key = groupBy === "rule"     ? r.ruleName :
+                  groupBy === "severity" ? r.severity :
+                  groupBy === "typePair" ? `${r.typeA.replace("Ifc","")} ↔ ${r.typeB.replace("Ifc","")}` :
+                  r.status;
       const arr = map.get(key) ?? [];
       arr.push(r);
       map.set(key, arr);
@@ -123,26 +154,25 @@ export function CollisionWindow() {
   }, [sortedResults, groupBy]);
 
   const ruleStats = useMemo(() => {
-    const map = new Map<string, { total: number; new: number; approved: number; resolved: number }>();
+    const m = new Map<string, { total: number; new: number; approved: number; resolved: number }>();
     for (const r of state.results) {
-      let s = map.get(r.ruleId);
-      if (!s) { s = { total: 0, new: 0, approved: 0, resolved: 0 }; map.set(r.ruleId, s); }
-      s.total++;
-      s[r.status]++;
+      const s = m.get(r.ruleId) ?? { total: 0, new: 0, approved: 0, resolved: 0 };
+      s.total++; s[r.status]++; m.set(r.ruleId, s);
     }
-    return map;
+    return m;
   }, [state.results]);
 
   const hasRun = state.results.length > 0 || (!state.running && state.progress === 100);
 
+  const errCnt  = useMemo(() => state.results.filter(r => r.severity === "error").length,   [state.results]);
+  const warnCnt = useMemo(() => state.results.filter(r => r.severity === "warning").length, [state.results]);
+  const infoCnt = useMemo(() => state.results.filter(r => r.severity === "info").length,    [state.results]);
+  const openCnt = useMemo(() => state.results.filter(r => r.status === "new").length,       [state.results]);
+
   const exportCSV = () => {
     const rows = [
-      ["Regel","Typ","Status","TypeA","NameA","TypeB","NameB","Wert","ModelA","ModelB"],
-      ...sortedResults.map(r => [
-        r.ruleName, r.severity, r.status,
-        r.typeA, r.nameA, r.typeB, r.nameB,
-        r.overlap.toFixed(4), r.modelIdA, r.modelIdB,
-      ]),
+      ["Regel","Schwere","Status","TypeA","NameA","TypeB","NameB","Wert"],
+      ...sortedResults.map(r => [r.ruleName, r.severity, r.status, r.typeA, r.nameA, r.typeB, r.nameB, r.overlap.toFixed(4)]),
     ];
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(";")).join("\n")], { type: "text/csv" }));
@@ -150,123 +180,124 @@ export function CollisionWindow() {
     a.click();
   };
 
-  const severityColor = (s: Severity) =>
-    s === "error" ? "text-red-400" : s === "warning" ? "text-amber-400" : "text-blue-400";
-  const severityBg = (s: Severity) =>
-    s === "error" ? "bg-red-400/10 border-red-400/30" : s === "warning" ? "bg-amber-400/10 border-amber-400/30" : "bg-blue-400/10 border-blue-400/30";
-  const statusIcon = (st: ClashStatus) =>
-    st === "approved" ? <Check size={10} className="text-green-400" /> :
-    st === "resolved" ? <Check size={10} className="text-blue-400" /> :
-    <AlertCircle size={10} className="text-amber-400" />;
+  const sevDot  = (s: Severity) => s === "error" ? "bg-red-500"    : s === "warning" ? "bg-amber-400"  : "bg-blue-400";
+  const sevText = (s: Severity) => s === "error" ? "text-red-400"  : s === "warning" ? "text-amber-400": "text-blue-400";
+  const sevBg   = (s: Severity) => s === "error" ? "bg-red-400/10 border-red-400/30 text-red-400"
+                                 : s === "warning" ? "bg-amber-400/10 border-amber-400/30 text-amber-400"
+                                 : "bg-blue-400/10 border-blue-400/30 text-blue-400";
 
   const toggleSort = (s: SortBy) => {
     if (sortBy === s) setSortAsc(p => !p);
     else { setSortBy(s); setSortAsc(true); }
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden">
-      {/* Header */}
+
+      {/* ── Window header ── */}
       <div
-        className="flex items-center justify-between px-5 shrink-0 border-b border-border"
-        style={{ height: '44px', background: 'var(--toolbar-bg)', borderTop: '3px solid var(--color-primary)', boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}
+        className="flex items-center gap-3 px-4 shrink-0 border-b border-border"
+        style={{ height: 44, background: "var(--toolbar-bg)", borderTop: "3px solid var(--color-primary)" }}
       >
-        <div className="flex items-center gap-2.5">
-          <AlertTriangle size={15} className="text-amber-400" />
-          <h2 className="text-sm font-semibold">Regelbasierte Kollisionsprüfung</h2>
-          {hasRun && (
-            <span className="text-xs text-muted-foreground">
-              · {state.results.length} Konflikte · {state.results.filter(r => r.status === "new").length} offen
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {hasRun && state.results.length > 0 && (
-            <button onClick={exportCSV} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors">
-              <Download size={12} /> CSV
-            </button>
-          )}
-          <button onClick={() => window.close()} className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors">
-            <X size={16} />
+        <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+        <span className="text-sm font-semibold">Kollisionsprüfung</span>
+        {hasRun && (
+          <div className="flex items-center gap-3 ml-1">
+            {errCnt  > 0 && <span className={cn("flex items-center gap-1 text-xs", sevText("error"))}><span className={cn("w-1.5 h-1.5 rounded-full", sevDot("error"))} />{errCnt}</span>}
+            {warnCnt > 0 && <span className={cn("flex items-center gap-1 text-xs", sevText("warning"))}><span className={cn("w-1.5 h-1.5 rounded-full", sevDot("warning"))} />{warnCnt}</span>}
+            {infoCnt > 0 && <span className={cn("flex items-center gap-1 text-xs", sevText("info"))}><span className={cn("w-1.5 h-1.5 rounded-full", sevDot("info"))} />{infoCnt}</span>}
+            <span className="text-xs text-muted-foreground">· {openCnt} offen</span>
+          </div>
+        )}
+        <div className="flex-1" />
+        {hasRun && state.results.length > 0 && (
+          <button onClick={exportCSV}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors">
+            <Download size={12} /> CSV
           </button>
-        </div>
+        )}
+        <button onClick={() => window.close()} className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors">
+          <X size={15} />
+        </button>
       </div>
 
+      {/* ── Body ── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left: Rules panel */}
-        <div className="w-64 shrink-0 border-r border-border flex flex-col overflow-hidden">
+
+        {/* ── Left: Rules sidebar ── */}
+        <div className="w-60 shrink-0 flex flex-col border-r border-border bg-muted/10 overflow-hidden">
+
           <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Regeln ({localRules.length})</span>
-            <button
-              onClick={() => {
-                const id = `rule-${Date.now()}`;
-                setEditRule({
-                  id, name: "Neue Regel", enabled: true, severity: "warning",
-                  checkType: "hard-clash", tolerance: 0.001,
-                  componentA: { ifcTypes: [], conditions: [] },
-                  componentB: { ifcTypes: [], conditions: [] },
-                });
-              }}
-              className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
-            >
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Regeln ({localRules.length})
+            </span>
+            <button onClick={() => openEditor(newEmptyRule())}
+              title="Neue Regel"
+              className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors">
               <Plus size={13} />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto scrollbar-thin">
+          {/* Rule list */}
+          <div className="flex-1 overflow-y-auto">
+            {localRules.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+                <p className="text-[10px] text-muted-foreground">Keine Regeln definiert</p>
+                <button onClick={() => openEditor(newEmptyRule())}
+                  className="text-[10px] text-primary mt-2 hover:underline">
+                  Erste Regel anlegen
+                </button>
+              </div>
+            )}
             {localRules.map(rule => {
-              const stats = ruleStats.get(rule.id);
+              const stats    = ruleStats.get(rule.id);
+              const isActive = activeRuleId === rule.id;
+              const isEditing = editingRule?.id === rule.id && viewMode === "editor";
               return (
                 <div
                   key={rule.id}
-                  onClick={() => setActiveRule(activeRule === rule.id ? null : rule.id)}
                   className={cn(
-                    "px-3 py-2.5 cursor-pointer border-b border-border/50 transition-colors",
-                    activeRule === rule.id ? "bg-muted" : "hover:bg-muted/40"
+                    "group relative border-b border-border/40 transition-colors",
+                    isEditing  ? "bg-primary/8 border-l-2 border-l-primary pl-[10px]" : "pl-3",
+                    !isEditing && (isActive ? "bg-muted/50" : "hover:bg-muted/25")
                   )}
                 >
-                  <div className="flex items-start justify-between gap-1">
-                    <div className="flex items-start gap-1.5 min-w-0">
-                      <input
-                        type="checkbox"
-                        checked={rule.enabled}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => setLocalRules(prev => prev.map(r => r.id === rule.id ? { ...r, enabled: e.target.checked } : r))}
-                        className="mt-0.5 shrink-0"
-                      />
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground truncate">{rule.name}</p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className={cn("text-[9px] font-mono", severityColor(rule.severity))}>
-                            {rule.severity.toUpperCase()}
-                          </span>
-                          <span className="text-[9px] text-muted-foreground">·</span>
-                          <span className="text-[9px] text-muted-foreground">
-                            {rule.checkType === "hard-clash" ? "Kollision" : rule.checkType === "clearance" ? `Abstand ${rule.tolerance}m` : "Duplikat"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-1 shrink-0 mt-0.5">
-                      <button
-                        onClick={e => { e.stopPropagation(); setEditRule({ ...rule }); }}
-                        className="text-muted-foreground hover:text-foreground p-0.5 rounded"
-                      >
-                        <ChevronRight size={11} />
+                  <div className="flex items-start gap-2 pr-2 py-2.5">
+                    <input type="checkbox" checked={rule.enabled}
+                      onChange={e => setLocalRules(p => p.map(r => r.id === rule.id ? { ...r, enabled: e.target.checked } : r))}
+                      className="mt-0.5 shrink-0 cursor-pointer" />
+                    <span className={cn("mt-1 w-2 h-2 rounded-full shrink-0 ring-1 ring-white/10", sevDot(rule.severity))} />
+                    <button
+                      className="flex-1 min-w-0 text-left"
+                      onClick={() => {
+                        setActiveRuleId(p => p === rule.id ? null : rule.id);
+                        if (viewMode === "editor") closeEditor();
+                      }}
+                    >
+                      <p className="text-[11px] font-medium truncate leading-snug">{rule.name}</p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5">
+                        {rule.checkType === "hard-clash" ? "Kollision" :
+                         rule.checkType === "clearance"  ? `Abstand ${rule.tolerance}m` : "Duplikat"}
+                      </p>
+                    </button>
+                    <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEditor(rule)} title="Bearbeiten"
+                        className={cn("p-1 rounded transition-colors", isEditing ? "text-primary" : "text-muted-foreground hover:text-foreground")}>
+                        <Pencil size={10} />
                       </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); setLocalRules(prev => prev.filter(r => r.id !== rule.id)); }}
-                        className="text-muted-foreground hover:text-red-400 p-0.5 rounded"
-                      >
-                        <Trash2 size={11} />
+                      <button onClick={() => deleteRule(rule.id)} title="Löschen"
+                        className="p-1 rounded text-muted-foreground hover:text-red-400 transition-colors">
+                        <Trash2 size={10} />
                       </button>
                     </div>
                   </div>
-                  {stats && (
-                    <div className="flex gap-2 mt-1.5 ml-5">
-                      <span className="text-[9px] text-amber-400">{stats.new} neu</span>
-                      <span className="text-[9px] text-green-400/70">{stats.approved} OK</span>
-                      <span className="text-[9px] text-muted-foreground">{stats.resolved} gel.</span>
+                  {stats && stats.total > 0 && (
+                    <div className="flex gap-3 pb-2 ml-8">
+                      {stats.new      > 0 && <span className="text-[9px] text-amber-400 font-medium">{stats.new} offen</span>}
+                      {stats.approved > 0 && <span className="text-[9px] text-green-400">{stats.approved} ok</span>}
+                      {stats.resolved > 0 && <span className="text-[9px] text-muted-foreground">{stats.resolved} gel.</span>}
                     </div>
                   )}
                 </div>
@@ -274,258 +305,236 @@ export function CollisionWindow() {
             })}
           </div>
 
-          <div className="p-3 border-t border-border shrink-0 space-y-2">
-            {/* Engine toggle */}
-            <div className="flex items-center gap-1 p-0.5 bg-muted rounded-md text-[10px]">
-              <button
-                onClick={() => setUseServer(false)}
+          {/* Engine toggle + Run */}
+          <div className="p-3 border-t border-border shrink-0 space-y-2 bg-muted/5">
+            <div className="flex items-center gap-0.5 p-0.5 bg-muted rounded text-[10px]">
+              <button onClick={() => setUseServer(false)}
                 className={cn("flex-1 py-1 rounded transition-colors font-medium",
-                  !useServer ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
-              >
+                  !useServer ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}>
                 Lokal (BVH)
               </button>
-              <button
-                onClick={() => setUseServer(true)}
+              <button onClick={() => setUseServer(true)}
                 className={cn("flex-1 py-1 rounded transition-colors font-medium",
-                  useServer ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
-              >
+                  useServer ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}>
                 IfcOpenShell
               </button>
             </div>
-
-            {/* Server status when IfcOpenShell mode */}
             {useServer && (
-              <div className={cn("flex items-center gap-1.5 text-[10px] px-1",
-                serverOnline ? "text-green-400" : "text-red-400")}>
+              <div className={cn("flex items-center gap-1.5 text-[9px] px-0.5",
+                serverOnline ? "text-green-400" : "text-amber-400")}>
                 <Circle size={6} className="fill-current shrink-0" />
-                {serverOnline === null ? "Prüfe Server…" :
+                {serverOnline === null ? "Server wird geprüft…" :
                  serverOnline ? "Python Server verbunden" :
-                 "Server offline — python server/server.py starten"}
+                 "Server offline — python server/server.py"}
               </div>
             )}
-
-            <button
-              onClick={sendRun}
+            <button onClick={sendRun}
               disabled={state.running || (useServer && !serverOnline)}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-            >
-              {state.running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-              {state.running ? `${state.progress}%` : "Prüfung starten"}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity">
+              {state.running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+              {state.running ? `Analysiere… ${state.progress}%` : "Prüfung starten"}
             </button>
             {state.running && (
               <div className="h-1 bg-border rounded-full overflow-hidden">
-                <div className="h-full bg-primary transition-all" style={{ width: `${state.progress}%` }} />
+                <div className="h-full bg-primary transition-all duration-200" style={{ width: `${state.progress}%` }} />
               </div>
             )}
           </div>
         </div>
 
-        {/* Center: Results */}
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {!hasRun && !state.running && (
-            <div className="flex-1 flex items-center justify-center text-center text-muted-foreground p-8">
-              <div>
-                <AlertTriangle size={28} className="mx-auto mb-3 opacity-25" />
-                <p className="text-sm font-medium">Regelbasierte Prüfung</p>
-                <p className="text-xs mt-1 opacity-60 max-w-xs">
-                  Definiere Regeln links und starte die Prüfung. Jede Regel filtert Elemente nach IFC-Typ und Eigenschaften.
-                </p>
-              </div>
-            </div>
-          )}
+        {/* ── Right panel: Rule editor OR Results ── */}
+        {viewMode === "editor" && editingRule ? (
+          <RuleEditorPanel
+            rule={editingRule}
+            allTypes={state.allTypes}
+            loadedPropKeys={state.loadedPropKeys}
+            propValues={state.propValues ?? {}}
+            onSave={saveRule}
+            onClose={closeEditor}
+          />
+        ) : (
 
-          {state.running && (
-            <div className="flex-1 flex items-center justify-center flex-col gap-3">
-              <Loader2 size={22} className="animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Analysiere Regelkonflikte… {state.progress}%</p>
-            </div>
-          )}
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
 
-          {hasRun && !state.running && (
-            <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              {/* Summary bar */}
-              <div className="px-4 py-2 border-b border-border shrink-0 flex items-center justify-between flex-wrap gap-2">
-                <div className="flex gap-4">
-                  {(["error","warning","info"] as Severity[]).map(s => {
-                    const cnt = sortedResults.filter(r => r.severity === s).length;
-                    return cnt > 0 ? (
-                      <span key={s} className={cn("text-xs font-medium", severityColor(s))}>
-                        ⬤ {cnt} {s === "error" ? "Fehler" : s === "warning" ? "Warnungen" : "Info"}
-                      </span>
-                    ) : null;
-                  })}
-                  {sortedResults.length === 0 && (
-                    <span className="text-xs text-green-400">✓ Keine Konflikte in dieser Auswahl</span>
-                  )}
+            {/* Empty / running states */}
+            {!hasRun && !state.running && (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center max-w-xs">
+                  <AlertTriangle size={30} className="mx-auto mb-3 text-muted-foreground/15" />
+                  <p className="text-sm font-medium text-muted-foreground">Bereit zur Prüfung</p>
+                  <p className="text-xs text-muted-foreground/50 mt-1">
+                    Regeln links konfigurieren, dann „Prüfung starten" klicken.
+                  </p>
                 </div>
-                {activeRule && (
-                  <button onClick={() => setActiveRule(null)} className="text-[10px] text-primary hover:underline">
-                    Alle anzeigen
-                  </button>
-                )}
               </div>
-
-              {/* Sort / Group toolbar */}
-              <div className="px-4 py-1.5 border-b border-border shrink-0 flex items-center gap-3 flex-wrap">
-                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">Sortieren:</span>
-                {([
-                  ["severity", "Schwere"],
-                  ["rule", "Regel"],
-                  ["nameA", "Element A"],
-                  ["overlap", "Wert"],
-                  ["status", "Status"],
-                ] as [SortBy, string][]).map(([s, label]) => (
-                  <button
-                    key={s}
-                    onClick={() => toggleSort(s)}
-                    className={cn(
-                      "flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border transition-colors",
-                      sortBy === s
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    )}
-                  >
-                    {label}
-                    {sortBy === s && <ArrowUpDown size={8} className={sortAsc ? "" : "rotate-180"} />}
-                  </button>
-                ))}
-
-                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide ml-2">Gruppieren:</span>
-                {([
-                  ["none", "Keine"],
-                  ["rule", "Regel"],
-                  ["severity", "Schwere"],
-                  ["typePair", "Typpaar"],
-                  ["status", "Status"],
-                ] as [GroupBy, string][]).map(([g, label]) => (
-                  <button
-                    key={g}
-                    onClick={() => setGroupBy(g)}
-                    className={cn(
-                      "text-[10px] px-1.5 py-0.5 rounded border transition-colors",
-                      groupBy === g
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
+            )}
+            {state.running && (
+              <div className="flex-1 flex items-center justify-center flex-col gap-3">
+                <Loader2 size={22} className="animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Kollisionen analysieren… {state.progress}%</p>
               </div>
+            )}
 
-              {/* Result list */}
-              <div className="flex-1 overflow-y-auto scrollbar-thin">
-                {groupedResults.map(({ label, items }) => (
-                  <div key={label || "_all"}>
-                    {label && (
-                      <div className="sticky top-0 z-10 px-4 py-1 bg-muted/80 border-b border-border text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {label} <span className="font-normal normal-case">({items.length})</span>
-                      </div>
+            {/* Results view */}
+            {hasRun && !state.running && (
+              <div className="flex flex-col flex-1 min-h-0">
+
+                {/* Toolbar */}
+                <div className="flex items-center gap-3 px-4 py-2 border-b border-border shrink-0 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    {sortedResults.length === 0
+                      ? <span className="text-xs text-green-400 flex items-center gap-1"><Check size={12} /> Keine Konflikte</span>
+                      : <span className="text-xs text-muted-foreground">{sortedResults.length} Treffer</span>}
+                    {activeRuleId && (
+                      <button onClick={() => setActiveRuleId(null)}
+                        className="text-[10px] text-primary hover:underline">
+                        Regelfilter aufheben
+                      </button>
                     )}
-                    {items.map((r, idx) => {
-                      const key = `${r.ruleId}|${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}`;
-                      const expanded = expandedId === key;
-                      return (
-                        <div key={idx} className={cn("border-b border-border/40 last:border-0", r.status === "resolved" && "opacity-40")}>
-                          <div className="w-full flex items-start gap-2 px-3 py-2 hover:bg-muted/25 transition-colors">
-                            <button
-                              onClick={() => setExpandedId(expanded ? null : key)}
-                              className="shrink-0 mt-0.5"
+                  </div>
+                  <div className="flex-1" />
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                    <span className="font-medium uppercase tracking-wide">Gruppe:</span>
+                    {([
+                      ["none",     "—"],
+                      ["rule",     "Regel"],
+                      ["severity", "Schwere"],
+                      ["typePair", "Typpaar"],
+                      ["status",   "Status"],
+                    ] as [GroupBy, string][]).map(([g, label]) => (
+                      <button key={g} onClick={() => setGroupBy(g)}
+                        className={cn("px-1.5 py-0.5 rounded border transition-colors",
+                          groupBy === g ? "border-primary/60 bg-primary/10 text-primary" : "border-border hover:border-primary/30")}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Table header */}
+                <div className={cn(ROW, COL_TEMPLATE, "px-4 py-1.5 border-b border-border shrink-0 bg-muted/30 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground")}>
+                  <span />
+                  <button onClick={() => toggleSort("nameA")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                    Element A {sortBy === "nameA" && <ArrowUpDown size={8} />}
+                  </button>
+                  <span />
+                  <span>Element B</span>
+                  <button onClick={() => toggleSort("overlap")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                    Wert {sortBy === "overlap" && <ArrowUpDown size={8} />}
+                  </button>
+                  <button onClick={() => toggleSort("status")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                    Status {sortBy === "status" && <ArrowUpDown size={8} />}
+                  </button>
+                  <span />
+                </div>
+
+                {/* Result rows */}
+                <div className="flex-1 overflow-y-auto">
+                  {groupedResults.map(({ label, items }) => (
+                    <div key={label || "_all"}>
+                      {label && (
+                        <div className="sticky top-0 z-10 px-4 py-1 bg-muted/70 backdrop-blur-sm border-b border-border">
+                          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            {label} <span className="font-normal normal-case opacity-60">({items.length})</span>
+                          </span>
+                        </div>
+                      )}
+                      {items.map((r, idx) => {
+                        const key = `${r.ruleId}|${r.modelIdA}:${r.expressIdA}|${r.modelIdB}:${r.expressIdB}`;
+                        const expanded = expandedKey === key;
+                        return (
+                          <div key={idx} className={cn("border-b border-border/30 last:border-0", r.status === "resolved" && "opacity-40")}>
+                            <div
+                              className={cn(ROW, COL_TEMPLATE, "px-4 py-2 cursor-pointer hover:bg-muted/20 transition-colors")}
+                              onClick={() => setExpandedKey(expanded ? null : key)}
                             >
-                              {expanded
-                                ? <ChevronDown size={11} className="text-muted-foreground" />
-                                : <ChevronRight size={11} className="text-muted-foreground" />
-                              }
-                            </button>
-                            <div className={cn("shrink-0 w-1 self-stretch rounded-full mt-0.5", r.severity === "error" ? "bg-red-400" : r.severity === "warning" ? "bg-amber-400" : "bg-blue-400")} />
-                            <button
-                              onClick={() => setExpandedId(expanded ? null : key)}
-                              className="flex-1 min-w-0 grid grid-cols-2 gap-x-3 text-left"
-                            >
-                              <div className="min-w-0">
-                                <span className="text-[9px] text-muted-foreground font-mono">{r.typeA.replace("Ifc","")}</span>
-                                <p className="text-xs text-foreground truncate leading-snug">{r.nameA}</p>
+                              {/* Severity bar */}
+                              <span className={cn("self-stretch w-1 rounded-full mr-2", sevDot(r.severity))} />
+
+                              {/* Element A */}
+                              <div className="min-w-0 pr-2">
+                                <p className="text-[9px] text-muted-foreground font-mono">{r.typeA.replace("Ifc","")}</p>
+                                <p className="text-[11px] truncate">{r.nameA || "—"}</p>
                               </div>
-                              <div className="min-w-0">
-                                <span className="text-[9px] text-muted-foreground font-mono">{r.typeB.replace("Ifc","")}</span>
-                                <p className="text-xs text-foreground truncate leading-snug">{r.nameB}</p>
+
+                              {/* Separator */}
+                              <span className="text-[9px] text-muted-foreground text-center">↔</span>
+
+                              {/* Element B */}
+                              <div className="min-w-0 pl-2">
+                                <p className="text-[9px] text-muted-foreground font-mono">{r.typeB.replace("Ifc","")}</p>
+                                <p className="text-[11px] truncate">{r.nameB || "—"}</p>
                               </div>
-                            </button>
-                            <div className="shrink-0 flex items-center gap-1.5">
-                              <div className="flex flex-col items-end gap-0.5">
-                                <span className="text-[9px] text-muted-foreground font-mono">
-                                  {r.checkType === "clearance" ? `${r.overlap.toFixed(3)} m Abst.` : r.checkType === "duplicate" ? "Duplikat" : "Kollision"}
-                                </span>
-                                <span className="flex items-center gap-1">{statusIcon(r.status)}</span>
-                              </div>
+
+                              {/* Value */}
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                {r.checkType === "clearance" ? `${r.overlap.toFixed(3)} m` :
+                                 r.checkType === "duplicate" ? "Duplikat" : "Kollision"}
+                              </span>
+
+                              {/* Status chip */}
+                              <StatusChip status={r.status} />
+
+                              {/* Focus button */}
                               <button
+                                onClick={e => { e.stopPropagation(); sendIsolate(r); }}
                                 title="Nur diese Elemente anzeigen"
-                                onClick={() => sendIsolate(r)}
-                                className="text-muted-foreground hover:text-primary p-0.5 rounded transition-colors"
-                              >
-                                <Focus size={12} />
+                                className="text-muted-foreground hover:text-primary p-1 rounded transition-colors justify-self-center">
+                                <Focus size={11} />
                               </button>
                             </div>
-                          </div>
 
-                          {expanded && (
-                            <div className="px-6 pb-2.5 pt-1 flex flex-col gap-2">
-                              <div className={cn("text-[10px] px-2 py-1 rounded border w-fit", severityBg(r.severity))}>
-                                <span className={severityColor(r.severity)}>{r.ruleName}</span>
-                              </div>
-                              {(r.propsA && Object.keys(r.propsA).length > 0) && (
-                                <div className="grid grid-cols-2 gap-2">
-                                  <PropTable title="Element A" props={r.propsA} />
-                                  <PropTable title="Element B" props={r.propsB ?? {}} />
+                            {/* Expanded details */}
+                            {expanded && (
+                              <div className="px-5 pb-3 pt-2 border-t border-border/30 bg-muted/5">
+                                <div className="flex flex-col gap-2.5">
+                                  <div className={cn("text-[9px] px-2 py-0.5 rounded border w-fit", sevBg(r.severity))}>
+                                    {r.ruleName}
+                                  </div>
+                                  {(r.propsA && Object.keys(r.propsA).length > 0) && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <PropTable title={`Element A${r.nameA ? ` — ${r.nameA}` : ""}`} props={r.propsA} />
+                                      <PropTable title={`Element B${r.nameB ? ` — ${r.nameB}` : ""}`} props={r.propsB ?? {}} />
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[9px] text-muted-foreground">Status:</span>
+                                    {(["new","approved","resolved"] as ClashStatus[]).map(s => (
+                                      <button key={s} onClick={() => sendSetStatus(r, s)}
+                                        className={cn("text-[9px] px-2 py-0.5 rounded border transition-colors",
+                                          r.status === s ? "border-primary bg-primary/10 text-primary" :
+                                          "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground")}>
+                                        {s === "new" ? "Offen" : s === "approved" ? "Akzeptiert" : "Gelöst"}
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
-                              )}
-                              <div className="flex items-center gap-3 flex-wrap">
-                                <span className="text-muted-foreground text-[9px] mx-1">Status:</span>
-                                {(["new","approved","resolved"] as ClashStatus[]).map(s => (
-                                  <button
-                                    key={s}
-                                    onClick={() => sendSetStatus(r, s)}
-                                    className={cn(
-                                      "text-[9px] px-1.5 py-0.5 rounded border transition-colors",
-                                      r.status === s
-                                        ? "border-primary bg-primary/10 text-primary"
-                                        : "border-border text-muted-foreground hover:border-primary/50"
-                                    )}
-                                  >
-                                    {s === "new" ? "Neu" : s === "approved" ? "Akzeptiert" : "Gelöst"}
-                                  </button>
-                                ))}
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
-
-      {editRule && (
-        <RuleEditor
-          rule={editRule}
-          allTypes={state.allTypes}
-          loadedPropKeys={state.loadedPropKeys}
-          onSave={r => {
-            setLocalRules(prev => {
-              const idx = prev.findIndex(x => x.id === r.id);
-              return idx >= 0 ? prev.map(x => x.id === r.id ? r : x) : [...prev, r];
-            });
-            setEditRule(null);
-          }}
-          onClose={() => setEditRule(null)}
-        />
-      )}
     </div>
   );
+}
+
+// ── StatusChip ────────────────────────────────────────────────────────────────
+
+function StatusChip({ status }: { status: ClashStatus }) {
+  const cls =
+    status === "new"      ? "bg-amber-400/10 text-amber-400 border-amber-400/30" :
+    status === "approved" ? "bg-green-400/10 text-green-400 border-green-400/30" :
+    "bg-muted/50 text-muted-foreground border-border";
+  const label = status === "new" ? "Offen" : status === "approved" ? "Akzeptiert" : "Gelöst";
+  return <span className={cn("text-[9px] px-1.5 py-0.5 rounded border font-medium", cls)}>{label}</span>;
 }
 
 // ── PropTable ─────────────────────────────────────────────────────────────────
@@ -535,10 +544,10 @@ function PropTable({ title, props }: { title: string; props: Record<string, stri
   if (entries.length === 0) return null;
   return (
     <div className="text-[9px]">
-      <p className="text-muted-foreground font-semibold mb-0.5">{title}</p>
+      <p className="text-muted-foreground font-semibold mb-1">{title}</p>
       {entries.map(([k, v]) => (
-        <div key={k} className="flex gap-1">
-          <span className="text-muted-foreground shrink-0 truncate" style={{ maxWidth: 90 }}>{k}:</span>
+        <div key={k} className="flex gap-1 mb-0.5">
+          <span className="text-muted-foreground shrink-0 truncate" style={{ maxWidth: 100 }}>{k}:</span>
           <span className="text-foreground truncate">{v}</span>
         </div>
       ))}
@@ -546,12 +555,21 @@ function PropTable({ title, props }: { title: string; props: Record<string, stri
   );
 }
 
-// ── RuleEditor ────────────────────────────────────────────────────────────────
+// ── IFC Presets ───────────────────────────────────────────────────────────────
 
-function RuleEditor({ rule, allTypes, loadedPropKeys, onSave, onClose }: {
+const IFC_PRESETS = [
+  { label: "Tragwerk",    types: ["IfcBeam","IfcColumn","IfcWall","IfcSlab","IfcFoundation","IfcPile","IfcMember"] },
+  { label: "TGA",         types: ["IfcDuctSegment","IfcPipeSegment","IfcCableCarrierSegment","IfcFlowSegment","IfcDistributionFlowElement","IfcDuctFitting","IfcPipeFitting","IfcFlowController","IfcFlowTerminal"] },
+  { label: "Architektur", types: ["IfcWall","IfcSlab","IfcRoof","IfcCurtainWall","IfcStair","IfcRamp"] },
+];
+
+// ── RuleEditorPanel — inline right panel, no modal ────────────────────────────
+
+function RuleEditorPanel({ rule, allTypes, loadedPropKeys, propValues, onSave, onClose }: {
   rule: ClashRule;
   allTypes: string[];
   loadedPropKeys: string[];
+  propValues: Record<string, string[]>;
   onSave(r: ClashRule): void;
   onClose(): void;
 }) {
@@ -569,20 +587,19 @@ function RuleEditor({ rule, allTypes, loadedPropKeys, onSave, onClose }: {
     });
   };
 
+  const setTypes = (side: "A" | "B", types: string[]) => {
+    const key = side === "A" ? "componentA" : "componentB";
+    setDraft(prev => ({ ...prev, [key]: { ...prev[key], ifcTypes: types } }));
+  };
+
   const addCondition = (side: "A" | "B") => {
     const key = side === "A" ? "componentA" : "componentB";
-    setDraft(prev => ({
-      ...prev,
-      [key]: { ...prev[key], conditions: [...prev[key].conditions, { propName: "", operator: "contains" as const, value: "" }] },
-    }));
+    setDraft(prev => ({ ...prev, [key]: { ...prev[key], conditions: [...prev[key].conditions, { propName: "", operator: "contains" as const, value: "" }] } }));
   };
 
   const updateCondition = (side: "A" | "B", idx: number, patch: Partial<PropCondition>) => {
     const key = side === "A" ? "componentA" : "componentB";
-    setDraft(prev => ({
-      ...prev,
-      [key]: { ...prev[key], conditions: prev[key].conditions.map((c, i) => i === idx ? { ...c, ...patch } : c) },
-    }));
+    setDraft(prev => ({ ...prev, [key]: { ...prev[key], conditions: prev[key].conditions.map((c, i) => i === idx ? { ...c, ...patch } : c) } }));
   };
 
   const removeCondition = (side: "A" | "B", idx: number) => {
@@ -590,150 +607,104 @@ function RuleEditor({ rule, allTypes, loadedPropKeys, onSave, onClose }: {
     setDraft(prev => ({ ...prev, [key]: { ...prev[key], conditions: prev[key].conditions.filter((_, i) => i !== idx) } }));
   };
 
-  const severityDotColor = (s: Severity) =>
-    s === "error" ? "bg-red-400" : s === "warning" ? "bg-amber-400" : "bg-blue-400";
+  const sevDotCls = (s: Severity) => s === "error" ? "bg-red-500" : s === "warning" ? "bg-amber-400" : "bg-blue-400";
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-      <div className="w-full max-w-3xl max-h-[88vh] flex flex-col bg-card border border-border rounded-xl shadow-2xl">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
 
-        {/* Modal header */}
-        <div className="flex items-start justify-between px-6 py-4 border-b border-border shrink-0">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">Prüfregel konfigurieren</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Definiere welche Elemente geprüft werden und nach welchen Kriterien</p>
+      {/* Editor header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0 bg-muted/10">
+        <button onClick={onClose}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft size={13} /> Zurück
+        </button>
+        <span className="text-muted-foreground/40 text-xs">·</span>
+        <span className="text-xs font-medium text-foreground truncate">{draft.name || "Neue Regel"}</span>
+        <div className="flex-1" />
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors">
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
+
+        {/* Basic settings */}
+        <div className="flex gap-3 flex-wrap items-end">
+          <div className="flex flex-col gap-1 flex-1 min-w-32">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Name</label>
+            <input value={draft.name} onChange={e => setDraft(p => ({ ...p, name: e.target.value }))}
+              className="px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors shrink-0 ml-4">
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-5 flex flex-col gap-5">
-
-          {/* Basic settings row */}
-          <div className="flex gap-3 flex-wrap">
-            <div className="flex flex-col gap-1 flex-1 min-w-32">
-              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Name</label>
-              <input
-                value={draft.name}
-                onChange={e => setDraft(p => ({ ...p, name: e.target.value }))}
-                className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1 w-40">
-              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Prüftyp</label>
-              <select
-                value={draft.checkType}
-                onChange={e => setDraft(p => ({ ...p, checkType: e.target.value as CheckType }))}
-                className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                <option value="hard-clash">Harte Kollision</option>
-                <option value="clearance">Mindestabstand</option>
-                <option value="duplicate">Duplikat</option>
+          <div className="flex flex-col gap-1 w-40">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Prüftyp</label>
+            <select value={draft.checkType} onChange={e => setDraft(p => ({ ...p, checkType: e.target.value as CheckType }))}
+              className="px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <option value="hard-clash">Harte Kollision</option>
+              <option value="clearance">Mindestabstand</option>
+              <option value="duplicate">Duplikat</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1 w-36">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Schwere</label>
+            <div className="relative">
+              <span className={cn("absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full shrink-0", sevDotCls(draft.severity))} />
+              <select value={draft.severity} onChange={e => setDraft(p => ({ ...p, severity: e.target.value as Severity }))}
+                className="w-full pl-7 pr-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 appearance-none">
+                <option value="error">Fehler</option>
+                <option value="warning">Warnung</option>
+                <option value="info">Info</option>
               </select>
             </div>
-
-            <div className="flex flex-col gap-1 w-36">
-              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Schwere</label>
-              <div className="relative">
-                <span className={cn("absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full shrink-0", severityDotColor(draft.severity))} />
-                <select
-                  value={draft.severity}
-                  onChange={e => setDraft(p => ({ ...p, severity: e.target.value as Severity }))}
-                  className="w-full pl-7 pr-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
-                >
-                  <option value="error">Fehler</option>
-                  <option value="warning">Warnung</option>
-                  <option value="info">Info</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1 w-36">
-              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                {draft.checkType === "clearance" ? "Mindestabstand (m)" : "Toleranz (m)"}
-              </label>
-              <input
-                type="number"
-                step={draft.checkType === "clearance" ? "0.05" : "0.0001"}
-                min="0"
-                value={draft.tolerance}
-                onChange={e => setDraft(p => ({ ...p, tolerance: parseFloat(e.target.value) || 0 }))}
-                className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </div>
           </div>
-
-          <div className="h-px bg-border" />
-
-          {/* Two-column group editors */}
-          <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
-            {/* Gruppe A */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-start gap-2.5">
-                <span className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">A</span>
-                <div>
-                  <p className="text-xs font-semibold text-foreground">Gruppe A — Geprüfte Elemente</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">Elemente die aktiv auf Kollision geprüft werden (z.B. Tragwerk, Wände)</p>
-                </div>
-              </div>
-              <FilterEditor
-                filter={draft.componentA}
-                allTypes={allTypes}
-                loadedPropKeys={loadedPropKeys}
-                onToggleType={t => toggleType("A", t)}
-                onAddCondition={() => addCondition("A")}
-                onUpdateCondition={(i, p) => updateCondition("A", i, p)}
-                onRemoveCondition={i => removeCondition("A", i)}
-              />
-            </div>
-
-            {/* Center divider + badge */}
-            <div className="flex flex-col items-center pt-8 gap-2 self-stretch">
-              <div className="w-px flex-1 bg-border" />
-              <span className="text-[10px] font-semibold text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5 shrink-0">↔</span>
-              <div className="w-px flex-1 bg-border" />
-            </div>
-
-            {/* Gruppe B */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-start gap-2.5">
-                <span className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">B</span>
-                <div>
-                  <p className="text-xs font-semibold text-foreground">Gruppe B — Referenzelemente</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">Elemente gegen die Gruppe A geprüft wird (z.B. TGA, Leitungen)</p>
-                </div>
-              </div>
-              <FilterEditor
-                filter={draft.componentB}
-                allTypes={allTypes}
-                loadedPropKeys={loadedPropKeys}
-                onToggleType={t => toggleType("B", t)}
-                onAddCondition={() => addCondition("B")}
-                onUpdateCondition={(i, p) => updateCondition("B", i, p)}
-                onRemoveCondition={i => removeCondition("B", i)}
-              />
-            </div>
+          <div className="flex flex-col gap-1 w-32">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {draft.checkType === "clearance" ? "Min. Abstand (m)" : "Toleranz (m)"}
+            </label>
+            <input type="number" min="0"
+              step={draft.checkType === "clearance" ? "0.05" : "0.0001"}
+              value={draft.tolerance}
+              onChange={e => setDraft(p => ({ ...p, tolerance: parseFloat(e.target.value) || 0 }))}
+              className="px-3 py-1.5 text-sm bg-background border border-border rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 rounded-lg transition-colors"
-          >
-            Abbrechen
-          </button>
-          <button
-            onClick={() => onSave(draft)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            <Check size={14} /> Speichern
-          </button>
+        <div className="h-px bg-border" />
+
+        {/* Group A / B editors */}
+        <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
+          <FilterEditor side="A" filter={draft.componentA} allTypes={allTypes}
+            loadedPropKeys={loadedPropKeys} propValues={propValues}
+            onToggleType={t => toggleType("A", t)} onSetTypes={ts => setTypes("A", ts)}
+            onAddCondition={() => addCondition("A")}
+            onUpdateCondition={(i, p) => updateCondition("A", i, p)}
+            onRemoveCondition={i => removeCondition("A", i)} />
+
+          <div className="flex flex-col items-center self-stretch gap-1 pt-8">
+            <div className="w-px flex-1 bg-border/50" />
+            <span className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5 bg-muted">↔</span>
+            <div className="w-px flex-1 bg-border/50" />
+          </div>
+
+          <FilterEditor side="B" filter={draft.componentB} allTypes={allTypes}
+            loadedPropKeys={loadedPropKeys} propValues={propValues}
+            onToggleType={t => toggleType("B", t)} onSetTypes={ts => setTypes("B", ts)}
+            onAddCondition={() => addCondition("B")}
+            onUpdateCondition={(i, p) => updateCondition("B", i, p)}
+            onRemoveCondition={i => removeCondition("B", i)} />
         </div>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-border shrink-0">
+        <button onClick={onClose}
+          className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/60 rounded-lg transition-colors">
+          Abbrechen
+        </button>
+        <button onClick={() => onSave(draft)}
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+          <Check size={14} /> Speichern
+        </button>
       </div>
     </div>
   );
@@ -741,196 +712,204 @@ function RuleEditor({ rule, allTypes, loadedPropKeys, onSave, onClose }: {
 
 // ── FilterEditor ──────────────────────────────────────────────────────────────
 
-const IFC_PRESETS: Array<{ label: string; types: string[] }> = [
-  { label: "Tragwerk", types: ["IfcBeam", "IfcColumn", "IfcWall", "IfcSlab", "IfcFoundation", "IfcPile", "IfcMember"] },
-  { label: "TGA", types: ["IfcDuctSegment", "IfcPipeSegment", "IfcCableCarrierSegment", "IfcFlowSegment", "IfcDistributionFlowElement", "IfcDuctFitting", "IfcPipeFitting", "IfcFlowController", "IfcFlowTerminal"] },
-  { label: "Architektur", types: ["IfcWall", "IfcSlab", "IfcRoof", "IfcCurtainWall", "IfcStair", "IfcRamp"] },
-];
-
-function FilterEditor({ filter, allTypes, loadedPropKeys, onToggleType, onAddCondition, onUpdateCondition, onRemoveCondition }: {
+function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, onToggleType, onSetTypes, onAddCondition, onUpdateCondition, onRemoveCondition }: {
+  side: "A" | "B";
   filter: ComponentFilter;
   allTypes: string[];
   loadedPropKeys: string[];
+  propValues: Record<string, string[]>;
   onToggleType(t: string): void;
+  onSetTypes(types: string[]): void;
   onAddCondition(): void;
   onUpdateCondition(i: number, p: Partial<PropCondition>): void;
   onRemoveCondition(i: number): void;
 }) {
-  const anyPresetSelected = IFC_PRESETS.some(preset => {
-    const available = preset.types.filter(t => allTypes.includes(t));
-    return available.length > 0 && available.every(t => filter.ifcTypes.includes(t));
-  });
-  const [typeListOpen, setTypeListOpen] = useState(!anyPresetSelected && filter.ifcTypes.length === 0);
-  const [typeSearch, setTypeSearch] = useState("");
+  const [typeSearch,    setTypeSearch]    = useState("");
+  const [typeListOpen,  setTypeListOpen]  = useState(false);
 
-  const sortedTypes = useMemo(() => [...allTypes].sort(), [allTypes]);
+  const isA = side === "A";
+  const badgeCls = isA
+    ? "bg-blue-500/20 text-blue-400 border-blue-400/30"
+    : "bg-orange-500/20 text-orange-400 border-orange-400/30";
+
   const filteredTypes = useMemo(
-    () => typeSearch.trim() ? sortedTypes.filter(t => t.toLowerCase().includes(typeSearch.toLowerCase())) : sortedTypes,
-    [sortedTypes, typeSearch]
+    () => allTypes.filter(t => t.toLowerCase().includes(typeSearch.toLowerCase())),
+    [allTypes, typeSearch],
   );
 
   const togglePreset = (preset: typeof IFC_PRESETS[number]) => {
     const available = preset.types.filter(t => allTypes.includes(t));
-    const allSelected = available.every(t => filter.ifcTypes.includes(t));
+    const allSel = available.every(t => filter.ifcTypes.includes(t));
     available.forEach(t => {
-      const isSelected = filter.ifcTypes.includes(t);
-      if (allSelected && isSelected) onToggleType(t);
-      else if (!allSelected && !isSelected) onToggleType(t);
+      if (allSel && filter.ifcTypes.includes(t)) onToggleType(t);
+      else if (!allSel && !filter.ifcTypes.includes(t)) onToggleType(t);
     });
   };
 
-  const typeCount = filter.ifcTypes.length;
-
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3 min-w-0">
 
-      {/* Section A: IFC-Typen */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-foreground">IFC-Typen</span>
-          <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium", typeCount > 0 ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>
-            {typeCount > 0 ? `${typeCount} gewählt` : "alle"}
-          </span>
+      {/* Group header */}
+      <div className="flex items-start gap-2">
+        <span className={cn("inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold border shrink-0 mt-0.5", badgeCls)}>{side}</span>
+        <div>
+          <p className="text-xs font-semibold">
+            {isA ? "Gruppe A — Geprüfte Elemente" : "Gruppe B — Referenzelemente"}
+          </p>
+          <p className="text-[9px] text-muted-foreground mt-0.5 leading-relaxed">
+            {isA ? "Elemente die aktiv auf Kollision geprüft werden (z.B. Tragwerk, Wände)"
+                 : "Elemente gegen die geprüft wird (z.B. TGA-Leitungen, Rohre)"}
+          </p>
         </div>
+      </div>
 
-        {/* Quick presets */}
-        {IFC_PRESETS.some(p => p.types.some(t => allTypes.includes(t))) && (
-          <div className="flex flex-wrap gap-1.5">
-            {IFC_PRESETS.map(preset => {
-              const available = preset.types.filter(t => allTypes.includes(t));
-              if (available.length === 0) return null;
-              const allSelected = available.every(t => filter.ifcTypes.includes(t));
-              return (
-                <button
-                  key={preset.label}
-                  onClick={() => togglePreset(preset)}
-                  className={cn(
-                    "text-[10px] px-2 py-0.5 rounded border transition-colors",
-                    allSelected
-                      ? "bg-primary/15 border-primary/40 text-primary"
-                      : "bg-muted border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                  )}
-                >
-                  {preset.label}
-                </button>
-              );
-            })}
-          </div>
+      {/* Quick presets */}
+      <div className="flex flex-wrap gap-1">
+        {IFC_PRESETS.map(preset => {
+          const available = preset.types.filter(t => allTypes.includes(t));
+          if (available.length === 0) return null;
+          const allSel = available.every(t => filter.ifcTypes.includes(t));
+          return (
+            <button key={preset.label} onClick={() => togglePreset(preset)}
+              className={cn("text-[9px] px-2 py-0.5 rounded border transition-colors",
+                allSel ? "bg-primary/15 border-primary/40 text-primary" :
+                "bg-muted border-border text-muted-foreground hover:border-primary/30 hover:text-foreground")}>
+              {preset.label}
+            </button>
+          );
+        })}
+        {filter.ifcTypes.length > 0 && (
+          <button onClick={() => onSetTypes([])}
+            className="text-[9px] px-2 py-0.5 rounded border border-dashed border-border text-muted-foreground hover:text-foreground transition-colors">
+            Alle Typen
+          </button>
         )}
+      </div>
 
-        {/* Selected type chips */}
-        {typeCount > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {filter.ifcTypes.map(t => (
-              <span
-                key={t}
-                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-primary/10 border border-primary/25 text-primary rounded"
-              >
-                {t}
-                <button onClick={() => onToggleType(t)} className="hover:text-red-400 transition-colors">
-                  <X size={9} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        {typeCount === 0 && (
-          <p className="text-[10px] text-muted-foreground italic">(leer = alle Typen geprüft)</p>
-        )}
+      {/* Selected chips */}
+      {filter.ifcTypes.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {filter.ifcTypes.map(t => (
+            <span key={t} className={cn("flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border", badgeCls)}>
+              {t.replace("Ifc","")}
+              <button onClick={() => onToggleType(t)} className="hover:opacity-70 transition-opacity"><X size={8} /></button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[9px] text-muted-foreground italic">(leer = alle Typen werden geprüft)</p>
+      )}
 
-        {/* Collapsible type list */}
+      {/* Collapsible type list */}
+      <div className="border border-border rounded-lg overflow-hidden">
         <button
           onClick={() => setTypeListOpen(o => !o)}
-          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors self-start"
-        >
+          className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors">
+          <span>IFC-Typen ({allTypes.length})</span>
           {typeListOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-          Alle Typen {typeListOpen ? "ausblenden" : "anzeigen"}
         </button>
         {typeListOpen && (
-          <div className="flex flex-col gap-1.5 border border-border rounded-lg p-2 bg-background/50">
-            <input
-              value={typeSearch}
-              onChange={e => setTypeSearch(e.target.value)}
+          <>
+            <input value={typeSearch} onChange={e => setTypeSearch(e.target.value)}
               placeholder="Typ suchen…"
-              className="w-full px-2 py-1 text-[10px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/50"
-            />
-            <div className="max-h-40 overflow-y-auto scrollbar-thin flex flex-col gap-0.5">
-              {filteredTypes.map(t => (
-                <label key={t} className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-foreground text-muted-foreground transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={filter.ifcTypes.includes(t)}
-                    onChange={() => onToggleType(t)}
-                    className="shrink-0"
-                  />
-                  <span className="text-[10px] truncate">{t}</span>
-                </label>
-              ))}
-              {filteredTypes.length === 0 && (
-                <p className="text-[10px] text-muted-foreground py-1 px-1">Keine Typen gefunden</p>
-              )}
+              className="w-full px-3 py-1.5 text-[10px] bg-background border-t border-border focus:outline-none" />
+            <div className="max-h-36 overflow-y-auto scrollbar-thin border-t border-border">
+              {filteredTypes.length === 0
+                ? <p className="px-3 py-2 text-[9px] text-muted-foreground">Keine Typen</p>
+                : filteredTypes.map(t => (
+                  <label key={t} className="flex items-center gap-2 px-3 py-1 hover:bg-muted/30 cursor-pointer">
+                    <input type="checkbox" checked={filter.ifcTypes.includes(t)}
+                      onChange={() => onToggleType(t)} className="h-3 w-3 shrink-0" />
+                    <span className="text-[10px]">{t}</span>
+                  </label>
+                ))
+              }
             </div>
-          </div>
+          </>
         )}
       </div>
 
-      {/* Section B: Eigenschaftsfilter */}
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-semibold text-foreground">Eigenschaftsfilter</span>
-
-        {loadedPropKeys.length === 0 && (
-          <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-400/8 border border-amber-400/25 rounded-lg text-[10px] text-amber-400">
-            <AlertTriangle size={12} className="shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold">Properties nicht geladen</p>
-              <p className="text-amber-400/80 mt-0.5">Für Filterbedingungen nach Eigenschaften bitte im Hauptfenster: Analyse → Properties laden</p>
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-1.5">
-          {filter.conditions.map((c, i) => (
-            <div key={i} className="flex items-center gap-1.5">
-              <select
-                value={c.propName}
-                onChange={e => onUpdateCondition(i, { propName: e.target.value })}
-                className="flex-1 min-w-0 px-2 py-1 text-[10px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/50"
-              >
-                <option value="">Eigenschaft wählen…</option>
-                {loadedPropKeys.map(k => <option key={k} value={k}>{k}</option>)}
-              </select>
-              <select
-                value={c.operator}
-                onChange={e => onUpdateCondition(i, { operator: e.target.value as PropCondition["operator"] })}
-                className="px-2 py-1 text-[10px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/50 w-24 shrink-0"
-              >
-                <option value="contains">enthält</option>
-                <option value="equals">gleich</option>
-                <option value="startsWith">beginnt mit</option>
-                <option value="notEmpty">nicht leer</option>
-              </select>
-              {c.operator !== "notEmpty" && (
-                <input
-                  value={c.value}
-                  placeholder="Wert"
-                  onChange={e => onUpdateCondition(i, { value: e.target.value })}
-                  className="w-20 shrink-0 px-2 py-1 text-[10px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/50"
-                />
-              )}
-              <button onClick={() => onRemoveCondition(i)} className="text-muted-foreground hover:text-red-400 shrink-0 transition-colors p-0.5">
-                <X size={12} />
-              </button>
-            </div>
-          ))}
-          <button
-            onClick={onAddCondition}
-            disabled={loadedPropKeys.length === 0}
-            className="flex items-center gap-1.5 text-[10px] text-primary/70 hover:text-primary transition-colors self-start disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Plus size={11} /> Filterbedingung
-          </button>
+      {/* Property conditions */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Eigenschaftsfilter
+          </span>
+          {loadedPropKeys.length === 0 && (
+            <span className="text-[9px] text-amber-400 flex items-center gap-1">
+              <AlertTriangle size={9} /> Properties laden
+            </span>
+          )}
         </div>
+
+        {filter.conditions.map((c, i) => (
+          <ConditionRow key={i} condition={c}
+            loadedPropKeys={loadedPropKeys}
+            valueOptions={c.propName ? (propValues[c.propName] ?? []) : []}
+            onUpdate={p => onUpdateCondition(i, p)}
+            onRemove={() => onRemoveCondition(i)} />
+        ))}
+
+        <button onClick={onAddCondition}
+          disabled={loadedPropKeys.length === 0}
+          className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary transition-colors mt-1 disabled:opacity-35 disabled:cursor-not-allowed">
+          <Plus size={10} /> Bedingung
+        </button>
       </div>
+    </div>
+  );
+}
+
+// ── ConditionRow ──────────────────────────────────────────────────────────────
+
+function ConditionRow({ condition, loadedPropKeys, valueOptions, onUpdate, onRemove }: {
+  condition: PropCondition;
+  loadedPropKeys: string[];
+  valueOptions: string[];
+  onUpdate(p: Partial<PropCondition>): void;
+  onRemove(): void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 mb-1.5">
+      {/* Property key */}
+      <select value={condition.propName}
+        onChange={e => onUpdate({ propName: e.target.value, value: "" })}
+        className="flex-1 min-w-0 px-2 py-1 text-[10px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/40">
+        <option value="">Eigenschaft…</option>
+        {loadedPropKeys.map(k => <option key={k} value={k}>{k}</option>)}
+      </select>
+
+      {/* Operator */}
+      <select value={condition.operator}
+        onChange={e => onUpdate({ operator: e.target.value as PropCondition["operator"] })}
+        className="px-1.5 py-1 text-[10px] bg-background border border-border rounded-md focus:outline-none shrink-0"
+        style={{ width: 76 }}>
+        <option value="contains">enthält</option>
+        <option value="equals">gleich</option>
+        <option value="startsWith">beginnt</option>
+        <option value="notEmpty">nicht leer</option>
+      </select>
+
+      {/* Value — dropdown when known values exist, text input otherwise */}
+      {condition.operator !== "notEmpty" && (
+        valueOptions.length > 0 ? (
+          <select value={condition.value}
+            onChange={e => onUpdate({ value: e.target.value })}
+            className="w-24 shrink-0 px-1.5 py-1 text-[10px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/40">
+            <option value="">Wert…</option>
+            {valueOptions.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        ) : (
+          <input value={condition.value} placeholder="Wert"
+            onChange={e => onUpdate({ value: e.target.value })}
+            className="w-24 shrink-0 px-2 py-1 text-[10px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/40" />
+        )
+      )}
+
+      <button onClick={onRemove}
+        className="text-muted-foreground hover:text-red-400 shrink-0 p-0.5 transition-colors">
+        <X size={10} />
+      </button>
     </div>
   );
 }

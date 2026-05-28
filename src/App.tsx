@@ -445,7 +445,7 @@ function useCollisionSync() {
 
     const broadcast = (rules: ClashRule[], results: ClashResult[], running: boolean, progress: number) => {
       const st = useModelStore.getState();
-      ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes: getAllTypes(st), loadedPropKeys: st.loadedPropKeys, theme: st.settings.theme } } satisfies CollisionMsg);
+      ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes: getAllTypes(st), loadedPropKeys: st.loadedPropKeys, propValues: st.loadedPropValues ?? {}, theme: st.settings.theme } } satisfies CollisionMsg);
     };
 
     let currentRules: ClashRule[] = DEFAULT_CLASH_RULES;

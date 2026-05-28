@@ -293,6 +293,8 @@ export interface CollisionSyncState {
   progress: number;
   allTypes: string[];
   loadedPropKeys: string[];
+  /** Distinct values per property key — populated after "Properties laden" */
+  propValues: Record<string, string[]>;
   theme?: "light" | "dark";
 }
 

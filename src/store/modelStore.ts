@@ -37,6 +37,7 @@ interface ModelStore {
   // Shared loaded properties (for ListPanel and SmartViews)
   loadedProperties: Map<string, Map<number, FlatElementProps>> | null;
   loadedPropKeys: string[];
+  loadedPropValues: Record<string, string[]>;
   loadingPropertiesProgress: number | null; // null = idle, 0-100 = loading
 
   // Selection basket
@@ -170,6 +171,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   preSmartViewState: null,
   loadedProperties: null,
   loadedPropKeys: [],
+  loadedPropValues: {},
   loadingPropertiesProgress: null,
   selectionBasket: new Set<string>(),
   basketMode: null,
@@ -519,7 +521,26 @@ export const useModelStore = create<ModelStore>((set, get) => ({
       if (ad !== bd) return ad ? 1 : -1;
       return a.localeCompare(b);
     });
-    set({ loadedProperties: result, loadedPropKeys: sorted, loadingPropertiesProgress: null });
+
+    // Collect distinct scalar values per key (capped at 50 per key)
+    const vSets: Record<string, Set<string>> = {};
+    result.forEach((propMap) => {
+      propMap.forEach((props) => {
+        Object.entries(props).forEach(([k, v]) => {
+          if (v !== null && v !== undefined && typeof v !== "object" && typeof v !== "function") {
+            const str = String(v);
+            if (str && str !== "null" && str !== "undefined") {
+              if (!vSets[k]) vSets[k] = new Set();
+              if (vSets[k].size < 50) vSets[k].add(str);
+            }
+          }
+        });
+      });
+    });
+    const loadedPropValues: Record<string, string[]> = {};
+    Object.entries(vSets).forEach(([k, s]) => { loadedPropValues[k] = Array.from(s).sort(); });
+
+    set({ loadedProperties: result, loadedPropKeys: sorted, loadedPropValues, loadingPropertiesProgress: null });
   },
 
   // ── Selection basket ────────────────────────────────────────────────────────
@@ -651,6 +672,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
       preSmartViewState: null,
       loadedProperties: null,
       loadedPropKeys: [],
+      loadedPropValues: {},
       loadingPropertiesProgress: null,
       selectionBasket: new Set(),
       basketMode: null,
