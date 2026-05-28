@@ -222,16 +222,60 @@ class ClashPayload(BaseModel):
     rules: List[ClashRulePayload]
 
 
+def _select_with_fallback(
+    tree: Any,
+    elem: Any,
+    extend: float,
+    geo_settings: Any,
+) -> list:
+    """Call tree.select(elem, extend) with a sphere-query fallback.
+
+    add_element() stores geometry settings in the tree so that select(elem)
+    can tessellate elem even when it comes from a different IFC file.
+    If that still fails (older ifcopenshell), we fall back to manually
+    tessellating elem, computing its bounding-sphere, and using the
+    point-based sphere query select((cx,cy,cz), extend=r).
+    """
+    import ifcopenshell.geom as _geom
+
+    try:
+        return tree.select(elem, extend=extend)
+    except Exception as exc:
+        print(f"[clash] select(elem) fehlgeschlagen ({exc}) — sphere-fallback", flush=True)
+
+    # Fallback: manual tessellation → bounding sphere
+    try:
+        shape = _geom.create_shape(geo_settings, elem)
+        v = shape.geometry.verts
+        n = len(v) // 3
+        if n == 0:
+            return []
+        xs = v[0::3]; ys = v[1::3]; zs = v[2::3]
+        cx = sum(xs) / n
+        cy = sum(ys) / n
+        cz = sum(zs) / n
+        radius = (
+            (max(xs) - min(xs)) ** 2 +
+            (max(ys) - min(ys)) ** 2 +
+            (max(zs) - min(zs)) ** 2
+        ) ** 0.5 / 2.0 + extend
+        return tree.select((cx, cy, cz), extend=radius)
+    except Exception as exc2:
+        print(f"[clash] sphere-fallback fehlgeschlagen: {exc2}", flush=True)
+        return []
+
+
 @app.post("/clash")
 def run_clash(req: ClashPayload):
     """Kollisionsprüfung via ifcopenshell.geom.tree (OBB-Intersection).
 
-    Strategie: Pro Regel wird EIN gemeinsamer Baum mit ALLEN relevanten Modellen
-    gebaut (Set-A ∪ Set-B). Dadurch kann tree.select(elem_a) auch dann tessellieren,
-    wenn elem_a aus einem anderen Modell stammt als die Set-B-Elemente.
+    Pro B-Modell wird ein Baum gebaut, der ausschließlich die Set-B-Typen enthält
+    (add_element statt add_file).  Das verhindert OOM bei großen Modellen, da nur
+    die geometrisch relevanten Elemente tesselliert werden.
 
-    Element-zu-Modell-Zuordnung erfolgt über GlobalId (GUID) als primäres Merkmal —
-    robust gegen identische Express-IDs in verschiedenen IFC-Dateien.
+    select(elem_a) verwendet die im Baum gespeicherten Settings um elem_a (auch
+    aus einem anderen Modell) zu tessellieren.  Schlägt das fehl, greift ein
+    Sphere-Query-Fallback via create_shape() + Mittelpunkt-Abstand.
     """
     import ifcopenshell.geom  # lazy import — not available until bootstrap
 
@@ -249,10 +293,9 @@ def run_clash(req: ClashPayload):
 
         types_a     = rule.set_a.ifc_types or ["IfcProduct"]
         types_b_set = set(rule.set_b.ifc_types)
-        # Use tolerance as BVH extend: catches near-misses and clearances.
-        # For hard-clash without tolerance, a tiny epsilon avoids float rounding issues.
-        extend = rule.tolerance if rule.tolerance > 0.0 else 1e-4
-        seen: set = set()
+        b_type_list = list(types_b_set) if types_b_set else ["IfcProduct"]
+        extend      = rule.tolerance if rule.tolerance > 0.0 else 1e-4
+        seen: set   = set()
 
         models_a = {n: m for n, m in _models.items()
                     if not rule.set_a.model_names or n in rule.set_a.model_names}
@@ -263,87 +306,78 @@ def run_clash(req: ClashPayload):
             print(f"[clash] Keine Modelle für A oder B — übersprungen", flush=True)
             continue
 
-        # ── Build ONE combined tree with all relevant models ──────────────────
-        # Critical: adding all models to the same tree lets tree.select(elem_a)
-        # tessellate any element regardless of which model it came from.
-        combined_tree = ifcopenshell.geom.tree()
-        all_relevant = {**models_a, **models_b}
-        loaded_in_tree: Set[str] = set()
+        # ── Build one BVH tree per Set-B model (only Set-B typed elements) ────
+        # Using add_element(elem, settings) instead of add_file(model, settings):
+        #   - Stores geometry settings in the tree (needed for cross-model select)
+        #   - Tessellates ONLY relevant elements → avoids OOM on large models
+        b_trees: Dict[str, Any] = {}
 
-        for mname, model in all_relevant.items():
-            try:
-                combined_tree.add_file(model, geo_settings)
-                loaded_in_tree.add(mname)
-                print(f"[clash] Modell '{mname}' zum Baum hinzugefügt", flush=True)
-            except Exception as exc:
-                print(f"[clash] add_file für '{mname}' fehlgeschlagen: {exc}", flush=True)
+        for mname_b, model_b in models_b.items():
+            tree = ifcopenshell.geom.tree()
+            added = 0
+            for t in b_type_list:
+                for elem_b in _by_type_safe(model_b, t):
+                    try:
+                        tree.add_element(elem_b, geo_settings)
+                        added += 1
+                    except Exception:
+                        pass
+            if added > 0:
+                b_trees[mname_b] = tree
+                type_preview = ", ".join(b_type_list[:3]) + ("…" if len(b_type_list) > 3 else "")
+                print(f"[clash] B-Baum '{mname_b}': {added} Elemente ({type_preview})", flush=True)
+            else:
+                print(f"[clash] B-Baum '{mname_b}': 0 Elemente der Typen {b_type_list[:2]} — übersprungen", flush=True)
 
-        if not loaded_in_tree:
-            print(f"[clash] Kein Modell im Baum — Regel übersprungen", flush=True)
+        if not b_trees:
+            print(f"[clash] Regel '{rule.name}': keine Set-B-Elemente in keinem Modell", flush=True)
             continue
 
-        b_model_names = [n for n in models_b if n in loaded_in_tree]
-
-        # ── Query Set-A elements ──────────────────────────────────────────────
+        # ── Query Set-A elements against every B tree ─────────────────────────
         for mname_a, model_a in models_a.items():
-            if mname_a not in loaded_in_tree:
-                continue
-
             elems_a: list = []
             for t in types_a:
-                found = _by_type_safe(model_a, t)
-                elems_a.extend(found)
+                elems_a.extend(_by_type_safe(model_a, t))
 
-            print(f"[clash] Set-A '{mname_a}': {len(elems_a)} Elemente ({', '.join(types_a[:3])}{'…' if len(types_a)>3 else ''})", flush=True)
+            a_type_preview = ", ".join(types_a[:3]) + ("…" if len(types_a) > 3 else "")
+            print(f"[clash] Set-A '{mname_a}': {len(elems_a)} Elemente ({a_type_preview})", flush=True)
 
-            clash_count_rule = 0
             for elem_a in elems_a:
-                try:
-                    overlapping = combined_tree.select(elem_a, extend=extend)
-                except Exception as exc:
-                    print(f"[clash] select() fehlgeschlagen für {elem_a.id()}: {exc}", flush=True)
-                    continue
+                for mname_b, tree_b in b_trees.items():
+                    overlapping = _select_with_fallback(tree_b, elem_a, extend, geo_settings)
 
-                for ov in overlapping:
-                    eid_a = elem_a.id()
-                    eid_b = ov.id()
+                    for ov in overlapping:
+                        eid_a = elem_a.id()
+                        eid_b = ov.id()
 
-                    # Identify which Set-B model ov belongs to
-                    mname_b = _ov_model_name(ov, b_model_names)
-                    if mname_b is None:
-                        continue
+                        # Skip self-collision (only relevant when A and B share a model)
+                        if mname_a == mname_b and eid_a == eid_b:
+                            continue
 
-                    # Skip self-collision
-                    if mname_a == mname_b and eid_a == eid_b:
-                        continue
+                        # Apply Set-B type filter — tree may contain subtypes not in types_b_set
+                        if types_b_set and not any(ov.is_a(t) for t in types_b_set):
+                            continue
 
-                    # Apply Set-B type filter (tree contains all types)
-                    if types_b_set and not any(ov.is_a(t) for t in types_b_set):
-                        continue
+                        pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
+                        if pair in seen:
+                            continue
+                        seen.add(pair)
 
-                    pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
-                    if pair in seen:
-                        continue
-                    seen.add(pair)
-                    clash_count_rule += 1
-
-                    all_results.append({
-                        "rule_id":      rule.id,
-                        "rule_name":    rule.name,
-                        "severity":     rule.severity,
-                        "check_type":   rule.check_type,
-                        "model_name_a": mname_a,
-                        "express_id_a": eid_a,
-                        "name_a":       getattr(elem_a, "Name", None) or "",
-                        "type_a":       elem_a.is_a(),
-                        "model_name_b": mname_b,
-                        "express_id_b": eid_b,
-                        "name_b":       getattr(ov, "Name", None) or "",
-                        "type_b":       ov.is_a(),
-                        "overlap":      0.0,
-                    })
-
-            print(f"[clash] → {clash_count_rule} neue Treffer aus '{mname_a}'", flush=True)
+                        all_results.append({
+                            "rule_id":      rule.id,
+                            "rule_name":    rule.name,
+                            "severity":     rule.severity,
+                            "check_type":   rule.check_type,
+                            "model_name_a": mname_a,
+                            "express_id_a": eid_a,
+                            "name_a":       getattr(elem_a, "Name", None) or "",
+                            "type_a":       elem_a.is_a(),
+                            "model_name_b": mname_b,
+                            "express_id_b": eid_b,
+                            "name_b":       getattr(ov, "Name", None) or "",
+                            "type_b":       ov.is_a(),
+                            "overlap":      0.0,
+                        })
 
         rule_total = sum(1 for r in all_results if r["rule_id"] == rule.id)
         print(f"[clash] Regel '{rule.name}': {rule_total} Treffer gesamt", flush=True)
@@ -357,8 +391,8 @@ def run_clash(req: ClashPayload):
 @app.get("/clash/test")
 def clash_test():
     """Schnell-Diagnose: prüft ob Geometrie-Tessellierung funktioniert.
-    Gibt für jedes geladene Modell zurück wie viele Elemente erfolgreich
-    tesselliert werden konnten.
+    Fügt die ersten 20 IfcProduct-Elemente pro Modell via add_element in einen
+    Baum ein und testet select() auf ihnen.
     """
     import ifcopenshell.geom
 
@@ -370,24 +404,29 @@ def clash_test():
 
     report = {}
     for mname, model in _models.items():
+        products = _by_type_safe(model, "IfcProduct")
+        sample = products[:20]
         try:
             tree = ifcopenshell.geom.tree()
-            tree.add_file(model, geo_settings)
+            added = 0
+            for e in sample:
+                try:
+                    tree.add_element(e, geo_settings)
+                    added += 1
+                except Exception:
+                    pass
 
-            products = _by_type_safe(model, "IfcProduct")
-            sample_results = 0
-            if products:
-                # Try select on first 5 elements to verify
-                for elem in products[:5]:
-                    try:
-                        hits = tree.select(elem, extend=0.5)
-                        sample_results += len(hits)
-                    except Exception:
-                        pass
+            hits = 0
+            for e in sample[:5]:
+                try:
+                    hits += len(tree.select(e, extend=0.5))
+                except Exception:
+                    pass
 
             report[mname] = {
-                "products": len(products),
-                "sample_select_hits": sample_results,
+                "products_total": len(products),
+                "sample_added": added,
+                "sample_select_hits": hits,
                 "ok": True,
             }
         except Exception as exc:
