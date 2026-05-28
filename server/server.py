@@ -285,13 +285,6 @@ def _filter_by_conditions(elems: list, conditions: List[PropCondition]) -> list:
 
 @app.post("/clash")
 def run_clash(req: ClashPayload):
-    """Kollisionsprüfung via ifcopenshell.geom clash_*_many APIs (IfcOpenShell 0.8.x).
-
-    Pro A×B-Modellpaar wird ein BVH-Baum mit AUSSCHLIESSLICH den relevanten
-    Elementen beider Sets gebaut (iterator mit include=[…]).  Danach rufen wir
-    clash_collision_many / clash_clearance_many / clash_intersection_many auf —
-    das korrekte IfcOpenShell 0.8.x-API statt des nicht-existenten add_element().
-    """
     import ifcopenshell.geom
 
     if not _models:
@@ -323,10 +316,9 @@ def run_clash(req: ClashPayload):
             elems_a: list = []
             for t in types_a:
                 elems_a.extend(_by_type_safe(model_a, t))
-            # Apply property conditions (AND logic) to Set-A
             elems_a = _filter_by_conditions(elems_a, rule.set_a.conditions)
             if not elems_a:
-                print(f"[clash] Set-A '{mname_a}': keine Elemente nach Typ+Kondition-Filter — übersprungen", flush=True)
+                print(f"[clash] Set-A '{mname_a}': keine Elemente nach Filter — übersprungen", flush=True)
                 continue
             cond_a_str = f", {len(rule.set_a.conditions)} Kond." if rule.set_a.conditions else ""
             print(f"[clash] Set-A '{mname_a}': {len(elems_a)} Elemente ({', '.join(types_a[:3])}{'…' if len(types_a) > 3 else ''}{cond_a_str})", flush=True)
@@ -335,99 +327,114 @@ def run_clash(req: ClashPayload):
                 elems_b: list = []
                 for t in types_b:
                     elems_b.extend(_by_type_safe(model_b, t))
-                # Apply property conditions (AND logic) to Set-B
                 elems_b = _filter_by_conditions(elems_b, rule.set_b.conditions)
                 if not elems_b:
-                    print(f"[clash] Set-B '{mname_b}': keine Elemente nach Typ+Kondition-Filter — übersprungen", flush=True)
+                    print(f"[clash] Set-B '{mname_b}': keine Elemente nach Filter — übersprungen", flush=True)
                     continue
                 cond_b_str = f", {len(rule.set_b.conditions)} Kond." if rule.set_b.conditions else ""
                 print(f"[clash] Set-B '{mname_b}': {len(elems_b)} Elemente ({', '.join(types_b[:3])}{'…' if len(types_b) > 3 else ''}{cond_b_str})", flush=True)
 
-                # ── BVH-Baum mit Set-B-Elementen aufbauen ────────────────
-                # Für same-model: Ein Iterator mit A∪B (damit select(elem_a)
-                # den Baum nach dem Modell kennt und tessellieren kann).
-                # Für cross-model: Zwei Iteratoren — A-Iterator registriert
-                # das Modell so dass select(elem_a) funktioniert.
-                b_tree = ifcopenshell.geom.tree()
-                try:
-                    if model_a is model_b:
-                        ids_seen: set = set()
-                        combined: list = []
-                        for e in elems_a + elems_b:
-                            if e.id() not in ids_seen:
-                                ids_seen.add(e.id())
-                                combined.append(e)
-                        b_tree.add_iterator(
-                            ifcopenshell.geom.iterator(geo_settings, model_a, include=combined)
-                        )
-                    else:
-                        # A-Iterator: registriert model_a für select()-Tessellierung
-                        b_tree.add_iterator(
-                            ifcopenshell.geom.iterator(geo_settings, model_a, include=elems_a)
-                        )
-                        # B-Iterator: die eigentlichen Such-Elemente
-                        b_tree.add_iterator(
-                            ifcopenshell.geom.iterator(geo_settings, model_b, include=elems_b)
-                        )
-                except Exception as exc:
-                    print(f"[clash] Baum-Aufbau fehlgeschlagen ('{mname_a}' × '{mname_b}'): {exc}", flush=True)
-                    continue
-
-                # select()-Radius je nach Prüftyp:
-                #   hard-clash  → 0 (nur echte AABB-Überschneidung)
-                #   clearance   → Mindestabstand (Elemente innerhalb dieser Distanz)
-                #   duplicate   → Toleranz (Elemente nahezu deckungsgleich)
+                # Extent per check type (applied to AABB before spatial query)
                 if rule.check_type == "clearance":
                     extend = rule.tolerance if rule.tolerance > 0 else 0.05
                 elif rule.check_type == "duplicate":
                     extend = rule.tolerance if rule.tolerance > 0 else 0.002
                 else:
-                    extend = 0.0  # hard-clash: reiner AABB-Schnitt
+                    # hard-clash: slightly negative so touching-only faces are excluded
+                    extend = -1e-4
+
+                # Build BVH tree with Set-B elements only
+                b_tree = ifcopenshell.geom.tree()
+                try:
+                    b_tree.add_iterator(
+                        ifcopenshell.geom.iterator(geo_settings, model_b, include=elems_b)
+                    )
+                except Exception as exc:
+                    print(f"[clash] Set-B Baum-Aufbau fehlgeschlagen: {exc}", flush=True)
+                    continue
 
                 elems_b_ids: set = {e.id() for e in elems_b}
-
                 before = len(all_results)
-                for elem_a in elems_a:
-                    eid_a = elem_a.id()
+                geoms_a = 0
+                total_candidates = 0
+
+                # Iterate Set-A geometries, compute AABB explicitly, query tree with box
+                try:
+                    it_a = ifcopenshell.geom.iterator(geo_settings, model_a, include=elems_a)
+                except Exception as exc:
+                    print(f"[clash] Set-A Iterator Fehler: {exc}", flush=True)
+                    continue
+
+                if not it_a.initialize():
+                    print(f"[clash] Set-A Iterator leer (keine Geometrie) für '{mname_a}'", flush=True)
+                    continue
+
+                while True:
                     try:
-                        candidates = b_tree.select(elem_a, extend=extend)
+                        shape_a = it_a.get()
+                        geoms_a += 1
+                        eid_a = shape_a.id
+
+                        verts = shape_a.geometry.verts
+                        if verts:
+                            xs = verts[0::3]
+                            ys = verts[1::3]
+                            zs = verts[2::3]
+                            # Expand AABB by extend; for hard-clash extend is negative
+                            box_a = (
+                                min(xs) - extend, min(ys) - extend, min(zs) - extend,
+                                max(xs) + extend, max(ys) + extend, max(zs) + extend,
+                            )
+
+                            try:
+                                candidates = b_tree.select(box_a)
+                            except Exception as exc2:
+                                print(f"[clash] select(box) Fehler für #{eid_a}: {exc2}", flush=True)
+                                candidates = []
+
+                            total_candidates += len(candidates)
+                            elem_a = model_a.by_id(eid_a)
+
+                            for cand in candidates:
+                                eid_b = cand.id()
+
+                                if model_a is model_b and eid_a == eid_b:
+                                    continue
+
+                                if eid_b not in elems_b_ids:
+                                    continue
+
+                                pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
+                                if pair in seen:
+                                    continue
+                                seen.add(pair)
+
+                                all_results.append({
+                                    "rule_id":      rule.id,
+                                    "rule_name":    rule.name,
+                                    "severity":     rule.severity,
+                                    "check_type":   rule.check_type,
+                                    "model_name_a": mname_a,
+                                    "express_id_a": eid_a,
+                                    "name_a":       getattr(elem_a, "Name", None) or "",
+                                    "type_a":       elem_a.is_a(),
+                                    "model_name_b": mname_b,
+                                    "express_id_b": eid_b,
+                                    "name_b":       getattr(cand, "Name", None) or "",
+                                    "type_b":       cand.is_a(),
+                                    "overlap":      0.0,
+                                })
                     except Exception as exc:
-                        print(f"[clash] select() Fehler für #{eid_a}: {exc}", flush=True)
-                        continue
+                        print(f"[clash] Fehler bei Element-Verarbeitung: {exc}", flush=True)
 
-                    for cand in candidates:
-                        eid_b = cand.id()
+                    if not it_a.next():
+                        break
 
-                        # Selbst-Kollision überspringen
-                        if mname_a == mname_b and eid_a == eid_b:
-                            continue
-
-                        # Nur Set-B-Elemente berücksichtigen
-                        if eid_b not in elems_b_ids:
-                            continue
-
-                        pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
-                        if pair in seen:
-                            continue
-                        seen.add(pair)
-
-                        all_results.append({
-                            "rule_id":      rule.id,
-                            "rule_name":    rule.name,
-                            "severity":     rule.severity,
-                            "check_type":   rule.check_type,
-                            "model_name_a": mname_a,
-                            "express_id_a": eid_a,
-                            "name_a":       getattr(elem_a, "Name", None) or "",
-                            "type_a":       elem_a.is_a(),
-                            "model_name_b": mname_b,
-                            "express_id_b": eid_b,
-                            "name_b":       getattr(cand, "Name", None) or "",
-                            "type_b":       cand.is_a(),
-                            "overlap":      0.0,
-                        })
-
-                print(f"[clash] '{mname_a}' × '{mname_b}': {len(all_results) - before} Treffer", flush=True)
+                print(
+                    f"[clash] '{mname_a}' × '{mname_b}': {len(all_results) - before} Treffer"
+                    f" ({geoms_a} Set-A-Geom., {total_candidates} Kandidaten gesamt)",
+                    flush=True,
+                )
 
         rule_total = sum(1 for r in all_results if r["rule_id"] == rule.id)
         print(f"[clash] Regel '{rule.name}': {rule_total} Treffer gesamt", flush=True)
