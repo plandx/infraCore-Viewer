@@ -398,6 +398,31 @@ def _obb_overlap_sat(
     return True  # no separating axis found → boxes overlap
 
 
+def _aabb_obb_filter(
+    geoms_a: Dict[int, tuple],
+    geoms_b: Dict[int, tuple],
+    skip_same_eid: bool,
+    extend: float,
+) -> List[Tuple[int, int]]:
+    """AABB coarse + OBB/SAT fine prefilter.
+
+    Returns (eid_a, eid_b) candidate pairs that survive both tests.
+    `skip_same_eid=True` drops pairs where express-IDs are identical (same element
+    in same-model checks).
+    """
+    pairs: List[Tuple[int, int]] = []
+    for eid_a, (aabb_a, obb_ca, obb_axa, obb_ha) in geoms_a.items():
+        for eid_b, (aabb_b, obb_cb, obb_axb, obb_hb) in geoms_b.items():
+            if skip_same_eid and eid_a == eid_b:
+                continue
+            if not _aabbs_overlap(aabb_a, aabb_b, extend):
+                continue
+            if not _obb_overlap_sat(obb_ca, obb_axa, obb_ha, obb_cb, obb_axb, obb_hb, extend):
+                continue
+            pairs.append((eid_a, eid_b))
+    return pairs
+
+
 def _cgal_clash(
     tree: Any,
     elems_a: list,
@@ -405,81 +430,88 @@ def _cgal_clash(
     check_type: str,
     tolerance: float,
 ) -> List[tuple]:
-    """Run CGAL clash_*_many and return [(elem_a, elem_b, distance), ...].
+    """Run CGAL exact mesh check. Returns [(elem_a, elem_b, distance), ...].
 
-    Mapping:
-      hard-clash + tol=0  → clash_intersection_many  (exact mesh intersection)
-      hard-clash + tol>0  → clash_clearance_many(tol) (near-miss within tolerance)
-      clearance           → clash_clearance_many(tol)
-      duplicate           → clash_clearance_many(tol)
+    hard-clash / duplicate:
+        Always clash_intersection_many (finds actual mesh penetration/overlap).
+        clash_clearance_many is WRONG here: it only reports surface gaps in [0, tol]
+        and misses intersecting/overlapping geometry (negative clearance).
+        If tolerance > 0, additionally run clearance for near-miss pairs.
+    clearance:
+        clash_clearance_many(tol, allow_touching=True) only.
     """
-    if check_type == "hard-clash" and tolerance <= 0:
-        raw = tree.clash_intersection_many(elems_a, elems_b)
-        label = "clash_intersection_many"
-    else:
-        tol = tolerance if tolerance > 0 else (0.05 if check_type == "clearance" else 0.001)
-        try:
-            raw = tree.clash_clearance_many(elems_a, elems_b, tol)
-        except TypeError:
-            raw = tree.clash_clearance_many(elems_a, elems_b, tol, False)
-        label = f"clash_clearance_many(tol={tol})"
+    raw_all: list = []
+    labels: List[str] = []
 
-    pairs = []
-    for clash in raw:
+    if check_type in ("hard-clash", "duplicate"):
+        try:
+            raw_int = list(tree.clash_intersection_many(elems_a, elems_b))
+            raw_all.extend(raw_int)
+            labels.append(f"intersection({len(raw_int)})")
+        except Exception as exc:
+            print(f"[clash] clash_intersection_many fehlgeschlagen: {exc}", flush=True)
+
+        if tolerance > 0:
+            try:
+                raw_cl = list(tree.clash_clearance_many(elems_a, elems_b, tolerance, True))
+            except TypeError:
+                try:
+                    raw_cl = list(tree.clash_clearance_many(elems_a, elems_b, tolerance))
+                except Exception as exc2:
+                    print(f"[clash] clash_clearance_many fehlgeschlagen: {exc2}", flush=True)
+                    raw_cl = []
+            raw_all.extend(raw_cl)
+            labels.append(f"clearance({tolerance},{len(raw_cl)})")
+    else:  # "clearance"
+        tol = tolerance if tolerance > 0 else 0.05
+        try:
+            raw_cl = list(tree.clash_clearance_many(elems_a, elems_b, tol, True))
+        except TypeError:
+            try:
+                raw_cl = list(tree.clash_clearance_many(elems_a, elems_b, tol))
+            except Exception as exc:
+                print(f"[clash] clash_clearance_many fehlgeschlagen: {exc}", flush=True)
+                raw_cl = []
+        raw_all.extend(raw_cl)
+        labels.append(f"clearance({tol},{len(raw_cl)})")
+
+    pairs: List[tuple] = []
+    seen: set = set()
+    for clash in raw_all:
         try:
             ea = clash.a if hasattr(clash, "a") else clash[0]
             eb = clash.b if hasattr(clash, "b") else clash[1]
-            pairs.append((ea, eb, float(getattr(clash, "distance", 0.0))))
+            key = (min(ea.id(), eb.id()), max(ea.id(), eb.id()))
+            if key not in seen:
+                seen.add(key)
+                pairs.append((ea, eb, float(getattr(clash, "distance", 0.0))))
         except Exception:
             pass
 
-    print(f"[clash] CGAL {label}: {len(raw)} Roh-Paare → {len(pairs)} verarbeitbar", flush=True)
-    return pairs
-
-
-def _aabb_obb_clash(
-    geoms_a: Dict[int, tuple],
-    geoms_b: Dict[int, tuple],
-    model_a: Any,
-    model_b: Any,
-    check_type: str,
-    tolerance: float,
-) -> List[tuple]:
-    """Fallback: AABB coarse + OBB/SAT fine filter. Returns [(ea, eb, 0.0), ...]."""
-    extend = tolerance if tolerance >= 0 else 0.0
-    use_obb = check_type in ("hard-clash", "clearance")
-
-    pairs = []
-    for eid_a, (aabb_a, obb_ca, obb_axa, obb_ha) in geoms_a.items():
-        for eid_b, (aabb_b, obb_cb, obb_axb, obb_hb) in geoms_b.items():
-            if model_a is model_b and eid_a == eid_b:
-                continue
-            if not _aabbs_overlap(aabb_a, aabb_b, extend):
-                continue
-            if use_obb and not _obb_overlap_sat(obb_ca, obb_axa, obb_ha, obb_cb, obb_axb, obb_hb, extend):
-                continue
-            pairs.append((model_a.by_id(eid_a), model_b.by_id(eid_b), 0.0))
-
+    label_str = "+".join(labels) if labels else "none"
+    print(
+        f"[clash] CGAL [{label_str}]: {len(raw_all)} Roh → {len(pairs)} einzigartig",
+        flush=True,
+    )
     return pairs
 
 
 @app.post("/clash")
 def run_clash(req: ClashPayload):
-    """Kollisionsprüfung im IfcClash-Stil.
+    """Kollisionsprüfung im IfcClash-Stil (3-stufige Pipeline).
 
-    Primär: CGAL clash_intersection_many / clash_clearance_many — echte
-    Dreiecks-Geometrie wie in IfcClash / BlenderBIM.
+    Stufe 1: AABB-Grobfilter — eliminiert alle Paare ohne Bounding-Box-Overlap.
+    Stufe 2: OBB/SAT-Feinfilter — orientierte Bounding Boxes (15-Achsen-SAT).
+    Stufe 3: CGAL exakte Mesh-Prüfung — nur auf Kandidatenpaaren aus Stufe 2.
 
-    Same-model: Datei zweimal als separate file-Objekte laden, damit der
-    C++-interne same-file-Skip nicht greift.
+    hard-clash / duplicate → clash_intersection_many (echte Mesh-Penetration).
+      NICHT clash_clearance_many: das meldet nur Abstände in [0, tol] und
+      verfehlt überlappende Geometrie (negative Clearance).
+    clearance → clash_clearance_many(tol, allow_touching=True).
 
-    Fallback: AABB-Grobfilter + OBB/SAT-Feinfilter (numpy PCA), falls CGAL
-    eine Exception wirft.
-
-    Toleranz:
-      hard-clash + tol=0  → clash_intersection_many (exakter Schnitt)
-      hard-clash + tol>0  → clash_clearance_many(tol) (auch Beinahe-Treffer)
-      clearance / dup     → clash_clearance_many(tol)
+    Same-model: zweite Kopie laden, damit C++-interner same-file-Skip nicht greift.
+    Fallback (AABB+OBB): greift wenn CGAL fehlschlägt oder 0 liefert trotz
+    vorhandener AABB/OBB-Kandidaten (nur für hard-clash/duplicate).
     """
     import ifcopenshell.geom
 
@@ -543,7 +575,8 @@ def run_clash(req: ClashPayload):
 
                 # ── Same-model: load second copy to bypass C++ same-file skip ──
                 _tmp_copy = None
-                if model_a is model_b:
+                same_model = model_a is model_b
+                if same_model:
                     tmp_path = None
                     try:
                         with tempfile.NamedTemporaryFile(suffix=".ifc", delete=False) as tmp:
@@ -567,43 +600,89 @@ def run_clash(req: ClashPayload):
                     model_b_w = model_b
                     elems_b_w = elems_b
 
-                # ── Build BVH tree ───────────────────────────────────────────
+                extend = max(rule.tolerance, 0.0)
+
+                # ── Stage 1+2: AABB + OBB/SAT prefilter ─────────────────────
+                geoms_a_d = _tessellate_geoms(geo_settings, model_a, elems_a)
+                geoms_b_d = _tessellate_geoms(geo_settings, model_b_w, elems_b_w)
+
+                if not geoms_a_d or not geoms_b_d:
+                    print("[clash] Keine Geometrie tessellierbar — übersprungen", flush=True)
+                    del _tmp_copy
+                    continue
+
+                candidate_pairs = _aabb_obb_filter(
+                    geoms_a_d, geoms_b_d,
+                    skip_same_eid=same_model,
+                    extend=extend,
+                )
+                n_a, n_b = len(geoms_a_d), len(geoms_b_d)
+                print(
+                    f"[clash] AABB+OBB: {n_a}×{n_b}={n_a*n_b} Paare"
+                    f" → {len(candidate_pairs)} Kandidaten",
+                    flush=True,
+                )
+
+                if not candidate_pairs:
+                    print(
+                        f"[clash] '{mname_a}' × '{mname_b}': 0 Treffer (kein AABB-Overlap)",
+                        flush=True,
+                    )
+                    del _tmp_copy
+                    continue
+
+                # ── Stage 3: CGAL exakte Mesh-Prüfung auf Kandidatenpaare ────
+                cand_a_ids = list({ea for ea, _ in candidate_pairs})
+                cand_b_ids = list({eb for _, eb in candidate_pairs})
+                cand_elems_a = [model_a.by_id(e) for e in cand_a_ids]
+                cand_elems_b_w = [model_b_w.by_id(e) for e in cand_b_ids]
+
                 b_tree = ifcopenshell.geom.tree()
                 tree_ok = True
                 try:
-                    b_tree.add_iterator(
-                        ifcopenshell.geom.iterator(geo_settings, model_a, include=elems_a)
-                    )
-                    b_tree.add_iterator(
-                        ifcopenshell.geom.iterator(geo_settings, model_b_w, include=elems_b_w)
-                    )
+                    it_a = ifcopenshell.geom.iterator(geo_settings, model_a, include=cand_elems_a)
+                    if it_a.initialize():
+                        b_tree.add_iterator(it_a)
+                    else:
+                        tree_ok = False
+                    it_b = ifcopenshell.geom.iterator(geo_settings, model_b_w, include=cand_elems_b_w)
+                    if it_b.initialize():
+                        b_tree.add_iterator(it_b)
+                    else:
+                        tree_ok = False
                 except Exception as exc:
-                    print(f"[clash] Baum-Aufbau fehlgeschlagen: {exc}", flush=True)
+                    print(f"[clash] CGAL-Baum Fehler: {exc}", flush=True)
                     tree_ok = False
 
-                # ── Primary: CGAL clash_*_many ───────────────────────────────
                 raw_pairs: List[tuple] = []
                 cgal_ok = False
                 if tree_ok:
                     try:
                         raw_pairs = _cgal_clash(
-                            b_tree, elems_a, elems_b_w,
+                            b_tree, cand_elems_a, cand_elems_b_w,
                             rule.check_type, rule.tolerance,
                         )
                         cgal_ok = True
                     except Exception as exc:
                         print(f"[clash] CGAL fehlgeschlagen: {exc}", flush=True)
 
-                # ── Fallback: AABB + OBB/SAT ────────────────────────────────
-                if not cgal_ok:
-                    print("[clash] Fallback: AABB + OBB/SAT", flush=True)
-                    geoms_a = _tessellate_geoms(geo_settings, model_a, elems_a)
-                    geoms_b = _tessellate_geoms(geo_settings, model_b, elems_b)
-                    raw_pairs = _aabb_obb_clash(
-                        geoms_a, geoms_b, model_a, model_b,
-                        rule.check_type, rule.tolerance,
-                    )
-                    print(f"[clash] AABB+OBB Fallback: {len(raw_pairs)} Paare", flush=True)
+                # ── Fallback: AABB+OBB Kandidaten direkt verwenden ───────────
+                # Greift wenn CGAL fehlschlägt ODER für hard-clash/duplicate
+                # keine Ergebnisse liefert obwohl Kandidaten vorhanden sind.
+                if not raw_pairs and rule.check_type in ("hard-clash", "duplicate"):
+                    if not cgal_ok:
+                        print("[clash] Fallback: CGAL-Exception → AABB+OBB Kandidaten", flush=True)
+                    else:
+                        print(
+                            "[clash] Fallback: CGAL liefert 0 trotz Kandidaten"
+                            " → AABB+OBB Kandidaten",
+                            flush=True,
+                        )
+                    raw_pairs = [
+                        (model_a.by_id(ea), model_b_w.by_id(eb), 0.0)
+                        for ea, eb in candidate_pairs
+                    ]
+                    cgal_ok = False
 
                 # ── Deduplicate and build results ────────────────────────────
                 before = len(all_results)
@@ -619,7 +698,6 @@ def run_clash(req: ClashPayload):
                         continue
                     seen.add(pair)
 
-                    # eb may be from the copy; get original for name/type
                     eb_orig = model_b.by_id(eid_b) if _tmp_copy is not None else eb
 
                     all_results.append({
