@@ -22,8 +22,8 @@ start "Python Server" "%~dp0server\python-3.13.13-embed-amd64\python.exe" "%~dp0
 echo.
 
 :: ── 3. npm run build ─────────────────────────────────────────
-echo [3/4] App bauen (npm run build)...
-cmd /c "npm run build"
+echo [3/4] App bauen (vite build)...
+cmd /c "npx vite build"
 if errorlevel 1 (
     echo.
     echo FEHLER: Build fehlgeschlagen - siehe Fehlermeldung oben.
