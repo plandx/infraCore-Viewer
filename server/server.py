@@ -283,35 +283,58 @@ def _filter_by_conditions(elems: list, conditions: List[PropCondition]) -> list:
     return result
 
 
-def _clash_run(tree: Any, elems_a: list, elems_b: list, check_type: str, tolerance: float) -> list:
-    """Run the appropriate clash_*_many function and return raw clash objects."""
-    if check_type in ("clearance", "duplicate"):
-        tol = tolerance if tolerance > 0 else (0.05 if check_type == "clearance" else 0.002)
-        try:
-            return tree.clash_clearance_many(elems_a, elems_b, tol)
-        except TypeError:
-            return tree.clash_clearance_many(elems_a, elems_b, tol, False)
-    else:
-        try:
-            return tree.clash_collision_many(elems_a, elems_b, False, -1e-6)
-        except TypeError:
-            return tree.clash_collision_many(elems_a, elems_b)
+def _tessellate_aabbs(
+    geo_settings: Any,
+    model: Any,
+    elems: list,
+) -> Dict[int, tuple]:
+    """Tessellate elements and return {express_id: (xmin,ymin,zmin,xmax,ymax,zmax)}."""
+    import ifcopenshell.geom
 
-
-def _clash_ab(clash: Any):
-    """Extract (entity_a, entity_b) from a clash result regardless of binding version."""
+    aabbs: Dict[int, tuple] = {}
     try:
-        return clash.a, clash.b
-    except AttributeError:
-        return clash[0], clash[1]
+        it = ifcopenshell.geom.iterator(geo_settings, model, include=elems)
+    except Exception as exc:
+        print(f"[clash] Iterator Fehler: {exc}", flush=True)
+        return aabbs
+
+    if not it.initialize():
+        return aabbs
+
+    while True:
+        try:
+            shape = it.get()
+            verts = shape.geometry.verts
+            if verts:
+                xs = verts[0::3]
+                ys = verts[1::3]
+                zs = verts[2::3]
+                aabbs[shape.id] = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+        except Exception:
+            pass
+        if not it.next():
+            break
+
+    return aabbs
+
+
+def _aabbs_overlap(a: tuple, b: tuple, extend: float) -> bool:
+    """Return True if two AABBs overlap when A is expanded by extend."""
+    return (
+        a[0] - extend <= b[3] and a[3] + extend >= b[0] and
+        a[1] - extend <= b[4] and a[4] + extend >= b[1] and
+        a[2] - extend <= b[5] and a[5] + extend >= b[2]
+    )
 
 
 @app.post("/clash")
 def run_clash(req: ClashPayload):
-    """Geometrische Kollisionsprüfung mit CGAL via clash_collision/clearance_many.
+    """Kollisionsprüfung via explizite AABB-Vergleiche auf tessellierter Geometrie.
 
-    Für Same-Model-Prüfungen wird das Modell zweimal geladen — ifcopenshell
-    überspringt Paare aus derselben Datei, zwei separate file-Objekte umgehen das.
+    Tesselliert Set-A und Set-B separat mit dem ifcopenshell-Iterator, berechnet
+    die Bounding-Boxes direkt aus den Vertices und vergleicht alle A×B-Paare.
+    Kein same-file-Skip, kein tree.select(), keine clash_*_many — funktioniert
+    zuverlässig für same-model und cross-model.
     """
     import ifcopenshell.geom
 
@@ -346,10 +369,17 @@ def run_clash(req: ClashPayload):
                 elems_a.extend(_by_type_safe(model_a, t))
             elems_a = _filter_by_conditions(elems_a, rule.set_a.conditions)
             if not elems_a:
-                print(f"[clash] Set-A '{mname_a}': keine Elemente nach Filter — übersprungen", flush=True)
+                print(f"[clash] Set-A '{mname_a}': keine Elemente — übersprungen", flush=True)
                 continue
             cond_a_str = f", {len(rule.set_a.conditions)} Kond." if rule.set_a.conditions else ""
             print(f"[clash] Set-A '{mname_a}': {len(elems_a)} Elemente ({', '.join(types_a[:3])}{'…' if len(types_a) > 3 else ''}{cond_a_str})", flush=True)
+
+            # Tessellate Set-A once (reused for all Set-B models)
+            aabbs_a = _tessellate_aabbs(geo_settings, model_a, elems_a)
+            print(f"[clash] Set-A Geometrien: {len(aabbs_a)}/{len(elems_a)}", flush=True)
+            if not aabbs_a:
+                print(f"[clash] Set-A '{mname_a}': keine Geometrie — übersprungen", flush=True)
+                continue
 
             for mname_b, model_b in models_b.items():
                 elems_b: list = []
@@ -357,96 +387,66 @@ def run_clash(req: ClashPayload):
                     elems_b.extend(_by_type_safe(model_b, t))
                 elems_b = _filter_by_conditions(elems_b, rule.set_b.conditions)
                 if not elems_b:
-                    print(f"[clash] Set-B '{mname_b}': keine Elemente nach Filter — übersprungen", flush=True)
+                    print(f"[clash] Set-B '{mname_b}': keine Elemente — übersprungen", flush=True)
                     continue
                 cond_b_str = f", {len(rule.set_b.conditions)} Kond." if rule.set_b.conditions else ""
                 print(f"[clash] Set-B '{mname_b}': {len(elems_b)} Elemente ({', '.join(types_b[:3])}{'…' if len(types_b) > 3 else ''}{cond_b_str})", flush=True)
 
-                # Same-model: ifcopenshell überspringt Paare aus derselben Datei.
-                # Workaround: Datei als zweites file-Objekt neu laden — CGAL prüft dann
-                # korrekt, weil die C++-Pointer verschieden sind.
-                model_b_work = model_b
-                elems_b_work = elems_b
-                _tmp_model = None
-
-                if model_a is model_b:
-                    tmp_path = None
-                    try:
-                        with tempfile.NamedTemporaryFile(suffix=".ifc", delete=False) as tmp:
-                            tmp_path = tmp.name
-                        model_a.write(tmp_path)
-                        _tmp_model = ifcopenshell.open(tmp_path)
-                        model_b_work = _tmp_model
-                        elems_b_work = [model_b_work.by_id(e.id()) for e in elems_b]
-                        print(f"[clash] Same-model '{mname_b}': zweite Kopie für CGAL-Prüfung geladen", flush=True)
-                    except Exception as exc:
-                        print(f"[clash] Kopie fehlgeschlagen: {exc} — übersprungen", flush=True)
-                        continue
-                    finally:
-                        if tmp_path:
-                            Path(tmp_path).unlink(missing_ok=True)
-
-                # BVH-Baum mit beiden Sets aufbauen
-                b_tree = ifcopenshell.geom.tree()
-                try:
-                    b_tree.add_iterator(
-                        ifcopenshell.geom.iterator(geo_settings, model_a, include=elems_a)
-                    )
-                    b_tree.add_iterator(
-                        ifcopenshell.geom.iterator(geo_settings, model_b_work, include=elems_b_work)
-                    )
-                except Exception as exc:
-                    print(f"[clash] Baum-Aufbau fehlgeschlagen: {exc}", flush=True)
-                    del _tmp_model
+                aabbs_b = _tessellate_aabbs(geo_settings, model_b, elems_b)
+                print(f"[clash] Set-B Geometrien: {len(aabbs_b)}/{len(elems_b)}", flush=True)
+                if not aabbs_b:
+                    print(f"[clash] Set-B '{mname_b}': keine Geometrie — übersprungen", flush=True)
                     continue
 
-                # Geometrische Kollisionsprüfung via CGAL
-                raw_clashes: list = []
-                try:
-                    raw_clashes = _clash_run(b_tree, elems_a, elems_b_work, rule.check_type, rule.tolerance)
-                except Exception as exc:
-                    print(f"[clash] clash_*_many Fehler: {exc}", flush=True)
-
-                print(f"[clash] Rohergebnis: {len(raw_clashes)} Paare", flush=True)
+                # Extend for AABB overlap check
+                if rule.check_type == "clearance":
+                    extend = rule.tolerance if rule.tolerance > 0 else 0.05
+                elif rule.check_type == "duplicate":
+                    extend = rule.tolerance if rule.tolerance > 0 else 0.002
+                else:
+                    extend = 0.0  # hard-clash: strict AABB overlap
 
                 before = len(all_results)
-                for clash in raw_clashes:
-                    try:
-                        elem_a, elem_b_res = _clash_ab(clash)
-                    except Exception:
-                        continue
+                elem_a_cache: Dict[int, Any] = {}
+                elem_b_cache: Dict[int, Any] = {}
 
-                    eid_a = elem_a.id()
-                    eid_b = elem_b_res.id()
+                for eid_a, aabb_a in aabbs_a.items():
+                    for eid_b, aabb_b in aabbs_b.items():
+                        if model_a is model_b and eid_a == eid_b:
+                            continue  # self-match
 
-                    if mname_a == mname_b and eid_a == eid_b:
-                        continue
+                        if not _aabbs_overlap(aabb_a, aabb_b, extend):
+                            continue
 
-                    pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
-                    if pair in seen:
-                        continue
-                    seen.add(pair)
+                        pair = tuple(sorted([(mname_a, eid_a), (mname_b, eid_b)]))
+                        if pair in seen:
+                            continue
+                        seen.add(pair)
 
-                    # Bei same-model: Name/Typ aus dem Original-Modell holen
-                    orig_b = model_b.by_id(eid_b) if (model_a is model_b) else elem_b_res
+                        if eid_a not in elem_a_cache:
+                            elem_a_cache[eid_a] = model_a.by_id(eid_a)
+                        if eid_b not in elem_b_cache:
+                            elem_b_cache[eid_b] = model_b.by_id(eid_b)
 
-                    all_results.append({
-                        "rule_id":      rule.id,
-                        "rule_name":    rule.name,
-                        "severity":     rule.severity,
-                        "check_type":   rule.check_type,
-                        "model_name_a": mname_a,
-                        "express_id_a": eid_a,
-                        "name_a":       getattr(elem_a, "Name", None) or "",
-                        "type_a":       elem_a.is_a(),
-                        "model_name_b": mname_b,
-                        "express_id_b": eid_b,
-                        "name_b":       getattr(orig_b, "Name", None) or "",
-                        "type_b":       orig_b.is_a(),
-                        "overlap":      float(getattr(clash, "distance", 0.0)),
-                    })
+                        ea = elem_a_cache[eid_a]
+                        eb = elem_b_cache[eid_b]
 
-                del _tmp_model
+                        all_results.append({
+                            "rule_id":      rule.id,
+                            "rule_name":    rule.name,
+                            "severity":     rule.severity,
+                            "check_type":   rule.check_type,
+                            "model_name_a": mname_a,
+                            "express_id_a": eid_a,
+                            "name_a":       getattr(ea, "Name", None) or "",
+                            "type_a":       ea.is_a(),
+                            "model_name_b": mname_b,
+                            "express_id_b": eid_b,
+                            "name_b":       getattr(eb, "Name", None) or "",
+                            "type_b":       eb.is_a(),
+                            "overlap":      0.0,
+                        })
+
                 print(f"[clash] '{mname_a}' × '{mname_b}': {len(all_results) - before} Treffer", flush=True)
 
         rule_total = sum(1 for r in all_results if r["rule_id"] == rule.id)
@@ -460,7 +460,7 @@ def run_clash(req: ClashPayload):
 
 @app.get("/clash/test")
 def clash_test():
-    """Schnell-Diagnose: prüft ob Geometrie-Tessellierung und select() funktionieren."""
+    """Schnell-Diagnose: prüft ob Geometrie-Tessellierung funktioniert."""
     import ifcopenshell.geom
 
     if not _models:
@@ -473,26 +473,23 @@ def clash_test():
     for mname, model in _models.items():
         products = _by_type_safe(model, "IfcProduct")
         sample = products[:20]
-        try:
-            tree = ifcopenshell.geom.tree()
-            it = ifcopenshell.geom.iterator(geo_settings, model, include=sample)
-            tree.add_iterator(it)
+        aabbs = _tessellate_aabbs(geo_settings, model, sample)
 
-            hits = 0
-            for e in sample[:5]:
-                try:
-                    hits += len(tree.select(e, extend=0.5))
-                except Exception:
-                    pass
+        # Self-clash test: how many sample pairs overlap?
+        overlapping = 0
+        ids = list(aabbs.keys())
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                if _aabbs_overlap(aabbs[ids[i]], aabbs[ids[j]], 0.0):
+                    overlapping += 1
 
-            report[mname] = {
-                "products_total": len(products),
-                "sample_size": len(sample),
-                "sample_select_hits": hits,
-                "ok": True,
-            }
-        except Exception as exc:
-            report[mname] = {"ok": False, "error": str(exc)}
+        report[mname] = {
+            "products_total": len(products),
+            "sample_size": len(sample),
+            "sample_with_geometry": len(aabbs),
+            "sample_overlapping_pairs": overlapping,
+            "ok": True,
+        }
 
     return {"models": report}
 
