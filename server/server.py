@@ -790,83 +790,48 @@ def run_clash(req: ClashPayload):
                     del _tmp_copy
                     continue
 
-                # ── Stage 3: CGAL exakte Mesh-Prüfung auf Kandidatenpaare ────
-                cand_a_ids = list({ea for ea, _ in candidate_pairs})
-                cand_b_ids = list({eb for _, eb in candidate_pairs})
-                cand_elems_a = [model_a.by_id(e) for e in cand_a_ids]
-                cand_elems_b_w = [model_b_w.by_id(e) for e in cand_b_ids]
-
-                b_tree = ifcopenshell.geom.tree()
-                tree_ok = True
-                try:
-                    # Frische (nicht-initialisierte) Iteratoren übergeben —
-                    # add_iterator ruft intern initialize() selbst auf.
-                    b_tree.add_iterator(
-                        ifcopenshell.geom.iterator(geo_settings, model_a, include=cand_elems_a)
-                    )
-                    b_tree.add_iterator(
-                        ifcopenshell.geom.iterator(geo_settings, model_b_w, include=cand_elems_b_w)
-                    )
-                except Exception as exc:
-                    print(f"[clash] CGAL-Baum Fehler: {exc}", flush=True)
-                    tree_ok = False
-
-                raw_pairs: List[tuple] = []
-                cgal_ok = False
-                if tree_ok:
-                    try:
-                        raw_pairs = _cgal_clash(
-                            b_tree, cand_elems_a, cand_elems_b_w,
-                            rule.check_type, rule.tolerance,
-                        )
-                        cgal_ok = True
-                    except Exception as exc:
-                        print(f"[clash] CGAL fehlgeschlagen: {exc}", flush=True)
-
-                # ── Fallback: exakte Mesh-Prüfung auf AABB+OBB-Kandidaten ───────
-                # Greift wenn CGAL fehlschlägt ODER 0 liefert trotz Kandidaten.
-                # Prüft jedes Paar mit Triangle-Intersection (Möller 1997) +
-                # Vertex-Abstandstest für Near-Miss (Toleranz > 0).
+                # ── Stage 3: Exakte Mesh-Prüfung (Triangle-Triangle + Near-Miss) ─
+                # CGAL clash_*_many liefert in dieser ifcopenshell-Installation
+                # konsistent 0 (Same-Model: Express-ID-Skip; Cross-Model: API-
+                # Inkompatibilität). Triangle-Triangle-Intersection (Möller 1997)
+                # ist äquivalent und funktioniert zuverlässig für beide Fälle.
                 #
                 # check_type  | intersection  | near-miss (tol > 0)
                 # ------------|---------------|--------------------
                 # hard-clash  |      ✓        |         ✓
                 # duplicate   |      ✓        |         ✓
                 # clearance   |      –        |         ✓
-                if not raw_pairs:
-                    reason = "CGAL-Exception" if not cgal_ok else "CGAL liefert 0 trotz Kandidaten"
-                    check_intersect = rule.check_type in ("hard-clash", "duplicate")
-                    check_near_miss = rule.tolerance > 0
-                    print(
-                        f"[clash] Fallback: {reason}"
-                        f" → Mesh-Intersection auf {len(candidate_pairs)} Paaren"
-                        f" (intersect={check_intersect}, near-miss tol={rule.tolerance})",
-                        flush=True,
-                    )
-                    exact_pairs: List[tuple] = []
-                    for eid_a_c, eid_b_c in candidate_pairs:
-                        ga = geoms_a_d.get(eid_a_c)
-                        gb = geoms_b_d.get(eid_b_c)
-                        if ga is None or gb is None:
-                            continue
-                        va, fa = ga[4], ga[5]
-                        vb, fb = gb[4], gb[5]
-                        hit = False
-                        if check_intersect and _meshes_intersect(va, fa, vb, fb):
-                            hit = True
-                        if not hit and check_near_miss:
-                            hit = _meshes_within_tol(va, vb, rule.tolerance)
-                        if hit:
-                            exact_pairs.append(
-                                (model_a.by_id(eid_a_c), model_b_w.by_id(eid_b_c), 0.0)
-                            )
-                    print(
-                        f"[clash] Mesh-Fallback: {len(exact_pairs)} Treffer"
-                        f" aus {len(candidate_pairs)} Kandidaten",
-                        flush=True,
-                    )
-                    raw_pairs = exact_pairs
-                    cgal_ok = False
+                check_intersect = rule.check_type in ("hard-clash", "duplicate")
+                check_near_miss = rule.tolerance > 0
+                intersect_count = 0
+                near_miss_count = 0
+                raw_pairs: List[tuple] = []
+
+                for eid_a_c, eid_b_c in candidate_pairs:
+                    ga = geoms_a_d.get(eid_a_c)
+                    gb = geoms_b_d.get(eid_b_c)
+                    if ga is None or gb is None:
+                        continue
+                    va, fa = ga[4], ga[5]
+                    vb, fb = gb[4], gb[5]
+                    hit = False
+                    if check_intersect and _meshes_intersect(va, fa, vb, fb):
+                        hit = True
+                        intersect_count += 1
+                    if not hit and check_near_miss and _meshes_within_tol(va, vb, rule.tolerance):
+                        hit = True
+                        near_miss_count += 1
+                    if hit:
+                        raw_pairs.append(
+                            (model_a.by_id(eid_a_c), model_b_w.by_id(eid_b_c), 0.0)
+                        )
+
+                print(
+                    f"[clash] Mesh-Prüfung: {len(raw_pairs)} Treffer"
+                    f" ({intersect_count} Schnitte, {near_miss_count} Near-Miss)"
+                    f" aus {len(candidate_pairs)} Kandidaten",
+                    flush=True,
+                )
 
                 # ── Deduplicate and build results ────────────────────────────
                 before = len(all_results)
@@ -903,7 +868,7 @@ def run_clash(req: ClashPayload):
                 del _tmp_copy
                 print(
                     f"[clash] '{mname_a}' × '{mname_b}': {len(all_results) - before} Treffer"
-                    f" ({'CGAL' if cgal_ok else 'AABB+OBB'})",
+                    f" (Mesh-Prüfung)",
                     flush=True,
                 )
 
