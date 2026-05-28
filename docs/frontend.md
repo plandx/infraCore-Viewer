@@ -335,24 +335,27 @@ Regelbasierte mehrstufige Ansichten mit Inline-Editor (`SmartViewEditor`) und `T
 
 ---
 
-## CollisionPanel
+## CollisionWindow
 
-**Datei:** `src/components/CollisionPanel.tsx`
-**Öffnet:** wenn `collisionPanelOpen` im Store
+**Datei:** `src/components/CollisionWindow.tsx`
+**Öffnet:** als eigenständiges Sekundär-Fenster via `openCollisionWindow()` · Kommunikation per `BroadcastChannel(COLLISION_CHANNEL)`
 
-Regelbasierte Kollisionsprüfung (AABB) zwischen zwei Komponentenfiltern.
+Regelbasierte Kollisionsprüfung (AABB) zwischen zwei Komponentenfiltern. Der Haupt-Prozess läuft serverseitig via FastAPI-Companion; der Client schickt `{ t: "run", rules }` und empfängt Ergebnisse über den Channel.
 
 ### Sub-Komponenten
 
-**`RuleEditor`** — Bearbeitet eine einzelne `ClashRule` (Name, Schwere, Prüftyp, Toleranz, Komponentenfilter A+B).
+**`RuleEditorPanel`** — Ersetzt die Ergebnis-Ansicht beim Bearbeiten einer Regel (viewMode `"editor"`). Enthält zwei `FilterEditor`-Instanzen nebeneinander.
 
-**`FilterEditor`** — Definiert einen `ComponentFilter` (IFC-Typen + Property-Bedingungen):
-- **SmartView-Dropdown** (`Aus SmartView laden…`): Wandelt den ersten Tier eines SmartViews in einen `ComponentFilter` um:
+**`FilterEditor`** — Definiert einen `ComponentFilter` (Gruppe A / B):
+- **SmartView-Dropdown** (immer sichtbar): lädt den ersten Tier eines SmartViews als Filter (`smartViewToFilter()`):
   - `_type eq <wert>` → `ifcTypes`-Liste
   - Andere Regeln → `PropCondition` mit Operator-Mapping: `eq→equals`, `contains→contains`, `starts_with→startsWith`, `exists/not_exists→notEmpty`
-  - `_name`/`_model`-Regeln werden übersprungen (nicht in CollisionPanel-Props verfügbar)
-- IFC-Typ-Checkboxen (auf-/zuklappbar)
-- Property-Bedingungszeilen (propName + Operator + Wert)
+  - `_name`/`_model`-Regeln werden übersprungen
+- IFC-Preset-Chips (Tragwerk / TGA / Architektur) — Toggle-Gruppen
+- Aufklappbare IFC-Typ-Liste mit Suchfeld
+- Property-Bedingungszeilen (Eigenschaft + Operator + Wert) via `ConditionRow`
+
+**`ConditionRow`** — Einzelne Bedingungszeile: Eigenschafts-Dropdown (aus `loadedPropKeys`), Operator-Select, Wert (Dropdown aus `propValues` wenn vorhanden, sonst Text-Input).
 
 ### ClashRule-Felder
 
@@ -362,9 +365,11 @@ Regelbasierte Kollisionsprüfung (AABB) zwischen zwei Komponentenfiltern.
 | `tolerance` | `number` | m³ (hard-clash) oder m (clearance) |
 | `componentA/B` | `ComponentFilter` | Elementfilter je Seite |
 
-### Ergebnis-Statuse
+### CollisionSyncState
 
-`new` → `approved` → `resolved` — persistent über Prüfläufe via `statusRef`.
+SmartViews werden vom Haupt-Fenster via BroadcastChannel an das CollisionWindow übertragen (Feld `smartViews: SmartView[]`).
+
+Ergebnis-Status: `new` → `approved` → `resolved` — via `{ t: "setStatus" }`-Nachricht persistent.
 
 ---
 
