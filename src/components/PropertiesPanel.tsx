@@ -46,6 +46,7 @@ export function PropertiesPanel() {
   const applyPropertyEdits  = useModelStore((s) => s.applyPropertyEdits);
   const loadedProperties    = useModelStore((s) => s.loadedProperties);
   const smartViews            = useModelStore((s) => s.smartViews);
+  const activeSmartViewId     = useModelStore((s) => s.activeSmartViewId);
   const toggleQuickFilterRule = useModelStore((s) => s.toggleQuickFilterRule);
   const removeSmartView       = useModelStore((s) => s.removeSmartView);
   const saveQuickFilter       = useModelStore((s) => s.saveQuickFilter);
@@ -54,10 +55,11 @@ export function PropertiesPanel() {
   const saveInputRef = useRef<HTMLInputElement>(null);
 
   const activeQuickRules = useMemo(() => {
+    if (activeSmartViewId !== "__quick_filter__") return new Set<string>();
     const qf = smartViews.find((v) => v.id === "__quick_filter__");
     if (!qf?.tiers[0]) return new Set<string>();
     return new Set(qf.tiers[0].rules.map((r) => `${r.property}=${r.value}`));
-  }, [smartViews]);
+  }, [activeSmartViewId, smartViews]);
 
   if (!selected) {
     return (
