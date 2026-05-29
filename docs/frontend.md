@@ -28,6 +28,25 @@ const SECONDARY_PANEL = params.get("panel") ?? "hierarchy";
 
 ---
 
+## IdsResultsWindow (`src/ids/IdsResultsWindow.tsx`)
+
+Pop-out-Fenster für IDS-Validierungsergebnisse (`?ids-results`).
+
+| Bereich | Funktion |
+|---|---|
+| Header | Dokumenttitel, Zeitstempel, CSV-Export, Schließen |
+| Zusammenfassung | Spec-Anzahl, Bestanden/Fehler/Übersprungen |
+| Gruppierungs-Dropdown | `spec` / `pset` / `missingProp` / `ifcClass` / `ifcFile` |
+| Gruppenliste | Kollabierbare Sektionen mit Pass/Fail-Badge + Elementzeilen |
+| Elementzeile | ExpressId, IFC-Typ, Name, Fehlermeldungen; Klick → `select`-Aktion; Isolier-Button |
+| Alles-anzeigen-Button | Sendet `showAll`-Aktion an Hauptfenster |
+
+**Empfang:** `BroadcastChannel("infracore-ids-results")` — reagiert auf `{ t: "state", report, theme }`.  
+**Senden:** Aktionen (`select`, `isolate`, `showAll`) über `SYNC_CHANNEL` an das Hauptfenster.  
+**Öffnen:** Button im IDSPanel-Prüfergebnis-Header und im MainToolbar IDS-Tab „Ergebnisse".
+
+---
+
 ## PythonPanel (`src/components/PythonPanel.tsx`)
 
 Bottom-Panel mit Monaco-Editor (Python-Syntax) und Konsolenausgabe.  

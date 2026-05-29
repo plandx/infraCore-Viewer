@@ -26,6 +26,7 @@ import { BatchPanel } from "./batch/BatchPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { CollisionWindow } from "./components/CollisionWindow";
 import { IDSPanel } from "./ids/IDSPanel";
+import { IdsResultsWindow } from "./ids/IdsResultsWindow";
 
 import { ProfileViewer } from "./alignment/ProfileViewer";
 import { CrossSectionWindow } from "./alignment/CrossSectionWindow";
@@ -37,8 +38,8 @@ import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { useIdsStore } from "./ids/idsStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache, LABEL_TO_IFC } from "./utils/ifcLoader";
-import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
-import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel } from "./utils/windowSync";
+import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, IDS_RESULTS_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
+import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel, IdsResultsMsg } from "./utils/windowSync";
 import { runServerClash } from "./utils/serverClash";
 import type { IFCModelEntry } from "./types/ifc";
 
@@ -52,6 +53,7 @@ const IS_LONG_SECTION  = _params.has("longitudinal-section");
 const IS_COLLISION = _params.has("collision");
 const IS_BASKET = _params.has("basket");
 const IS_ABWICKLUNG = _params.has("abwicklung");
+const IS_IDS_RESULTS = _params.has("ids-results");
 
 // ── root export (secondary windows skip the full app) ─────────────────────────
 
@@ -62,6 +64,7 @@ export default function App() {
     document.documentElement.setAttribute("data-font-size", settings.fontSize ?? "md");
   }, []);
   if (IS_COLLISION) return <CollisionWindow />;
+  if (IS_IDS_RESULTS) return <IdsResultsWindow />;
   if (IS_SECONDARY) return <SecondaryWindow panel={SECONDARY_PANEL} />;
   if (IS_CROSS_SECTION) return <CrossSectionWindow />;
   if (IS_LONG_SECTION) return <LongitudinalSectionWindow />;
@@ -511,6 +514,35 @@ function useCollisionSync() {
   }, []);
 }
 
+// ── IDS results window sync hook ──────────────────────────────────────────────
+
+function useIdsResultsSync() {
+  useEffect(() => {
+    let ch: BroadcastChannel;
+    try { ch = new BroadcastChannel(IDS_RESULTS_CHANNEL); } catch { return; }
+
+    const broadcast = () => {
+      const { validationReport } = useIdsStore.getState();
+      const { settings } = useModelStore.getState();
+      ch.postMessage({ t: "state", report: validationReport, theme: settings.theme } satisfies IdsResultsMsg);
+    };
+
+    ch.onmessage = (e: MessageEvent<IdsResultsMsg>) => {
+      if (e.data.t === "req") broadcast();
+    };
+
+    const unsubIds = useIdsStore.subscribe((state, prev) => {
+      if (state.validationReport !== prev.validationReport) broadcast();
+    });
+
+    const unsubTheme = useModelStore.subscribe((state, prev) => {
+      if (state.settings.theme !== prev.settings.theme) broadcast();
+    });
+
+    return () => { ch.close(); unsubIds(); unsubTheme(); };
+  }, []);
+}
+
 function MainApp() {
   const [loadStates, setLoadStates]           = useState<Map<string, LoadState>>(new Map());
   const [batchPanelOpen, setBatchPanelOpen]   = useState(false);
@@ -755,6 +787,7 @@ function MainApp() {
   useLongitudinalSectionSync();
   useAbwicklungSync();
   useCollisionSync();
+  useIdsResultsSync();
 
   // Billing window element-list provider
   useEffect(() => {

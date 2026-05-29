@@ -357,3 +357,16 @@ export function openCollisionWindow() {
   const url = `${window.location.pathname}?collision`;
   window.open(url, "infracore-collision", "width=1100,height=780,resizable=yes");
 }
+
+// ── IDS Results window ────────────────────────────────────────────────────────
+
+export const IDS_RESULTS_CHANNEL = "infracore-ids-results";
+
+export type IdsResultsMsg =
+  | { t: "state"; report: import("../ids/idsTypes").IdsValidationReport | null; theme: string }
+  | { t: "req" };
+
+export function openIdsResultsWindow() {
+  const url = `${window.location.pathname}?ids-results`;
+  window.open(url, "infracore-ids-results", "width=1100,height=780,resizable=yes");
+}

@@ -38,10 +38,11 @@ Kollision:      http://localhost:5173/?collision
 Korb:           http://localhost:5173/?basket
 Längenschnitt:  http://localhost:5173/?longitudinal-section
 Abwicklung:     http://localhost:5173/?abwicklung
+IDS-Ergebnisse: http://localhost:5173/?ids-results
 ```
 
 `main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
-`App.tsx` erkennt (in Reihenfolge) `?collision`, `?secondary`, `?cross-section`, `?long-section`, `?basket` und rendert die jeweilige Ansicht.
+`App.tsx` erkennt (in Reihenfolge) `?collision`, `?ids-results`, `?secondary`, `?cross-section`, `?long-section`, `?basket` und rendert die jeweilige Ansicht.
 
 ---
 
@@ -161,6 +162,29 @@ export function openCollisionWindow() {
 ```
 
 `App.tsx` erkennt `?collision` und rendert `<CollisionWindow>`.
+
+---
+
+## IDS-Ergebnisse-Fenster-Protokoll
+
+**Kanal:** `"infracore-ids-results"` (Konstante `IDS_RESULTS_CHANNEL`)
+
+```typescript
+type IdsResultsMsg =
+  | { t: "state"; report: IdsValidationReport | null; theme: string }  // Main → Popup: aktueller Bericht
+  | { t: "req" }                                                        // Popup → Main: Initialzustand anfordern
+```
+
+Der Popup sendet Auswahl-/Isolier-Aktionen über den Haupt-Sync-Kanal (`SYNC_CHANNEL`):
+```typescript
+{ t: "act"; a: { k: "select"; modelId; expressId } }
+{ t: "act"; a: { k: "isolate"; modelId; expressId } }
+{ t: "act"; a: { k: "showAll" } }
+```
+
+**Öffnen:** `openIdsResultsWindow()` in `windowSync.ts`; Button im IDSPanel-Header und im MainToolbar IDS-Tab.
+
+**Gruppiermodi:** `spec` | `pset` | `missingProp` | `ifcClass` | `ifcFile`
 
 ---
 

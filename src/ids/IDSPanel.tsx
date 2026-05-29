@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   FileCheck2, Plus, Trash2, ChevronDown, ChevronRight, Play, Download, Upload,
   FilePlus, X, Check, AlertTriangle, Info, Tag, Database, Box, Layers, Hash,
-  List, Shield, Search, FolderOpen, Pencil,
+  List, Shield, Search, FolderOpen, Pencil, ExternalLink,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useIdsStore } from "./idsStore";
@@ -11,6 +11,7 @@ import { useModelStore } from "../store/modelStore";
 import { parseIdsXml } from "./idsParser";
 import { serializeIdsToXml } from "./idsWriter";
 import { validateIdsDocument } from "./idsValidator";
+import { openIdsResultsWindow } from "../utils/windowSync";
 import type {
   IdsFacet, IdsValue, IdsCardinality, IfcVersion,
   IdsEntityFacet, IdsAttributeFacet, IdsPropertyFacet,
@@ -1054,6 +1055,13 @@ export function IDSPanel() {
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
             <Shield size={13} className="text-primary shrink-0" />
             <span className="text-xs font-semibold flex-1">Prüfergebnis</span>
+            <button
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              onClick={openIdsResultsWindow}
+              title="Ergebnisse in eigenem Fenster öffnen"
+            >
+              <ExternalLink size={12} />
+            </button>
             {validationReport && (
               <button className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setValidationReport(null)}>
                 <X size={12} />

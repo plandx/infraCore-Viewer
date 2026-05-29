@@ -9,7 +9,7 @@ import {
   Settings, AlertTriangle, PanelLeftClose, PanelLeftOpen, Grid3x3, BoxSelect, Terminal,
   FileCheck2, FilePlus, Play, Upload, Shield,
 } from "lucide-react";
-import { openSecondaryWindow, openBillingWindow, openCollisionWindow, PANEL_META } from "../utils/windowSync";
+import { openSecondaryWindow, openBillingWindow, openCollisionWindow, openIdsResultsWindow, PANEL_META } from "../utils/windowSync";
 import { useIdsStore } from "../ids/idsStore";
 import { parseIdsXml } from "../ids/idsParser";
 import { serializeIdsToXml } from "../ids/idsWriter";
@@ -834,6 +834,12 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                     setIdsPanelOpen(true);
                   }}
                   title="IDS gegen geladene IFC-Modelle prüfen"
+                />
+                <RibbonLargeBtn
+                  icon={<ExternalLink size={18} />}
+                  label="Ergebnisse"
+                  onClick={openIdsResultsWindow}
+                  title="Prüfergebnisse in eigenem Fenster öffnen"
                 />
               </RibbonGroup>
             </>
