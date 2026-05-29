@@ -312,7 +312,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
       >
 
         {/* ── Row 1: Tab strip + utilities ──────────────────────────────── */}
-        <div className="flex items-stretch h-9 border-b border-border/50">
+        <div className="flex items-stretch h-8 border-b border-border/40">
 
           {/* Logo */}
           <div className="flex items-center gap-2 px-3.5 border-r border-border/70">
@@ -335,15 +335,15 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                   else { if (idsPanelOpen) setIdsPanelOpen(false); if (bcfPanelOpen) setBcfPanelOpen(false); }
                 }}
                 className={cn(
-                  "relative flex items-center gap-1.5 px-3.5 text-[12px] transition-all border-b-2 whitespace-nowrap",
+                  "relative flex items-center gap-1.5 px-3 text-[12px] transition-colors border-b-2 whitespace-nowrap h-full",
                   activeTab === tab.id
-                    ? "font-semibold text-primary border-primary bg-primary/[0.06]"
-                    : "font-normal text-muted-foreground border-transparent hover:text-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#404040]"
+                    ? "font-semibold text-foreground border-primary"
+                    : "font-normal text-muted-foreground border-transparent hover:text-foreground hover:bg-[#F0F0F0] dark:hover:bg-[#383838]"
                 )}
               >
                 {tab.label}
                 {tab.badge !== undefined && (
-                  <span className="text-[9px] bg-primary/20 text-primary px-1 rounded-full font-mono leading-none py-0.5">
+                  <span className="text-[9px] bg-primary/15 text-primary px-1 rounded-[3px] font-mono leading-none py-0.5 border border-primary/20">
                     {tab.badge}
                   </span>
                 )}
@@ -461,7 +461,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
         </div>
 
         {/* ── Row 2: Ribbon tool strip ──────────────────────────────────── */}
-        <div className="flex items-stretch h-[68px] overflow-visible">
+        <div className="flex items-stretch h-[62px] overflow-visible">
 
           {activeTab === "start" && (
             <>
@@ -473,7 +473,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                   onClick={() => inputRef.current?.click()}
                   disabled={loading}
                   title="IFC-Datei öffnen"
-                  primary
                 />
                 <div className="flex flex-col gap-0.5 justify-center">
                   <RibbonSmBtn icon={<Plus size={14} />} label="Hinzufügen"
@@ -937,12 +936,12 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
 function RibbonGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-stretch border-r border-border/40 last:border-r-0">
+    <div className="flex items-stretch border-r border-border/30 last:border-r-0">
       <div className="flex flex-col">
-        <div className="flex items-stretch gap-1 px-2 flex-1">
+        <div className="flex items-stretch gap-0.5 px-1.5 flex-1">
           {children}
         </div>
-        <div className="flex items-center justify-center h-[18px] px-2 text-[8px] font-semibold uppercase tracking-wider text-muted-foreground/60 whitespace-nowrap border-t border-border/25">
+        <div className="flex items-center justify-center h-[16px] px-2 text-[9px] text-muted-foreground/50 whitespace-nowrap border-t border-border/20">
           {label}
         </div>
       </div>
@@ -962,27 +961,27 @@ function RibbonLargeBtn({
       <button
         onClick={onClick} disabled={disabled} title={title}
         className={cn(
-          "flex flex-col items-center justify-center gap-0.5 px-2.5 rounded-[4px] transition-all min-w-[48px] h-full w-full text-center",
-          primary && !active && "bg-primary text-primary-foreground hover:bg-[#106EBE]",
-          !primary && active && "bg-primary/15 text-primary ring-1 ring-primary/30",
-          !primary && !active && "text-foreground/80 hover:bg-[#E5E5E5] dark:hover:bg-[#404040] hover:text-foreground",
+          "flex flex-col items-center justify-center gap-0.5 px-2 rounded-[4px] transition-colors min-w-[44px] h-full w-full text-center",
+          active
+            ? "bg-primary/10 text-primary"
+            : "text-foreground/75 hover:bg-[#EBEBEB] dark:hover:bg-[#383838] hover:text-foreground",
           disabled && "opacity-35 cursor-not-allowed pointer-events-none",
           className,
         )}
       >
-        <span className={cn("shrink-0", active && !primary && "text-primary")}>{icon}</span>
-        <span className="text-[10px] font-medium leading-tight max-w-[64px] text-center whitespace-nowrap overflow-hidden text-ellipsis">
+        <span className={cn("shrink-0", active ? "text-primary" : primary ? "text-primary" : "")}>{icon}</span>
+        <span className="text-[10px] leading-tight max-w-[60px] text-center whitespace-nowrap overflow-hidden text-ellipsis">
           {label}
         </span>
         {kbd && (
-          <span className="text-[7px] opacity-0 group-hover/lbtn:opacity-60 transition-opacity text-muted-foreground font-mono leading-none">
-            [{kbd}]
+          <span className="text-[7px] opacity-0 group-hover/lbtn:opacity-50 transition-opacity text-muted-foreground font-mono leading-none">
+            {kbd}
           </span>
         )}
       </button>
       {popout && (
         <button
-          className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-card border border-border flex items-center justify-center opacity-0 group-hover/lbtn:opacity-100 hover:!opacity-100 hover:bg-primary hover:border-primary hover:text-primary-foreground text-muted-foreground transition-all z-10"
+          className="absolute top-0.5 right-0.5 w-3 h-3 rounded-[2px] bg-background border border-border flex items-center justify-center opacity-0 group-hover/lbtn:opacity-100 hover:!opacity-100 hover:bg-primary hover:border-primary hover:text-primary-foreground text-muted-foreground transition-all z-10"
           title="In neuem Fenster öffnen"
           onClick={(e) => { e.stopPropagation(); popout(); }}
         >
@@ -1003,15 +1002,15 @@ function RibbonSmBtn({
     <button
       onClick={onClick} disabled={disabled} title={title}
       className={cn(
-        "flex items-center gap-1 px-2 py-1 rounded transition-all text-left",
-        active ? "bg-primary/15 text-primary ring-1 ring-primary/25" : "text-foreground/70 hover:bg-[#E5E5E5] dark:hover:bg-[#404040] hover:text-foreground",
+        "flex items-center gap-1 px-1.5 py-0.5 rounded-[3px] transition-colors text-left",
+        active ? "bg-primary/10 text-primary" : "text-foreground/70 hover:bg-[#EBEBEB] dark:hover:bg-[#383838] hover:text-foreground",
         disabled && "opacity-35 cursor-not-allowed pointer-events-none",
         className,
       )}
     >
       <span className="shrink-0">{icon}</span>
-      {label && <span className="text-[10px] font-medium whitespace-nowrap">{label}</span>}
-      {kbd && <span className="text-[7px] opacity-40 font-mono">[{kbd}]</span>}
+      {label && <span className="text-[11px] whitespace-nowrap">{label}</span>}
+      {kbd && <span className="text-[8px] opacity-40 font-mono ml-0.5">{kbd}</span>}
     </button>
   );
 }
@@ -1025,8 +1024,8 @@ function UtilBtn({
   return (
     <button onClick={onClick} title={title}
       className={cn(
-        "flex items-center justify-center w-7 h-7 rounded transition-all",
-        active ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#404040]",
+        "flex items-center justify-center w-7 h-7 rounded-[3px] transition-colors",
+        active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-[#EBEBEB] dark:hover:bg-[#383838]",
         className,
       )}
     >
