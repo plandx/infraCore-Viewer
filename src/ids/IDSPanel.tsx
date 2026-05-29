@@ -1,4 +1,5 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   FileCheck2, Plus, Trash2, ChevronDown, ChevronRight, Play, Download, Upload,
   FilePlus, X, Check, AlertTriangle, Info, Tag, Database, Box, Layers, Hash,
@@ -82,9 +83,10 @@ function IfcTypeMultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+  const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Parse existing tags
   const selected = useMemo(
     () => value.split("|").map((s) => s.trim()).filter(Boolean),
     [value],
@@ -95,27 +97,38 @@ function IfcTypeMultiSelect({
     return IFC_TYPES.filter((t) => (!q || t.includes(q)) && !selected.includes(t));
   }, [search, selected]);
 
+  // Recalculate dropdown position whenever it opens
+  useEffect(() => {
+    if (!open || !wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const dropH = Math.min(220, filtered.length * 30 + 8);
+    if (spaceBelow >= dropH || spaceBelow >= 120) {
+      setDropdownStyle({ top: rect.bottom + 2, left: rect.left, width: rect.width });
+    } else {
+      setDropdownStyle({ bottom: window.innerHeight - rect.top + 2, left: rect.left, width: rect.width });
+    }
+  }, [open, filtered.length]);
+
   const add = (t: string) => {
-    const next = [...selected, t];
-    onChange(next.join("|"));
+    onChange([...selected, t].join("|"));
     setSearch("");
     inputRef.current?.focus();
   };
 
   const remove = (t: string) => {
-    const next = selected.filter((s) => s !== t);
-    onChange(next.join("|"));
+    onChange(selected.filter((s) => s !== t).join("|"));
   };
 
   return (
-    <div className="relative">
+    <div ref={wrapRef}>
       {/* Tag list + search input */}
       <div
         className="flex flex-wrap gap-1 min-h-[30px] bg-muted/40 border border-border rounded px-2 py-1 cursor-text focus-within:ring-1 focus-within:ring-primary/50"
         onClick={() => { setOpen(true); inputRef.current?.focus(); }}
       >
         {selected.map((t) => (
-          <span key={t} className="flex items-center gap-1 bg-primary/15 text-primary text-[10px] rounded px-1.5 py-0.5 font-medium">
+          <span key={t} className="flex items-center gap-1 bg-primary/15 text-primary text-[10px] rounded px-1.5 py-0.5 font-medium shrink-0">
             {t}
             <button
               className="hover:text-destructive transition-colors"
@@ -128,7 +141,7 @@ function IfcTypeMultiSelect({
         <input
           ref={inputRef}
           className="flex-1 min-w-[80px] bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
-          placeholder={selected.length === 0 ? "IFC-Typ suchen und hinzufügen…" : "Weiteren Typ hinzufügen…"}
+          placeholder={selected.length === 0 ? "IFC-Typ suchen und hinzufügen…" : "Weiteren Typ…"}
           value={search}
           onChange={(e) => { setSearch(e.target.value.toUpperCase()); setOpen(true); }}
           onFocus={() => setOpen(true)}
@@ -136,13 +149,16 @@ function IfcTypeMultiSelect({
         />
       </div>
 
-      {/* Dropdown */}
-      {open && (
-        <div className="absolute z-50 top-full mt-0.5 left-0 right-0 bg-popover border border-border rounded shadow-lg max-h-52 overflow-y-auto">
+      {/* Dropdown rendered as portal → always above all overflow:hidden containers */}
+      {open && createPortal(
+        <div
+          className="fixed bg-popover border border-border rounded shadow-2xl max-h-56 overflow-y-auto"
+          style={{ ...dropdownStyle, zIndex: 9999 }}
+        >
           {filtered.length === 0 && (
             <p className="px-3 py-2 text-[11px] text-muted-foreground">Keine weiteren Typen</p>
           )}
-          {filtered.slice(0, 50).map((t) => (
+          {filtered.slice(0, 60).map((t) => (
             <button
               key={t}
               className="w-full text-left px-3 py-1.5 text-[11px] text-foreground hover:bg-primary/10 hover:text-primary transition-colors"
@@ -151,7 +167,8 @@ function IfcTypeMultiSelect({
               {t}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
