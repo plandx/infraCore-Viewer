@@ -14,8 +14,13 @@ import type { IFCModelEntry } from "../types/ifc";
 
 function matchValue(value: IdsValue, actual: string): boolean {
   if (value.type === "simple") {
-    return actual.toLowerCase() === value.value.toLowerCase();
+    // Pipe-separated list (e.g. "IFCWALL|IFCBEAM|...") — match any
+    const parts = value.value.split("|").map((p) => p.trim());
+    return parts.some((p) => p.toLowerCase() === actual.toLowerCase());
   }
+  // Empty restriction (xs:restriction base="xs:string" with no children) = any value accepted
+  if (value.restrictions.length === 0) return true;
+
   const enumerations = value.restrictions.filter((r) => r.kind === "enumeration");
   if (enumerations.length > 0) {
     return enumerations.some((r) => actual.toLowerCase() === r.value.toLowerCase());

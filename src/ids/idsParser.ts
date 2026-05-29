@@ -3,18 +3,39 @@ import type {
   IdsRestriction, IdsCardinality, IfcVersion,
 } from "./idsTypes";
 
+const XS_NS = "http://www.w3.org/2001/XMLSchema";
+
+// querySelector falls back to namespace-aware lookup so xs:restriction etc. are found
+function qsel(el: Element, localName: string): Element | null {
+  return (
+    el.getElementsByTagNameNS(XS_NS, localName)[0] ??
+    el.querySelector(localName) ??
+    null
+  );
+}
+
+function qselAll(el: Element, localName: string): Element[] {
+  const ns = Array.from(el.getElementsByTagNameNS(XS_NS, localName));
+  if (ns.length) return ns;
+  return Array.from(el.querySelectorAll(localName));
+}
+
 function parseValue(el: Element | null): IdsValue | undefined {
   if (!el) return undefined;
+
   const simple = el.querySelector("simpleValue");
   if (simple) return { type: "simple", value: simple.textContent?.trim() ?? "" };
-  const restriction = el.querySelector("restriction");
+
+  // xs:restriction or restriction (namespace-aware)
+  const restriction = qsel(el, "restriction");
   if (restriction) {
     const base = restriction.getAttribute("base") ?? "xs:string";
     const restrictions: IdsRestriction[] = [];
-    restriction.querySelectorAll("enumeration").forEach(e =>
+
+    qselAll(restriction, "enumeration").forEach(e =>
       restrictions.push({ kind: "enumeration", value: e.getAttribute("value") ?? "" })
     );
-    restriction.querySelectorAll("pattern").forEach(e =>
+    qselAll(restriction, "pattern").forEach(e =>
       restrictions.push({ kind: "pattern", value: e.getAttribute("value") ?? "" })
     );
     const numericKinds = [
@@ -22,7 +43,7 @@ function parseValue(el: Element | null): IdsValue | undefined {
       "minExclusive", "maxExclusive", "length",
     ] as const;
     for (const kind of numericKinds) {
-      const node = restriction.querySelector(kind);
+      const node = qsel(restriction, kind);
       if (node) restrictions.push({ kind, value: node.getAttribute("value") ?? "" });
     }
     return { type: "restriction", base, restrictions };
@@ -38,38 +59,43 @@ function parseFacets(container: Element): IdsFacet[] {
   const facets: IdsFacet[] = [];
 
   container.querySelectorAll(":scope > entity").forEach(el => {
-    const name = parseValue(el.querySelector("name"));
+    const nameEl = el.querySelector(":scope > name");
+    const name = parseValue(nameEl ?? null);
     if (name) {
       facets.push({
         type: "entity",
         name,
-        predefinedType: parseValue(el.querySelector("predefinedType")),
+        predefinedType: parseValue(el.querySelector(":scope > predefinedType")),
       });
     }
   });
 
   container.querySelectorAll(":scope > attribute").forEach(el => {
-    const name = parseValue(el.querySelector("name"));
+    const nameEl = el.querySelector(":scope > name");
+    const name = parseValue(nameEl ?? null);
     if (name) {
       facets.push({
         type: "attribute",
         cardinality: parseCardinality(el),
         name,
-        value: parseValue(el.querySelector("value")),
+        value: parseValue(el.querySelector(":scope > value")),
       });
     }
   });
 
   container.querySelectorAll(":scope > property").forEach(el => {
-    const propertySet = parseValue(el.querySelector("propertySet"));
-    const baseName = parseValue(el.querySelector("baseName"));
+    const propertySet = parseValue(el.querySelector(":scope > propertySet"));
+    // IDS 1.0 uses <name>, older drafts used <baseName> — support both
+    const baseName =
+      parseValue(el.querySelector(":scope > baseName")) ??
+      parseValue(el.querySelector(":scope > name"));
     if (propertySet && baseName) {
       facets.push({
         type: "property",
         cardinality: parseCardinality(el),
         propertySet,
         baseName,
-        value: parseValue(el.querySelector("value")),
+        value: parseValue(el.querySelector(":scope > value")),
         dataType: el.getAttribute("dataType") ?? undefined,
       });
     }
@@ -79,8 +105,8 @@ function parseFacets(container: Element): IdsFacet[] {
     facets.push({
       type: "classification",
       cardinality: parseCardinality(el),
-      system: parseValue(el.querySelector("system")),
-      value: parseValue(el.querySelector("value")),
+      system: parseValue(el.querySelector(":scope > system")),
+      value: parseValue(el.querySelector(":scope > value")),
     });
   });
 
@@ -88,13 +114,15 @@ function parseFacets(container: Element): IdsFacet[] {
     facets.push({
       type: "material",
       cardinality: parseCardinality(el),
-      value: parseValue(el.querySelector("value")),
+      value: parseValue(el.querySelector(":scope > value")),
     });
   });
 
   container.querySelectorAll(":scope > partOf").forEach(el => {
-    const entityEl = el.querySelector("entity");
-    const entityName = entityEl ? parseValue(entityEl.querySelector("name")) : undefined;
+    const entityEl = el.querySelector(":scope > entity");
+    const entityName = entityEl
+      ? parseValue(entityEl.querySelector(":scope > name"))
+      : undefined;
     if (entityName) {
       facets.push({
         type: "partOf",
