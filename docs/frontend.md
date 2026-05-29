@@ -654,7 +654,8 @@ Eigenständiges Popup-Fenster (`?cross-section`) für die 2D-Querschnittsdarstel
 - `buildLabelPositions(objectLabels, lines, propKey, xs, ys)` — gruppiert Segmente nach `objectKey`, berechnet Schwerpunkt, schätzt Boxbreite aus Textlänge
 - `deOverlapLabels(labels)` — 60-Iterationen Force-Repulsion in Y-Richtung; bricht ab sobald keine Überlappung mehr besteht
 - Leader-Line: gestrichelte Linie in Objektfarbe vom Schwerpunkt zur nächsten Box-Kante
-- Verfügbare Attribute: "Name" + "Typ" immer vorhanden; weitere Properties nur wenn für das Element bereits via Klick/Selektion geladen
+- Verfügbare Attribute: "Name" + "Typ" immer vorhanden; Properties werden automatisch geladen wenn das Fenster öffnet (`loadAllProperties()` wird beim `{ t: "req" }` getriggert)
+- Labels werden automatisch neu gebaut (ohne Re-Slice) sobald `loadedProperties` im Store verfügbar wird (`useModelStore.subscribe` in ViewportContainer)
 
 
 ### Fangmodus (Snap)

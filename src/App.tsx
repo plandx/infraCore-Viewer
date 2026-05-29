@@ -191,6 +191,9 @@ function useCrossSectionSync() {
       const msg = e.data;
       if (msg.t === "req") {
         broadcast();
+        // Ensure properties are loaded so labels get populated
+        const ms = useModelStore.getState();
+        if (ms.loadedProperties === null && ms.loadingPropertiesProgress === null) ms.loadAllProperties();
         // If face section is active but lines haven't arrived yet (window opened after
         // broadcast was already sent, or computation silently failed), re-trigger.
         const st = useAlignmentStore.getState();
@@ -263,8 +266,9 @@ function useLongitudinalSectionSync() {
     let ch: BroadcastChannel;
     try { ch = new BroadcastChannel(LS_CHANNEL); } catch { return; }
 
-    // objectLabels cache — recomputed only when lsLines reference changes
+    // objectLabels cache — recomputed when lsLines OR loadedProperties reference changes
     let cachedLsLines: import("./utils/windowSync").LSLineSync[] | null = null;
+    let cachedLoadedProps: ReturnType<typeof useModelStore.getState>["loadedProperties"] | undefined = undefined;
     let cachedObjectLabels: XSSyncObjectLabel[] = [];
 
     const broadcast = () => {
@@ -277,10 +281,12 @@ function useLongitudinalSectionSync() {
       // so no additional offset is needed at display time.
       const elevationOrigin = 0;
 
-      if (store.lsLines !== cachedLsLines) {
+      if (store.lsLines !== cachedLsLines || modelStore.loadedProperties !== cachedLoadedProps) {
         cachedLsLines = store.lsLines;
+        cachedLoadedProps = modelStore.loadedProperties;
         const uniqueKeys = new Set(store.lsLines.filter(l => l.objectKey).map(l => l.objectKey!));
         cachedObjectLabels = [];
+        const sharedLoadedProps = modelStore.loadedProperties;
         for (const key of uniqueKeys) {
           const [modelId, eidStr] = key.split(":");
           const eid = parseInt(eidStr);
@@ -295,6 +301,13 @@ function useLongitudinalSectionSync() {
           if (ifcProps?.properties) {
             for (const p of ifcProps.properties)
               if (typeof p.value === "string" || typeof p.value === "number") props[p.name] = String(p.value);
+          }
+          const flatProps = sharedLoadedProps?.get(modelId)?.get(eid);
+          if (flatProps) {
+            for (const [k, v] of Object.entries(flatProps)) {
+              if (k === "_type" || k === "_name" || k === "_model") continue;
+              if (typeof v === "string" || typeof v === "number") props[k] = String(v);
+            }
           }
           cachedObjectLabels.push({ key, name, type, props });
         }
@@ -324,6 +337,8 @@ function useLongitudinalSectionSync() {
       const msg = e.data;
       if (msg.t === "req") {
         broadcast();
+        const ms = useModelStore.getState();
+        if (ms.loadedProperties === null && ms.loadingPropertiesProgress === null) ms.loadAllProperties();
         if (store.lsOpen && store.lsLines.length === 0 && !store.lsComputing &&
             store.lsStaStart !== null && store.lsStaEnd !== null) {
           store.setLSRange(store.lsStaStart, store.lsStaEnd);
@@ -390,6 +405,8 @@ function useAbwicklungSync() {
       const msg = e.data;
       if (msg.t === "req") {
         broadcast();
+        const ms = useModelStore.getState();
+        if (ms.loadedProperties === null && ms.loadingPropertiesProgress === null) ms.loadAllProperties();
         if (store.abwicklungOpen && store.abwicklungLines.length === 0 &&
             !store.abwicklungComputing &&
             store.abwicklungStaStart !== null && store.abwicklungStaEnd !== null) {

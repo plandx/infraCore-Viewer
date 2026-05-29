@@ -2185,7 +2185,51 @@ export function ViewportContainer({ onElementClick }: Props) {
         computeDepthLinesFromBasis();
       }
     });
-    return () => unsub();
+
+    // Rebuild cross-section labels when loadedProperties arrives (without re-slicing)
+    const unsubLoadedProps = useModelStore.subscribe((state, prev) => {
+      if (state.loadedProperties === prev.loadedProperties) return;
+      const aState = useAlignmentStore.getState();
+      const lines = aState.crossSectionLines;
+      if (lines.length === 0) return;
+      const modelsMap = state.models;
+      const sharedLoadedProps = state.loadedProperties;
+      const seen = new Set<string>();
+      const objectLabels: import("../utils/windowSync").XSSyncObjectLabel[] = [];
+      for (const l of lines) {
+        if (!l.objectKey || seen.has(l.objectKey)) continue;
+        seen.add(l.objectKey);
+        const colonIdx = l.objectKey.lastIndexOf(":");
+        const modelId  = l.objectKey.slice(0, colonIdx);
+        const expressId = parseInt(l.objectKey.slice(colonIdx + 1));
+        const model = modelsMap.get(modelId);
+        if (!model) continue;
+        let name = `#${expressId}`, type = "";
+        for (const [t, els] of Object.entries(model.elementsByType)) {
+          const el = (els as Array<{ expressId: number; name: string }>).find(e => e.expressId === expressId);
+          if (el) { name = el.name || `#${expressId}`; type = t; break; }
+        }
+        const props: Record<string, string> = {};
+        const selProps = (model.properties as Record<number, Record<string, unknown>>)[expressId];
+        if (selProps) {
+          for (const [k, v] of Object.entries(selProps)) {
+            if (k === "expressId" || k === "type") continue;
+            if (typeof v === "string" || typeof v === "number") props[k] = String(v);
+          }
+        }
+        const flatProps = sharedLoadedProps?.get(modelId)?.get(expressId);
+        if (flatProps) {
+          for (const [k, v] of Object.entries(flatProps)) {
+            if (k === "expressId" || k === "type" || k === "name") continue;
+            if (typeof v === "string" || typeof v === "number") props[k] = String(v);
+          }
+        }
+        objectLabels.push({ key: l.objectKey, name, type, props });
+      }
+      useAlignmentStore.getState().setCrossSectionObjectLabels(objectLabels);
+    });
+
+    return () => { unsub(); unsubLoadedProps(); };
   }, []);
 
   // ── 3D section surface rebuild ────────────────────────────────────────────
@@ -2412,6 +2456,7 @@ export function ViewportContainer({ onElementClick }: Props) {
 
         const { lines: rawLines, objectLabels } = computeAbwicklung(
           pickableMeshesRef.current, pts, staStart, staEnd, left, right,
+          useModelStore.getState().loadedProperties as Map<string, Map<number, Record<string, unknown>>> | null,
         );
         useAlignmentStore.getState().setAbwicklungResult(rawLines, oz, objectLabels);
       }, 0);
@@ -2430,7 +2475,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         useAlignmentStore.getState().setAbwicklungResult([], 0);
     });
     const unsubModel = useModelStore.subscribe((state, prev) => {
-      if (state.models !== prev.models) {
+      if (state.models !== prev.models || state.loadedProperties !== prev.loadedProperties) {
         const aState = useAlignmentStore.getState();
         if (aState.abwicklungOpen && aState.abwicklungAlignmentId != null)
           computeAbwicklungResult();

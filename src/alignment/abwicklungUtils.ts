@@ -120,6 +120,7 @@ export function computeAbwicklung(
   staEnd: number,
   leftOffset: number,
   rightOffset: number,
+  loadedProps?: Map<string, Map<number, Record<string, unknown>>> | null,
 ): { lines: AbwicklungLine[]; objectLabels: XSSyncObjectLabel[] } {
   if (pts.length < 2) return { lines: [], objectLabels: [] };
 
@@ -230,7 +231,18 @@ export function computeAbwicklung(
     }
 
     if (meshHadLines && objectKey && !labelMap.has(objectKey)) {
-      labelMap.set(objectKey, { key: objectKey, name: elementName, type: ifcType, props: {} });
+      const colonIdx = objectKey.lastIndexOf(":");
+      const modelId  = objectKey.slice(0, colonIdx);
+      const expressId = parseInt(objectKey.slice(colonIdx + 1));
+      const props: Record<string, string> = {};
+      const flatProps = loadedProps?.get(modelId)?.get(expressId);
+      if (flatProps) {
+        for (const [k, v] of Object.entries(flatProps)) {
+          if (k === "_type" || k === "_name" || k === "_model") continue;
+          if (typeof v === "string" || typeof v === "number") props[k] = String(v);
+        }
+      }
+      labelMap.set(objectKey, { key: objectKey, name: elementName, type: ifcType, props });
     }
   }
 
