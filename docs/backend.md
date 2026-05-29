@@ -29,9 +29,10 @@ Fortschritts-Phasen: Initialisieren → Geometrie laden → Struktur lesen → A
 ### `loadIFCProperties(file, expressId)`
 
 Lädt Eigenschaften **eines** Elements (öffnet Datei neu):
-- Direkte Attribute via `getItemProperties(modelId, expressId, false)`
+- Direkte Attribute via `getItemProperties(...)` — skalare Werte werden aus `{value: ...}`-Objekten ausgepackt
 - Instanz-Psets via `getPropertySets(modelId, expressId, recursive=true, includeType=false)`
 - Typ-Psets via `getPropertySets(modelId, expressId, recursive=true, includeType=true)` (`.catch(() => [])`)
+- Psets werden mit `parsePsetLine()` geparst — unterstützt alle IFC-Eigenschaftstypen (siehe unten)
 - Beide Aufrufe **sequentiell** (nicht parallel!) — WASM ist nicht concurrency-safe
 - Gibt `{ properties: Record<string,unknown>, psets: PropertySet[] }` zurück
 
@@ -41,7 +42,7 @@ Batch-Laden für alle Elemente (einmal Datei öffnen, alle lesen):
 - Gibt `Map<number, FlatElementProps>` zurück
 - Keys: direkte Attribute + `"PsetName.PropName"` Namespaced-Keys
 - Kurz-Aliases: erster Pset gewinnt bei Kollision
-- Lädt ebenfalls instanz- und typ-level Psets (sequentiell)
+- Lädt ebenfalls instanz- und typ-level Psets über `applyPset()` (unterstützt HasProperties + Quantities)
 - Wird von `BatchPanel` für datalist-Autocomplete und von `QuantityListPanel` (`PropertyLoader`) genutzt
 
 **Wichtig:** `FlatElementProps = Record<string, unknown>` ist in `types/ifc.ts` definiert.
@@ -75,6 +76,40 @@ IFC kennt zwei Arten von PropertySets:
 
 Beide werden immer geladen und zusammengeführt (`[...instancePsets, ...typePsets]`).
 `recursive=true` bei beiden Aufrufen ist zwingend, sonst enthält `HasProperties` nur Express-ID-Referenzen statt expandierter Objekte.
+
+### `parsePsetLine(pset)` *(intern)*
+
+Parst eine beliebige IFC-Pset-Zeile schema-agnostisch:
+- `HasProperties` → `IfcPropertySet` (IFC 2x3/4/4.3)
+- `Quantities` → `IfcElementQuantity` / QuantitySet
+- Fallback: direkte Attribute für `IfcPreDefinedPropertySet`-Subtypen (z.B. `IfcDoorLiningProperties`)
+
+### `extractPropValue(prop)` *(intern)*
+
+Extrahiert Werte aus allen IFC-Eigenschafts- und Mengentypen:
+| IFC-Typ | Feld |
+|---|---|
+| `IfcPropertySingleValue` | `NominalValue` |
+| `IfcQuantityLength/Area/Volume/Count/Weight/Time` | `LengthValue`, `AreaValue`, … |
+| `IfcPropertyEnumeratedValue` | `EnumerationValues` (kommagetrennt) |
+| `IfcPropertyBoundedValue` | `LowerBoundValue…UpperBoundValue` |
+| `IfcPropertyListValue` | `ListValues` (kommagetrennt) |
+| `IfcPropertyTableValue` | `DefiningValues` (kommagetrennt) |
+| `IfcPropertyReferenceValue` | `PropertyReference` |
+
+### `isPhysicalElementType(typeName)` *(intern)*
+
+Filtert IFC-Typ-Namen dynamisch: gibt `true` zurück für physische Elemente/Räume/Annotationen,
+`false` für Beziehungen, Property-Definitionen, Geometrie-Primitive, Einheiten, Metadaten usw.
+Wird in `extractStructure()` verwendet, um `GetAllTypesOfModel()` zu filtern — kein Hardcoding von Klassen-Listen mehr.
+
+### Element-Typ-Erkennung (dynamisch)
+
+`extractStructure()` ruft `api.GetAllTypesOfModel(modelId)` auf statt eine statische Whitelist zu iterieren.
+Jeder zurückgegebene Typ wird durch `isPhysicalElementType()` gefiltert. Als Label wird verwendet:
+1. `ELEMENT_LABELS[typeID]` (deutsche Bezeichnung für bekannte Typen)
+2. `IFC_TO_LABEL[typeName]` (Rückwärts-Lookup)
+3. Der IFC-Klassenname selbst (Fallback für unbekannte/neue Typen)
 
 ---
 

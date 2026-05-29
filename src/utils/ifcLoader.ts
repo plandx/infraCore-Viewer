@@ -277,9 +277,11 @@ export async function loadIFCProperties(
 
   const itemProps = await api.properties.getItemProperties(modelId, expressId, false);
   if (itemProps) {
-    Object.entries(itemProps as Record<string, unknown>).forEach(([k, v]) => {
-      if (k !== "expressID") props[k] = v;
-    });
+    for (const [k, v] of Object.entries(itemProps as Record<string, unknown>)) {
+      if (k === "expressID") continue;
+      const scalar = (v as { value?: unknown } | null)?.value;
+      props[k] = scalar !== undefined ? scalar : v;
+    }
   }
 
   const instancePsets = await api.properties.getPropertySets(modelId, expressId, true, false);
@@ -287,20 +289,9 @@ export async function loadIFCProperties(
   const rawPsets = [...instancePsets, ...typePsets];
 
   for (const pset of rawPsets) {
-    const psetName = String(pset?.Name?.value ?? "PropertySet");
-    const psetProps: PropertySet["properties"] = [];
-    const hasProp = pset?.HasProperties;
-    if (Array.isArray(hasProp)) {
-      for (const prop of hasProp) {
-        if (!prop) continue;
-        psetProps.push({
-          name: String(prop?.Name?.value ?? ""),
-          value: prop?.NominalValue?.value ?? prop?.Value?.value ?? null,
-          type: String(prop?.type ?? ""),
-        });
-      }
-    }
-    psets.push({ name: psetName, properties: psetProps });
+    if (!pset) continue;
+    const parsed = parsePsetLine(pset as RawLine);
+    if (parsed.properties.length > 0) psets.push(parsed);
   }
 
   return { properties: props, psets };
@@ -338,20 +329,8 @@ export async function loadBasketProperties(
       const rawPsets = [..._iPsets, ..._tPsets];
       for (const pset of rawPsets) {
         if (!pset) continue;
-        const psetName = String(pset?.Name?.value ?? "PropertySet");
-        const psetProps: PropertySet["properties"] = [];
-        const hasProp = pset?.HasProperties;
-        if (Array.isArray(hasProp)) {
-          for (const prop of hasProp) {
-            if (!prop) continue;
-            psetProps.push({
-              name: String(prop?.Name?.value ?? ""),
-              value: prop?.NominalValue?.value ?? prop?.Value?.value ?? null,
-              type: String(prop?.type ?? ""),
-            });
-          }
-        }
-        if (psetProps.length > 0) psets.push({ name: psetName, properties: psetProps });
+        const parsed = parsePsetLine(pset as RawLine);
+        if (parsed.properties.length > 0) psets.push(parsed);
       }
     } catch { /* psets optional */ }
 
@@ -375,26 +354,122 @@ function extractScalar(v: unknown): unknown {
 type RawLine = Record<string, unknown>;
 
 /**
+ * Extracts a scalar value from any IFC property or quantity entity, covering:
+ * - IfcPropertySingleValue        → NominalValue
+ * - IfcQuantityLength/Area/Volume/Count/Weight/Time → *Value fields
+ * - IfcPropertyEnumeratedValue    → EnumerationValues (joined)
+ * - IfcPropertyBoundedValue       → LowerBoundValue…UpperBoundValue
+ * - IfcPropertyListValue          → ListValues (joined)
+ * - IfcPropertyReferenceValue     → PropertyReference
+ * - IfcPropertyTableValue         → DefiningValues (joined)
+ */
+function extractPropValue(prop: RawLine): unknown {
+  // IfcPropertySingleValue
+  if (prop.NominalValue !== undefined) return extractScalar(prop.NominalValue);
+
+  // IfcQuantity* — each subtype has its own value field
+  for (const field of ["LengthValue", "AreaValue", "VolumeValue", "CountValue", "WeightValue", "TimeValue"]) {
+    if (prop[field] !== undefined) return extractScalar(prop[field]);
+  }
+
+  // IfcPropertyEnumeratedValue
+  if (Array.isArray(prop.EnumerationValues)) {
+    return (prop.EnumerationValues as unknown[]).map(v => extractScalar(v)).join(", ");
+  }
+
+  // IfcPropertyBoundedValue
+  if (prop.UpperBoundValue !== undefined || prop.LowerBoundValue !== undefined) {
+    const lo = extractScalar(prop.LowerBoundValue);
+    const hi = extractScalar(prop.UpperBoundValue);
+    return `${lo ?? ""}…${hi ?? ""}`;
+  }
+
+  // IfcPropertyListValue
+  if (Array.isArray(prop.ListValues)) {
+    return (prop.ListValues as unknown[]).map(v => extractScalar(v)).join(", ");
+  }
+
+  // IfcPropertyTableValue — use defining values as a summary
+  if (Array.isArray(prop.DefiningValues)) {
+    return (prop.DefiningValues as unknown[]).map(v => extractScalar(v)).join(", ");
+  }
+
+  // IfcPropertyReferenceValue
+  if (prop.PropertyReference !== undefined) return extractScalar(prop.PropertyReference);
+
+  // Generic fallback
+  if (prop.Value !== undefined) return extractScalar(prop.Value);
+
+  return null;
+}
+
+/**
+ * Parses an IfcPropertySet or IfcElementQuantity (or any IfcPreDefinedPropertySet
+ * subtype) into a normalised { name, properties } structure.
+ *
+ * Handles:
+ *  - HasProperties  (IfcPropertySet and subtypes)
+ *  - Quantities     (IfcElementQuantity / QuantitySet)
+ *
+ * For predefined property sets (IfcDoorLiningProperties etc.) all direct
+ * attributes other than Name/Description/GlobalId/type/expressID are exposed.
+ */
+function parsePsetLine(pset: RawLine): { name: string; properties: PropertySet["properties"] } {
+  const name = String((pset.Name as { value?: string } | undefined)?.value ?? "PropertySet");
+  const props: PropertySet["properties"] = [];
+
+  // IfcPropertySet → HasProperties
+  const hasProp = pset.HasProperties;
+  if (Array.isArray(hasProp)) {
+    for (const prop of hasProp as RawLine[]) {
+      if (!prop) continue;
+      const propName = String((prop.Name as { value?: string } | undefined)?.value ?? "");
+      if (!propName) continue;
+      props.push({ name: propName, value: extractPropValue(prop), type: String(prop.type ?? "") });
+    }
+  }
+
+  // IfcElementQuantity → Quantities
+  const quantities = pset.Quantities;
+  if (Array.isArray(quantities)) {
+    for (const qty of quantities as RawLine[]) {
+      if (!qty) continue;
+      const propName = String((qty.Name as { value?: string } | undefined)?.value ?? "");
+      if (!propName) continue;
+      props.push({ name: propName, value: extractPropValue(qty), type: String(qty.type ?? "") });
+    }
+  }
+
+  // IfcPreDefinedPropertySet subtypes expose fixed attributes directly
+  // (e.g. IfcDoorLiningProperties, IfcWindowPanelProperties, etc.)
+  const SKIP_KEYS = new Set(["expressID", "type", "GlobalId", "OwnerHistory", "Name", "Description"]);
+  if (props.length === 0 && hasProp === undefined && quantities === undefined) {
+    for (const [k, v] of Object.entries(pset)) {
+      if (SKIP_KEYS.has(k)) continue;
+      props.push({ name: k, value: extractScalar(v), type: "" });
+    }
+  }
+
+  return { name, properties: props };
+}
+
+/**
  * Applies all properties from a property set line to all given elements.
  * pset must already be loaded with flatten=true.
+ * Handles both IfcPropertySet (HasProperties) and IfcElementQuantity (Quantities).
  */
 function applyPset(
   pset: RawLine,
   eids: Iterable<number>,
   result: Map<number, FlatElementProps>,
 ) {
-  const psetName = String((pset.Name as { value?: string } | undefined)?.value ?? "PropertySet");
-  const hasProp = pset.HasProperties;
-  if (!Array.isArray(hasProp)) return;
+  const { name: psetName, properties } = parsePsetLine(pset);
+  if (properties.length === 0) return;
   for (const eid of eids) {
     const flat = result.get(eid);
     if (!flat) continue;
-    for (const prop of hasProp as RawLine[]) {
-      if (!prop) continue;
-      const name = String((prop.Name as { value?: string } | undefined)?.value ?? "");
+    for (const { name, value } of properties) {
       if (!name) continue;
-      const raw = prop.NominalValue ?? prop.Value ?? null;
-      const value = extractScalar(raw);
       flat[`${psetName}.${name}`] = value;
       if (!(name in flat)) flat[name] = value;
     }
@@ -841,34 +916,121 @@ export const IFC_TO_LABEL: Record<string, string> = Object.fromEntries(
 );
 
 /**
- * Whitelist of IFC type codes to show in the project browser and 5D module.
- * Exactly the union of:
- *   – all physical element types from ELEMENT_LABELS
- *   – the four spatial structure types (Site, Building, Storey, Space)
- * Nothing else passes through — this prevents abstract/metadata entities from
- * appearing in element lists.
+ * Returns true for IFC type names that represent physical objects/products
+ * (elements, spatial structure, annotations) and should appear in the browser.
+ *
+ * Uses a blacklist of non-element type name prefixes derived from the IFC schema
+ * taxonomy so that any IFC version (2x3, 4, 4.3) works without hardcoding class lists.
  */
-const CANDIDATE_TYPE_CODES: Map<number, string> = (() => {
-  const result = new Map<number, string>();
+function isPhysicalElementType(typeName: string): boolean {
+  const n = typeName.toUpperCase();
 
-  // All explicitly labelled physical elements
-  for (const [k, v] of Object.entries(ELEMENT_LABELS)) {
-    result.set(Number(k), v as string);
-  }
+  // Relationships — never physical elements
+  if (n.startsWith("IFCREL")) return false;
 
-  // Spatial structure elements requested by the user
-  const spatial: Array<[number | undefined, string]> = [
-    [WebIFC.IFCSITE,            "Standort"],
-    [WebIFC.IFCBUILDING,        "Gebäude"],
-    [WebIFC.IFCBUILDINGSTOREY,  "Geschoss"],
-    [WebIFC.IFCSPACE,           "Raum"],
-  ];
-  for (const [code, label] of spatial) {
-    if (code !== undefined && !result.has(code)) result.set(code, label);
-  }
+  // Property / quantity definitions
+  if (n.startsWith("IFCPROPERTYSET") || n.startsWith("IFCPROPERTYTEMPLATE") ||
+      n.startsWith("IFCPROPERTYDEFINITION") || n.startsWith("IFCPREDEFINED") ||
+      n.startsWith("IFCQUANTITY") || n.startsWith("IFCELEMENTQUANTITY")) return false;
 
-  return result;
-})();
+  // Materials
+  if (n.startsWith("IFCMATERIAL")) return false;
+
+  // Cross-section profiles
+  if (n.startsWith("IFCPROFILEDEF") || n.startsWith("IFCARBITRARYPROFILE") ||
+      n.startsWith("IFCARBITRARYCLOSED") || n.startsWith("IFCARBITRARYOPEN") ||
+      n.startsWith("IFCCOMPOSITEPROFILE") || n.startsWith("IFCDERIVEDPROFILE") ||
+      n.startsWith("IFCPARAMETERIZEDPROFILE") || n.startsWith("IFCCIRCLEPROFILE") ||
+      n.startsWith("IFCELLIPSEPROFILE") || n.startsWith("IFCRECTANGLEPROFILE") ||
+      n.startsWith("IFCROUNDEDRECTANGLE") || n.startsWith("IFCASYMMETRIC") ||
+      n.startsWith("IFCI_SHAPE") || n.startsWith("IFCL_SHAPE") ||
+      n.startsWith("IFCT_SHAPE") || n.startsWith("IFCU_SHAPE") ||
+      n.startsWith("IFCZ_SHAPE") || n.startsWith("IFCCENTER")) return false;
+
+  // Geometry/representation containers
+  if (n.startsWith("IFCREPRESENTATION") || n.startsWith("IFCSHAPEASPECT") ||
+      n.startsWith("IFCPRODUCTDEFINITIONSHAPE") || n.startsWith("IFCGEOMETRIC")) return false;
+
+  // Geometry primitives (solids, surfaces, curves, topology)
+  if (n.startsWith("IFCEXTRUDED") || n.startsWith("IFCREVOLVED") ||
+      n.startsWith("IFCSWEPT") || n.startsWith("IFCBOOLEAN") ||
+      n.startsWith("IFCHALFSPACE") || n.startsWith("IFCADVANCED") ||
+      n.startsWith("IFCMANIFOLD") || n.startsWith("IFCFACETED") ||
+      n.startsWith("IFCSHELLBASED") || n.startsWith("IFCCLOSEDSHELL") ||
+      n.startsWith("IFCOPENSHELL")) return false;
+
+  // Topology
+  if (n.startsWith("IFCFACE") || n.startsWith("IFCEDGE") ||
+      n.startsWith("IFCVERTEX") || n.startsWith("IFCLOOP") ||
+      n.startsWith("IFCSUBEDGE") || n.startsWith("IFCORIENTED")) return false;
+
+  // Curves and points
+  if (n.startsWith("IFCCIRCLE") || n.startsWith("IFCELLIPSE") ||
+      n.startsWith("IFCLINE") || n.startsWith("IFCBSPLINE") ||
+      n.startsWith("IFCNURBS") || n.startsWith("IFCRATIONALB") ||
+      n.startsWith("IFCCOMPOSITE") || n.startsWith("IFCTRIMMED") ||
+      n.startsWith("IFCOFFSET") || n.startsWith("IFCINDEXEDPOLY") ||
+      n.startsWith("IFCGRADIENT") || n.startsWith("IFCCLOTHOID") ||
+      n.startsWith("IFCPOLY") || n.startsWith("IFCPOINT") ||
+      n.startsWith("IFCVECTOR") || n.startsWith("IFCDIRECTION") ||
+      n.startsWith("IFCPLANE") || n.startsWith("IFCCYLINDRICAL") ||
+      n.startsWith("IFCSPHERE") || n.startsWith("IFCTOROIDAL") ||
+      n.startsWith("IFCCURVEBOUNDED")) return false;
+
+  // Placement / coordinate systems
+  if (n.startsWith("IFCCARTESIAN") || n.startsWith("IFCAXIS") ||
+      n.startsWith("IFCLOCALPLACEMENT") || n.startsWith("IFCGRIDPLACEMENT") ||
+      n.startsWith("IFCLINEARPLACEMENT") || n.startsWith("IFCCENTRELINEPLACEMENT") ||
+      n.startsWith("IFCLINEAXIS")) return false;
+
+  // Units and measures
+  if (n.startsWith("IFCSIUNIT") || n.startsWith("IFCUNIT") ||
+      n.startsWith("IFCCONVERSION") || n.startsWith("IFCDERIVED") ||
+      n.startsWith("IFCMEASURE") || n.startsWith("IFCNAMEDUNIT")) return false;
+
+  // Owner / metadata
+  if (n.startsWith("IFCOWNERHISTORY") || n.startsWith("IFCAPPLICATION") ||
+      n.startsWith("IFCORGANIZATION") || n.startsWith("IFCPERSON") ||
+      n.startsWith("IFCPOSTALADDRESS") || n.startsWith("IFCTELECOMADDRESS") ||
+      n.startsWith("IFCADDRESS")) return false;
+
+  // Styles / presentation
+  if (n.startsWith("IFCPRESENTATION") || n.startsWith("IFCSTYLEDITEM") ||
+      n.startsWith("IFCSTYLEDREPRESENTATION") || n.startsWith("IFCSURFACESTYLE") ||
+      n.startsWith("IFCCOLOUR") || n.startsWith("IFCPIXEL") ||
+      n.startsWith("IFCIMAGETEXTURE") || n.startsWith("IFCBLOBTEXTURE") ||
+      n.startsWith("IFCTEXTUREMAP") || n.startsWith("IFCTEXTURECOORD") ||
+      n.startsWith("IFCFILLAREA") || n.startsWith("IFCCURVESTYLE") ||
+      n.startsWith("IFCTEXTLITERAL") || n.startsWith("IFCTEXTSTYLE") ||
+      n.startsWith("IFCFONTSTYLE")) return false;
+
+  // Library / document / approval
+  if (n.startsWith("IFCDOCUMENT") || n.startsWith("IFCLIBRARY") ||
+      n.startsWith("IFCAPPROVAL") || n.startsWith("IFCCLASSIFICATION") ||
+      n.startsWith("IFCCONSTRAINT") || n.startsWith("IFCMETRIC") ||
+      n.startsWith("IFCOBJECTIVE") || n.startsWith("IFCEXTERNALREFERENCE") ||
+      n.startsWith("IFCEXTERNALINFORMATION")) return false;
+
+  // Scheduling / work management
+  if (n.startsWith("IFCTASK") || n.startsWith("IFCWORK") ||
+      n.startsWith("IFCSCHEDULE") || n.startsWith("IFCEVENTTIME") ||
+      n.startsWith("IFCLAGTIME") || n.startsWith("IFCWORKTIME") ||
+      n.startsWith("IFCACTOR") || n.startsWith("IFCOCCUPANT")) return false;
+
+  // Grid axes
+  if (n.startsWith("IFCGRID")) return false;
+
+  // Connection geometry
+  if (n.startsWith("IFCCONNECTION")) return false;
+
+  // Table / misc data structures
+  if (n === "IFCTABLE" || n === "IFCTABLEROW" || n === "IFCTABLECOLUMN") return false;
+
+  // Project root is not a physical element
+  if (n === "IFCPROJECT") return false;
+
+  return true;
+}
 
 function getLabel(line: Record<string, unknown> | null): string {
   if (!line) return "";
@@ -907,11 +1069,29 @@ async function extractStructure(
     console.warn("[IFC] Spatial structure extraction failed:", e);
   }
 
-  // ── 2. Elements by type ──────────────────────────────────────────────────
-  for (const [typeCode, label] of CANDIDATE_TYPE_CODES) {
+  // ── 2. Elements by type — discovered dynamically from the model ────────────
+  // GetAllTypesOfModel returns every type code actually used in the file, so
+  // this works for IFC 2x3, 4, and 4.3 without any hardcoded class list.
+  let allModelTypes: { typeID: number; typeName: string }[] = [];
+  try {
+    allModelTypes = (api as unknown as { GetAllTypesOfModel(m: number): { typeID: number; typeName: string }[] })
+      .GetAllTypesOfModel(modelId) ?? [];
+  } catch {
+    // Fallback: use the ELEMENT_LABELS map if GetAllTypesOfModel is unavailable
+    for (const [k, v] of Object.entries(ELEMENT_LABELS)) {
+      allModelTypes.push({ typeID: Number(k), typeName: String(v) });
+    }
+  }
+
+  for (const { typeID, typeName } of allModelTypes) {
+    if (!isPhysicalElementType(typeName)) continue;
     try {
-      const ids = api.GetLineIDsWithType(modelId, typeCode);
+      const ids = api.GetLineIDsWithType(modelId, typeID);
       if (ids.size() === 0) continue;
+      const label =
+        ELEMENT_LABELS[typeID] ??
+        IFC_TO_LABEL[typeName] ??
+        typeName; // fallback: IFC class name as-is
       const nodes: ElementNode[] = [];
       for (let i = 0; i < ids.size(); i++) {
         const eid = ids.get(i);
@@ -928,7 +1108,7 @@ async function extractStructure(
         elementsByType[label] = (elementsByType[label] ?? []).concat(nodes);
       }
     } catch {
-      // type not present in this model — skip silently
+      // type not present in this model or API error — skip silently
     }
   }
 
