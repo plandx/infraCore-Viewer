@@ -66,7 +66,7 @@ export function PropertiesPanel() {
       <div className="flex flex-col h-full">
         <PanelHeader />
         <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground">
-          <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-border flex items-center justify-center">
+          <div className="w-16 h-16 rounded-[6px] border-2 border-dashed border-border flex items-center justify-center">
             <Tag size={24} className="opacity-30" />
           </div>
           <div>
@@ -127,14 +127,14 @@ export function PropertiesPanel() {
           <div className="flex-1 min-w-0">
             <span className="text-xs text-muted-foreground truncate block">{model?.name ?? selected.modelId}</span>
             <div className="flex items-center gap-1 flex-wrap mt-0.5">
-              <span className="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] font-mono text-primary border border-primary/30 px-1.5 py-0.5 rounded-[4px]">
                 #{selected.expressId}
               </span>
               {(() => {
                 const ifcTypeCode = typeof selected.properties.type === "number" ? selected.properties.type : null;
                 const ifcTypeName = ifcTypeCode ? lookupIfcTypeName(ifcTypeCode) : null;
                 return ifcTypeName ? (
-                  <span className="text-[10px] font-mono text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-mono text-muted-foreground border border-border px-1.5 py-0.5 rounded-[4px]">
                     {ifcTypeName}
                   </span>
                 ) : null;
@@ -176,7 +176,7 @@ export function PropertiesPanel() {
           </span>
           {modelOverrideCount > 0 && (
             <button
-              className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-medium transition-colors shrink-0 disabled:opacity-50"
+              className="flex items-center gap-1 px-2 py-0.5 rounded-[4px] bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-400 font-medium transition-colors shrink-0 disabled:opacity-50"
               title={`Modell mit ${modelOverrideCount} Änderungen exportieren`}
               onClick={handleExportIFC}
               disabled={exporting}
@@ -209,7 +209,7 @@ export function PropertiesPanel() {
             <Filter size={9} className="text-primary shrink-0" />
             <input
               ref={saveInputRef}
-              className="flex-1 min-w-0 bg-background border border-primary rounded px-1.5 py-0.5 text-[10px] font-mono text-foreground focus:outline-none"
+              className="flex-1 min-w-0 bg-background border border-primary rounded-[4px] px-1.5 py-0.5 text-[10px] font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               value={savingName}
               onChange={(e) => setSavingName(e.target.value)}
               onKeyDown={(e) => {
@@ -391,7 +391,7 @@ function RawTab({
       <div className="absolute top-2 right-2">
         <CopyButton value={json} />
       </div>
-      <pre className="p-3 text-[11px] font-mono text-[#198754] dark:text-[#3fb950] overflow-auto whitespace-pre-wrap break-words leading-relaxed">
+      <pre className="p-3 text-[11px] font-mono text-[#3fb950] bg-[#1E1E1E] overflow-auto whitespace-pre-wrap break-words leading-relaxed" style={{ fontFamily: '"Cascadia Code", "Consolas", monospace' }}>
         {json}
       </pre>
     </div>
@@ -401,7 +401,7 @@ function RawTab({
 function SectionHeader({ title, count }: { title: string; count?: number }) {
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 border-b border-border/50 sticky top-0">
-      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex-1">{title}</span>
+      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.05em] flex-1">{title}</span>
       {count != null && (
         <span className="text-[10px] text-muted-foreground/60">{count}</span>
       )}
@@ -488,7 +488,7 @@ function PropTable({
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <input
                       ref={inputRef}
-                      className="flex-1 min-w-0 bg-background border border-primary rounded px-1.5 py-0.5 text-[11px] font-mono text-foreground focus:outline-none"
+                      className="flex-1 min-w-0 bg-background border border-primary rounded-[4px] px-1.5 py-0.5 text-[11px] font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                       value={editValue}
                       onChange={(e) => setEditValue(e.target.value)}
                       onKeyDown={(e) => {
@@ -497,7 +497,7 @@ function PropTable({
                       }}
                     />
                     <select
-                      className="bg-background border border-border rounded px-1 py-0.5 text-[10px] text-foreground focus:outline-none shrink-0"
+                      className="bg-background border border-border rounded-[4px] px-1 py-0.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary shrink-0"
                       value={editType ?? ""}
                       onChange={(e) => setEditType(e.target.value !== "" ? Number(e.target.value) : undefined)}
                     >
@@ -506,8 +506,8 @@ function PropTable({
                         <option key={t.code} value={t.code}>{t.label}</option>
                       ))}
                     </select>
-                    <button className="shrink-0 p-0.5 rounded hover:bg-green-500/20 text-green-400" title="Bestätigen (Enter)" onClick={confirmEdit}><Check size={11} /></button>
-                    <button className="shrink-0 p-0.5 rounded hover:bg-muted/60 text-muted-foreground" title="Abbrechen (Esc)" onClick={cancelEdit}><X size={11} /></button>
+                    <button className="shrink-0 p-0.5 rounded-[4px] hover:bg-green-500/20 text-green-400" title="Bestätigen (Enter)" onClick={confirmEdit}><Check size={11} /></button>
+                    <button className="shrink-0 p-0.5 rounded-[4px] hover:bg-muted/60 text-muted-foreground" title="Abbrechen (Esc)" onClick={cancelEdit}><X size={11} /></button>
                   </div>
                 ) : (
                   <div className="flex items-start gap-1">

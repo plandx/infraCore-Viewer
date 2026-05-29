@@ -303,12 +303,11 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
       <input ref={addInputRef} type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
 
       <div
-        className="flex flex-col shrink-0 border-b border-border select-none relative z-[100]"
+        className="flex flex-col shrink-0 select-none relative z-[100]"
         style={{
-          fontSize: '14px',
-          background: 'var(--toolbar-bg)',
-          borderTop: '3px solid var(--color-primary)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+          fontSize: '13px',
+          background: 'var(--ic-surface)',
+          boxShadow: '0 1px 0 var(--ic-border)',
         }}
       >
 
@@ -336,10 +335,10 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                   else { if (idsPanelOpen) setIdsPanelOpen(false); if (bcfPanelOpen) setBcfPanelOpen(false); }
                 }}
                 className={cn(
-                  "relative flex items-center gap-1.5 px-3.5 text-[12px] font-semibold tracking-wide transition-all border-b-2 whitespace-nowrap",
+                  "relative flex items-center gap-1.5 px-3.5 text-[12px] transition-all border-b-2 whitespace-nowrap",
                   activeTab === tab.id
-                    ? "text-primary border-primary bg-primary/[0.10]"
-                    : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/40"
+                    ? "font-semibold text-primary border-primary bg-primary/[0.06]"
+                    : "font-normal text-muted-foreground border-transparent hover:text-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#404040]"
                 )}
               >
                 {tab.label}
@@ -963,10 +962,10 @@ function RibbonLargeBtn({
       <button
         onClick={onClick} disabled={disabled} title={title}
         className={cn(
-          "flex flex-col items-center justify-center gap-0.5 px-2.5 rounded-md transition-all min-w-[48px] h-full w-full text-center",
-          primary && !active && "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
+          "flex flex-col items-center justify-center gap-0.5 px-2.5 rounded-[4px] transition-all min-w-[48px] h-full w-full text-center",
+          primary && !active && "bg-primary text-primary-foreground hover:bg-[#106EBE]",
           !primary && active && "bg-primary/15 text-primary ring-1 ring-primary/30",
-          !primary && !active && "text-foreground/80 hover:bg-muted/70 hover:text-foreground",
+          !primary && !active && "text-foreground/80 hover:bg-[#E5E5E5] dark:hover:bg-[#404040] hover:text-foreground",
           disabled && "opacity-35 cursor-not-allowed pointer-events-none",
           className,
         )}
@@ -1005,7 +1004,7 @@ function RibbonSmBtn({
       onClick={onClick} disabled={disabled} title={title}
       className={cn(
         "flex items-center gap-1 px-2 py-1 rounded transition-all text-left",
-        active ? "bg-primary/15 text-primary ring-1 ring-primary/25" : "text-foreground/70 hover:bg-muted/70 hover:text-foreground",
+        active ? "bg-primary/15 text-primary ring-1 ring-primary/25" : "text-foreground/70 hover:bg-[#E5E5E5] dark:hover:bg-[#404040] hover:text-foreground",
         disabled && "opacity-35 cursor-not-allowed pointer-events-none",
         className,
       )}
@@ -1027,7 +1026,7 @@ function UtilBtn({
     <button onClick={onClick} title={title}
       className={cn(
         "flex items-center justify-center w-7 h-7 rounded transition-all",
-        active ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/70",
+        active ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#404040]",
         className,
       )}
     >
@@ -1045,7 +1044,7 @@ function DropdownMenu({ children, onClose, align = "left" }: {
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div className={cn(
-        "absolute top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-2xl min-w-[180px] py-1",
+        "absolute top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-md min-w-[180px] py-1",
         align === "right" ? "right-0" : "left-0"
       )}>
         {children}
@@ -1061,7 +1060,7 @@ function DropdownItem({ children, onClick, icon, disabled }: {
     <button
       className={cn(
         "w-full flex items-center gap-2 text-left px-3 py-1.5 text-xs text-foreground",
-        disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/60"
+        disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-[#E5E5E5] dark:hover:bg-[#404040]"
       )}
       onClick={disabled ? undefined : onClick} disabled={disabled}
     >

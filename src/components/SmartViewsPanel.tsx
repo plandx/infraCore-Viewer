@@ -30,7 +30,7 @@ function PropertyLoader() {
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <button
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium bg-muted hover:bg-muted/80 text-foreground transition-colors"
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] border border-border text-[11px] font-medium bg-muted hover:bg-muted/80 text-foreground transition-colors"
         onClick={() => loadAllProperties()}
         disabled={loading || models.size === 0}
       >
@@ -69,7 +69,7 @@ function PropKeyPicker({ value, onChange }: { value: string; onChange: (k: strin
   return (
     <div className="relative flex-1">
       <button
-        className="w-full flex items-center justify-between bg-background border border-border rounded px-2 py-1 text-left hover:border-primary/50 focus:outline-none text-xs"
+        className="w-full flex items-center justify-between bg-background border border-border rounded-[4px] px-2 py-1 text-left hover:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary text-xs"
         onClick={() => setOpen((v) => !v)}
       >
         <span className={cn("truncate", !value && "text-muted-foreground")}>{value ? displayLabel(value) : "Attribut…"}</span>
@@ -78,7 +78,7 @@ function PropKeyPicker({ value, onChange }: { value: string; onChange: (k: strin
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-popover border border-border rounded-md shadow-xl max-h-52 flex flex-col">
+          <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-popover border border-border rounded-[4px] shadow-xl max-h-52 flex flex-col">
             <div className="p-1.5 border-b border-border shrink-0 flex items-center gap-1.5">
               <Search size={10} className="text-muted-foreground shrink-0" />
               <input
@@ -118,16 +118,16 @@ function PropKeyPicker({ value, onChange }: { value: string; onChange: (k: strin
 const CONDITION_OPTIONS = Object.entries(CONDITION_LABELS) as [SmartCondition, string][];
 
 const TIER_BADGE_CLASSES: Record<TierAction, string> = {
-  add:               "bg-emerald-500/20 text-emerald-400",
-  remove:            "bg-red-500/20 text-red-400",
-  removeOthers:      "bg-orange-500/20 text-orange-400",
-  color:             "bg-blue-500/20 text-blue-400",
-  transparent:       "bg-cyan-500/20 text-cyan-400",
-  opaque:            "bg-muted text-muted-foreground",
-  autoColor:         "bg-violet-500/20 text-violet-400",
-  addAndColor:       "bg-blue-500/20 text-blue-300",
-  addAndTransparent: "bg-cyan-500/20 text-cyan-300",
-  addAndAutoColor:   "bg-violet-500/20 text-violet-300",
+  add:               "border border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
+  remove:            "border border-red-500/40 text-red-600 dark:text-red-400",
+  removeOthers:      "border border-orange-500/40 text-orange-600 dark:text-orange-400",
+  color:             "border border-blue-500/40 text-blue-600 dark:text-blue-400",
+  transparent:       "border border-cyan-500/40 text-cyan-600 dark:text-cyan-400",
+  opaque:            "border border-border text-muted-foreground",
+  autoColor:         "border border-violet-500/40 text-violet-600 dark:text-violet-400",
+  addAndColor:       "border border-blue-500/40 text-blue-500 dark:text-blue-300",
+  addAndTransparent: "border border-cyan-500/40 text-cyan-500 dark:text-cyan-300",
+  addAndAutoColor:   "border border-violet-500/40 text-violet-500 dark:text-violet-300",
 };
 
 function emptyRule(): SmartRule {
@@ -198,7 +198,7 @@ function TierEditor({
                 <PropKeyPicker value={rule.property} onChange={(k) => updRule(rule.id, { property: k })} />
               </div>
               <select
-                className="bg-background border border-border rounded px-1 py-1 text-xs text-foreground focus:outline-none shrink-0"
+                className="bg-background border border-border rounded-[4px] px-1 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary shrink-0"
                 value={rule.condition}
                 onChange={(e) => updRule(rule.id, { condition: e.target.value as SmartCondition })}
               >
@@ -206,7 +206,7 @@ function TierEditor({
               </select>
               {!noValueNeeded(rule.condition) && (
                 <input
-                  className="w-20 bg-background border border-border rounded px-1.5 py-1 text-xs focus:outline-none shrink-0"
+                  className="w-20 bg-background border border-border rounded-[4px] px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary shrink-0"
                   placeholder="Wert" value={rule.value}
                   onChange={(e) => updRule(rule.id, { value: e.target.value })}
                 />
@@ -235,7 +235,7 @@ function TierEditor({
             <span className="text-[10px] text-muted-foreground">Verknüpfung:</span>
             {(["AND", "OR"] as const).map((l) => (
               <button key={l}
-                className={cn("px-2 py-0.5 rounded text-[11px] border transition-colors",
+                className={cn("px-2 py-0.5 rounded-[4px] text-[11px] border transition-colors",
                   tier.logic === l ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50")}
                 onClick={() => onChange({ logic: l })}
               >{l === "AND" ? "Alle (UND)" : "Eine (ODER)"}</button>
@@ -247,7 +247,7 @@ function TierEditor({
         <div className="space-y-1.5">
           <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Aktion</span>
           <select
-            className="w-full bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
+            className="w-full bg-background border border-border rounded-[4px] px-1.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             value={tier.action}
             onChange={(e) => onChange({ action: e.target.value as TierAction })}
           >
@@ -272,7 +272,7 @@ function TierEditor({
           {(tier.action === "color" || tier.action === "transparent" || tier.action === "opaque" ||
             tier.action === "addAndColor" || tier.action === "addAndTransparent") && (
             <div className="flex items-center gap-2">
-              <button className="w-5 h-5 rounded ring-1 ring-black/20 hover:ring-2 hover:ring-primary shrink-0"
+              <button className="w-5 h-5 rounded-[3px] ring-1 ring-black/20 hover:ring-2 hover:ring-primary shrink-0"
                 style={{ background: tier.color }} onClick={() => colorRef.current?.click()} />
               <input ref={colorRef} type="color" className="sr-only" value={tier.color}
                 onChange={(e) => onChange({ color: e.target.value })} />
@@ -332,7 +332,7 @@ function SmartViewEditor({
   return (
     <div className="flex flex-col gap-3 p-3 bg-card/30 border-b border-border">
       <input
-        className="w-full bg-background border border-border rounded px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary/60"
+        className="w-full bg-background border border-border rounded-[4px] px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         placeholder="Name" value={view.name}
         onChange={(e) => setView((v) => ({ ...v, name: e.target.value }))}
       />
@@ -347,15 +347,15 @@ function SmartViewEditor({
         ))}
       </div>
       <button
-        className="flex items-center justify-center gap-1.5 py-1.5 rounded text-[11px] border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors"
+        className="flex items-center justify-center gap-1.5 py-1.5 rounded-[4px] text-[11px] border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors"
         onClick={addTier}
       ><Plus size={11} />Ebene hinzufügen</button>
       <div className="flex gap-2 pt-1">
         <button
-          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-[11px] font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[4px] text-[11px] font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
           disabled={!canSave} onClick={() => onSave(view)}
         ><Check size={12} />Speichern</button>
-        <button className="px-3 py-1.5 rounded text-[11px] border border-border text-muted-foreground hover:bg-muted/60"
+        <button className="px-3 py-1.5 rounded-[4px] text-[11px] border border-border text-muted-foreground hover:bg-muted/60"
           onClick={onCancel}>Abbrechen</button>
       </div>
     </div>
@@ -477,7 +477,7 @@ export function SmartViewsPanel() {
       {/* Active hint */}
       {activeSmartViewId && (
         <div className="px-3 py-1.5 text-[10px] bg-primary/10 border-b border-primary/20 flex items-center justify-between shrink-0">
-          <span className="text-primary font-medium">● SmartView aktiv</span>
+          <span className="text-primary font-medium">SmartView aktiv</span>
           <button className="text-muted-foreground hover:text-foreground" onClick={deactivateSmartView}>
             <X size={11} />
           </button>
@@ -491,7 +491,7 @@ export function SmartViewsPanel() {
           <div className="space-y-0.5 max-h-32 overflow-y-auto">
             {colorGroups.map((g) => (
               <div key={g.id} className="flex items-center gap-1.5">
-                <div className="w-2.5 h-2.5 rounded-sm shrink-0 ring-1 ring-black/20" style={{ background: g.color }} />
+                <div className="w-2.5 h-2.5 rounded-[3px] shrink-0 ring-1 ring-black/20" style={{ background: g.color }} />
                 <span className="text-[10px] text-foreground truncate flex-1" title={g.label}>{g.label}</span>
                 <span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">{g.entries.length}</span>
               </div>
@@ -513,7 +513,7 @@ export function SmartViewsPanel() {
               Noch keine SmartViews. Erstelle eine regelbasierte Ansicht.
             </span>
             <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[11px] border border-border hover:bg-muted/60 text-foreground"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-[11px] border border-border hover:bg-muted/60 text-foreground"
               onClick={startCreate}
             ><Plus size={12} />SmartView erstellen</button>
           </div>
@@ -541,7 +541,7 @@ export function SmartViewsPanel() {
                           {tier.name}
                           {(tier.action === "color" || tier.action === "transparent" || tier.action === "opaque" ||
                             tier.action === "addAndColor" || tier.action === "addAndTransparent") && (
-                            <span className="w-2 h-2 rounded-full inline-block ml-0.5 ring-1 ring-black/10" style={{ background: tier.color }} />
+                            <span className="w-2 h-2 rounded-[2px] inline-block ml-0.5 ring-1 ring-black/10" style={{ background: tier.color }} />
                           )}
                           {(tier.action === "autoColor" || tier.action === "addAndAutoColor") && tier.colorByKey && (
                             <span className="text-[8px] opacity-70 ml-0.5">/{tier.colorByKey.split(".").pop()}</span>

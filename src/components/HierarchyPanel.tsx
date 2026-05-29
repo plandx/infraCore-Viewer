@@ -330,7 +330,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
       <div className="flex flex-col h-full">
         <Header view={view} onView={handleSetView} search={inputValue} onSearch={handleSearch} onToggleCollapse={onToggleCollapse} />
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground p-6 text-center">
-          <div className="w-14 h-14 rounded-xl border-2 border-dashed border-border flex items-center justify-center">
+          <div className="w-14 h-14 rounded-[6px] border-2 border-dashed border-border flex items-center justify-center">
             <Layers size={22} className="opacity-30" />
           </div>
           <div>
@@ -359,8 +359,8 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
       {multiSelected.size > 1 && (
         <div className="shrink-0 flex items-center gap-1 px-2 py-1 bg-amber-500/10 border-b border-amber-500/20 text-[11px]">
           <span className="text-amber-400 font-medium flex-1">{multiSelected.size} ausgewählt</span>
-          <button className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground" title="Alle ausblenden" onClick={handleMultiHide}><EyeOff size={11} /></button>
-          <button className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground" title="Alle isolieren" onClick={handleMultiIsolate}><ScanLine size={11} /></button>
+          <button className="px-1.5 py-0.5 rounded-[4px] hover:bg-muted/60 text-muted-foreground hover:text-foreground" title="Alle ausblenden" onClick={handleMultiHide}><EyeOff size={11} /></button>
+          <button className="px-1.5 py-0.5 rounded-[4px] hover:bg-muted/60 text-muted-foreground hover:text-foreground" title="Alle isolieren" onClick={handleMultiIsolate}><ScanLine size={11} /></button>
           <button className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground text-[10px] font-mono" title="Zur Auswahl hinzufügen" onClick={handleAddToBasket}>+Korb</button>
           <button className="px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground text-[10px] font-mono" title="Auswahlkorb ersetzen" onClick={handleSetBasket}>=Korb</button>
           <button className="p-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground" title="Auswahl aufheben" onClick={() => { setMultiSelected(new Set()); setAnchorKey(null); }}><X size={11} /></button>
@@ -389,7 +389,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
                 <span className="text-muted-foreground shrink-0">
                   {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 </span>
-                <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20" style={{ backgroundColor: model.color }} />
+                <span className="w-2.5 h-2.5 rounded-[3px] shrink-0 ring-1 ring-black/20" style={{ backgroundColor: model.color }} />
                 <span className="flex-1 truncate font-semibold text-foreground" title={model.name}>{model.name}</span>
                 <span className="text-muted-foreground/60 text-[10px] shrink-0">{formatBytes(model.size)}</span>
                 <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -778,7 +778,7 @@ const TypeGroup = memo(function TypeGroup({ typeName, elements, modelId, multiSe
           {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         </span>
         <span className="flex-1 text-foreground font-medium">{typeName}</span>
-        <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 rounded shrink-0">{elements.length}</span>
+        <span className="text-[10px] text-muted-foreground border border-border px-1.5 rounded-[4px] shrink-0">{elements.length}</span>
       </div>
 
       {isOpen && (
@@ -856,7 +856,7 @@ function Header({ view, onView, search, onSearch, onToggleCollapse }: {
         )}
       </div>
       <div className="px-2 py-1.5 border-b border-border/60">
-        <div className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1">
+        <div className="flex items-center gap-1.5 bg-background border border-border rounded-[4px] px-2 py-1">
           <Search size={11} className="text-muted-foreground shrink-0" />
           <input
             type="text" value={search} onChange={(e) => onSearch(e.target.value)}

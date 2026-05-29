@@ -55,8 +55,8 @@ export function StatusBar() {
 
   return (
     <div
-      className="flex items-center h-8 px-3 gap-4 border-t border-border text-[11px] text-muted-foreground shrink-0 select-none"
-      style={{ background: 'var(--toolbar-bg)' }}
+      className="flex items-center h-6 px-3 gap-4 border-t border-border text-[11px] text-muted-foreground shrink-0 select-none"
+      style={{ background: 'var(--ic-surface-2)' }}
     >
       {/* Left */}
       <div className="flex items-center gap-1.5">
@@ -83,12 +83,7 @@ export function StatusBar() {
         </div>
       )}
 
-      <div className={cn(
-        "flex items-center gap-1 font-mono tabular-nums",
-        fps < 30 && "text-destructive",
-        fps < 50 && fps >= 30 && "text-yellow-500",
-        fps >= 50 && "text-green-400",
-      )}>
+      <div className="flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
         <span>{fps}</span>
         <span className="text-muted-foreground">fps</span>
       </div>

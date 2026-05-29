@@ -69,7 +69,7 @@ export function SQLPanel() {
                 Beispiele <ChevronDown size={11} />
               </button>
               {showSamples && (
-                <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-md shadow-xl min-w-[220px]">
+                <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-[4px] shadow-xl min-w-[220px]">
                   {SAMPLE_QUERIES.map((sq) => (
                     <button
                       key={sq.label}
@@ -93,7 +93,7 @@ export function SQLPanel() {
             <span className="text-[10px] text-muted-foreground">Ctrl+Enter</span>
             <button
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium",
+                "flex items-center gap-1.5 px-3 py-1 rounded-[4px] text-xs font-medium",
                 "bg-primary text-primary-foreground hover:opacity-90",
                 running && "opacity-60 pointer-events-none"
               )}
@@ -108,9 +108,10 @@ export function SQLPanel() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
+            style={{ fontFamily: '"Cascadia Code", "Consolas", monospace' }}
             className={cn(
               "flex-1 p-3 font-mono text-[12px] resize-none",
-              "bg-[#16161e] text-[#a9b1d6] outline-none",
+              "bg-[#1E1E1E] text-[#d4d4d4] outline-none",
               "placeholder:text-muted-foreground/40"
             )}
             placeholder="SELECT * FROM elements WHERE type = 'Wand' LIMIT 50"

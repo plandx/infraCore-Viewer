@@ -59,13 +59,13 @@ export function SettingsPanel() {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-xl shadow-2xl w-[560px] max-h-[85vh] flex flex-col overflow-hidden">
+      <div className="bg-card border border-border rounded-[6px] shadow-2xl w-[560px] max-h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
           <h2 className="text-sm font-semibold text-foreground">Einstellungen</h2>
           <button
             onClick={() => setSettingsPanelOpen(false)}
-            className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
+            className="text-muted-foreground hover:text-foreground p-1 rounded-[4px] transition-colors"
           >
             <X size={16} />
           </button>
@@ -74,7 +74,7 @@ export function SettingsPanel() {
         <div className="flex-1 overflow-y-auto scrollbar-thin p-5 flex flex-col gap-6">
           {/* Font size */}
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+            <h3 className="text-[13px] font-semibold text-foreground border-b border-border pb-2 mb-3">
               Schriftgröße
             </h3>
             <div className="flex gap-2">
@@ -83,7 +83,7 @@ export function SettingsPanel() {
                   key={sz}
                   onClick={() => updateSettings({ fontSize: sz })}
                   className={cn(
-                    "flex-1 py-2.5 rounded-lg border text-sm font-medium transition-all",
+                    "flex-1 py-2.5 rounded-[4px] border text-sm font-medium transition-all",
                     settings.fontSize === sz
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
@@ -100,7 +100,7 @@ export function SettingsPanel() {
 
           {/* Display settings */}
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+            <h3 className="text-[13px] font-semibold text-foreground border-b border-border pb-2 mb-3">
               Anzeige
             </h3>
             <div className="flex flex-col gap-2">
@@ -137,7 +137,7 @@ export function SettingsPanel() {
           {/* Keyboard shortcuts */}
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 className="text-[13px] font-semibold text-foreground">
                 Tastenkürzel
               </h3>
               <div className="flex items-center gap-2">
@@ -151,9 +151,9 @@ export function SettingsPanel() {
                 <button
                   onClick={saveKeyBindings}
                   className={cn(
-                    "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all",
+                    "flex items-center gap-1 px-2 py-1 rounded-[4px] text-[10px] font-medium transition-all",
                     kbSaved
-                      ? "bg-green-500/20 text-green-400"
+                      ? "border border-green-500/40 text-green-600 dark:text-green-400"
                       : "bg-primary/10 text-primary hover:bg-primary/20"
                   )}
                 >
@@ -173,12 +173,12 @@ export function SettingsPanel() {
                       placeholder="Taste drücken…"
                       onKeyDown={e => captureKey(e, field)}
                       onBlur={() => setEditingKey(null)}
-                      className="w-32 text-center text-xs px-2 py-1 bg-primary/10 border border-primary rounded font-mono focus:outline-none"
+                      className="w-32 text-center text-xs px-2 py-1 bg-primary/10 border border-primary rounded-[4px] font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                   ) : (
                     <button
                       onClick={() => setEditingKey(field)}
-                      className="w-32 text-center text-xs px-2 py-1 bg-muted border border-border rounded font-mono hover:border-primary/50 hover:bg-muted/60 transition-colors"
+                      className="w-32 text-center text-xs px-2 py-1 bg-muted border border-border rounded-[4px] font-mono hover:border-primary/50 hover:bg-muted/60 transition-colors"
                     >
                       {kbDraft[field]}
                     </button>

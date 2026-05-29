@@ -2,63 +2,63 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ── infraCore Design System — Light Mode ──────────────────────────── */
+/* ── infraCore Design System — Light Mode (Windows 11 / Fluent) ──────── */
 :root {
-  /* Brand — iC Red */
-  --ic-red:          #ee4d45;
-  --ic-red-hover:    #e62d26;
-  --ic-red-active:   #cc2820;
-  --ic-red-tint:     rgba(238, 77, 69, 0.10);
+  /* Brand — iC Red (Windows 11 danger red) */
+  --ic-red:          #C42B1C;
+  --ic-red-hover:    #A3231A;
+  --ic-red-active:   #8A1D16;
+  --ic-red-tint:     rgba(196, 43, 28, 0.10);
   --ic-red-on:       #ffffff;
 
   /* Surfaces */
-  --ic-bg:           #eef3f9;
-  --ic-bg-elevated:  #f6f9fc;
-  --ic-surface:      #ffffff;
-  --ic-surface-2:    #f4f7fb;
-  --ic-surface-3:    #e8eef6;
+  --ic-bg:           #F3F3F3;
+  --ic-bg-elevated:  #FAFAFA;
+  --ic-surface:      #FFFFFF;
+  --ic-surface-2:    #F9F9F9;
+  --ic-surface-3:    #F0F0F0;
 
   /* Borders */
-  --ic-border:         #cad6e2;
-  --ic-border-light:   #dbe4ee;
-  --ic-border-subtle:  #e7edf4;
+  --ic-border:         #E0E0E0;
+  --ic-border-light:   #EBEBEB;
+  --ic-border-subtle:  #F0F0F0;
 
-  /* Primary — Infra Blue (interactive) */
-  --ic-primary:        #1f77d8;
-  --ic-primary-hover:  #2d86e8;
-  --ic-primary-active: #1665ba;
-  --ic-primary-light:  rgba(31, 119, 216, 0.12);
+  /* Primary — Windows Blue */
+  --ic-primary:        #0078D4;
+  --ic-primary-hover:  #106EBE;
+  --ic-primary-active: #005A9E;
+  --ic-primary-light:  rgba(0, 120, 212, 0.10);
   --ic-primary-on:     #ffffff;
 
   /* Text */
-  --ic-text:             #14212e;
-  --ic-text-2:           #24384a;
-  --ic-text-muted:       #5e7387;
-  --ic-text-placeholder: #8da0b3;
+  --ic-text:             #1A1A1A;
+  --ic-text-2:           #2D2D2D;
+  --ic-text-muted:       #605E5C;
+  --ic-text-placeholder: #A19F9D;
 
   /* Semantic */
-  --ic-success:      #198754;
-  --ic-success-bg:   rgba(25, 135, 84, 0.10);
-  --ic-warning:      #ea7a1d;
-  --ic-warning-bg:   rgba(234, 122, 29, 0.12);
-  --ic-danger:       #cf3f37;
-  --ic-danger-bg:    rgba(207, 63, 55, 0.11);
+  --ic-success:      #107C10;
+  --ic-success-bg:   rgba(16, 124, 16, 0.10);
+  --ic-warning:      #9D5D00;
+  --ic-warning-bg:   rgba(157, 93, 0, 0.10);
+  --ic-danger:       #C42B1C;
+  --ic-danger-bg:    rgba(196, 43, 28, 0.10);
 
   /* Fonts */
-  --ic-font:      "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-  --ic-font-mono: "IBM Plex Mono", "Consolas", ui-monospace, monospace;
+  --ic-font:      "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --ic-font-mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
 
-  /* Shadows */
-  --ic-shadow-xs: 0 1px 2px rgba(18, 38, 63, 0.08);
-  --ic-shadow-sm: 0 8px 22px rgba(20, 33, 46, 0.10);
-  --ic-shadow-md: 0 14px 32px rgba(20, 33, 46, 0.13);
-  --ic-shadow-lg: 0 18px 40px rgba(20, 33, 46, 0.16);
+  /* Shadows — Windows 11: very subtle */
+  --ic-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --ic-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --ic-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.10);
+  --ic-shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.12);
 
   /* Motion */
   --ic-ease:     cubic-bezier(0.4, 0, 0.2, 1);
   --ic-dur-fast: 80ms;
-  --ic-dur:      180ms;
-  --ic-dur-slow: 300ms;
+  --ic-dur:      150ms;
+  --ic-dur-slow: 250ms;
 
   /* Hierarchy – light */
   --hierarchy-selected-bg:   var(--ic-primary-light);
@@ -74,46 +74,46 @@
   --tab-active-text: var(--ic-text);
 }
 
-/* ── infraCore Design System — Dark Mode ───────────────────────────── */
+/* ── infraCore Design System — Dark Mode (Windows 11) ──────────────────── */
 .dark {
-  --ic-bg:           #0d1117;
-  --ic-bg-elevated:  #111827;
-  --ic-surface:      #161b22;
-  --ic-surface-2:    #1c2330;
-  --ic-surface-3:    #222b39;
+  --ic-bg:           #202020;
+  --ic-bg-elevated:  #272727;
+  --ic-surface:      #2C2C2C;
+  --ic-surface-2:    #333333;
+  --ic-surface-3:    #3A3A3A;
 
-  --ic-border:         #30363d;
-  --ic-border-light:   #2a313a;
-  --ic-border-subtle:  #21262d;
+  --ic-border:         #404040;
+  --ic-border-light:   #383838;
+  --ic-border-subtle:  #303030;
 
-  --ic-primary:        #4da3ff;
-  --ic-primary-hover:  #72b7ff;
-  --ic-primary-active: #2c82dd;
-  --ic-primary-light:  rgba(77, 163, 255, 0.16);
-  --ic-primary-on:     #0d1117;
+  --ic-primary:        #60CDFF;
+  --ic-primary-hover:  #82D8FF;
+  --ic-primary-active: #3DC2F0;
+  --ic-primary-light:  rgba(96, 205, 255, 0.15);
+  --ic-primary-on:     #003D5C;
 
-  --ic-text:             #e6edf3;
-  --ic-text-2:           #c2ccd6;
-  --ic-text-muted:       #8b949e;
-  --ic-text-placeholder: #5e6975;
+  --ic-text:             #F9F9F9;
+  --ic-text-2:           #E0E0E0;
+  --ic-text-muted:       #9D9D9D;
+  --ic-text-placeholder: #6E6E6E;
 
-  --ic-success:      #3fb950;
-  --ic-success-bg:   rgba(63, 185, 80, 0.15);
-  --ic-warning:      #f5a55d;
-  --ic-warning-bg:   rgba(245, 165, 93, 0.16);
-  --ic-danger:       #f85149;
-  --ic-danger-bg:    rgba(248, 81, 73, 0.16);
+  --ic-success:      #6CCB5F;
+  --ic-success-bg:   rgba(108, 203, 95, 0.15);
+  --ic-warning:      #FCE100;
+  --ic-warning-bg:   rgba(252, 225, 0, 0.12);
+  --ic-danger:       #FF6B5F;
+  --ic-danger-bg:    rgba(255, 107, 95, 0.15);
 
-  --ic-red:        #ff6b5f;
-  --ic-red-hover:  #ff8277;
-  --ic-red-active: #e85347;
-  --ic-red-tint:   rgba(255, 107, 95, 0.16);
-  --ic-red-on:     #0d1117;
+  --ic-red:        #FF6B5F;
+  --ic-red-hover:  #FF8277;
+  --ic-red-active: #E85347;
+  --ic-red-tint:   rgba(255, 107, 95, 0.15);
+  --ic-red-on:     #1A0A09;
 
-  --ic-shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.30);
-  --ic-shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.30);
-  --ic-shadow-md: 0 12px 28px rgba(0, 0, 0, 0.40);
-  --ic-shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.48);
+  --ic-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.20);
+  --ic-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.25);
+  --ic-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.30);
+  --ic-shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.36);
 
   /* Hierarchy – dark */
   --hierarchy-selected-bg:   var(--ic-primary-light);
@@ -131,8 +131,8 @@
 
 /* ── Tailwind Theme Mapping ─────────────────────────────────────────── */
 @theme {
-  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", "Consolas", ui-monospace, monospace;
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
 
   --color-background:           var(--ic-bg);
   --color-foreground:           var(--ic-text);
@@ -156,19 +156,19 @@
   --color-brand:                var(--ic-red);
   --color-brand-foreground:     var(--ic-red-on);
 
-  /* Radii — infraCore scale */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 18px;
+  /* Radii — Windows 11 scale */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
 }
 
 /* ── Font size scale ────────────────────────────────────────────────── */
-:root { font-size: 14px; }
-[data-font-size="sm"] { font-size: 12px; }
-[data-font-size="md"] { font-size: 14px; }
-[data-font-size="lg"] { font-size: 16px; }
+:root { font-size: 13px; }
+[data-font-size="sm"] { font-size: 11px; }
+[data-font-size="md"] { font-size: 13px; }
+[data-font-size="lg"] { font-size: 15px; }
 
 /* ── Base ───────────────────────────────────────────────────────────── */
 *, *::before, *::after { border-color: var(--ic-border); box-sizing: border-box; }
@@ -189,15 +189,15 @@ body {
 }
 
 /* ── Scrollbar ──────────────────────────────────────────────────────── */
-.scrollbar-thin { scrollbar-width: thin; scrollbar-color: rgba(94, 115, 135, 0.28) transparent; }
+.scrollbar-thin { scrollbar-width: thin; scrollbar-color: rgba(160, 160, 160, 0.40) transparent; }
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background-color: rgba(94, 115, 135, 0.28); border-radius: 3px; }
-.scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: rgba(94, 115, 135, 0.48); }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: rgba(160, 160, 160, 0.40); border-radius: 3px; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: rgba(160, 160, 160, 0.64); }
 
-.dark .scrollbar-thin { scrollbar-color: rgba(139, 148, 158, 0.35) transparent; }
-.dark .scrollbar-thin::-webkit-scrollbar-thumb { background-color: rgba(139, 148, 158, 0.35); }
-.dark .scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: rgba(139, 148, 158, 0.58); }
+.dark .scrollbar-thin { scrollbar-color: rgba(157, 157, 157, 0.35) transparent; }
+.dark .scrollbar-thin::-webkit-scrollbar-thumb { background-color: rgba(157, 157, 157, 0.35); }
+.dark .scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: rgba(157, 157, 157, 0.58); }
 
 /* ── Hierarchy items ────────────────────────────────────────────────── */
 .hierarchy-item:not(.selected):hover { background-color: var(--hierarchy-hover-bg) !important; }
@@ -206,7 +206,7 @@ body {
 .tree-node {
   display: flex; align-items: center; gap: 0.25rem;
   padding: 0.375rem 0.5rem; cursor: pointer;
-  border-radius: 6px; border-left: 2px solid transparent;
+  border-radius: 4px; border-left: 2px solid transparent;
   transition: background var(--ic-dur-fast) var(--ic-ease), border-color var(--ic-dur-fast) var(--ic-ease);
 }
 .tree-node:hover { background-color: var(--ic-surface-2); }
@@ -215,11 +215,12 @@ body {
 /* ── Toolbar buttons ────────────────────────────────────────────────── */
 .toolbar-button {
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 0.375rem; border-radius: 6px;
+  padding: 0.375rem; border-radius: 4px;
   transition: background var(--ic-dur-fast) var(--ic-ease), color var(--ic-dur-fast) var(--ic-ease);
   cursor: pointer; background: transparent; border: none; color: inherit;
 }
-.toolbar-button:hover { background-color: var(--ic-surface-2); }
+.toolbar-button:hover { background-color: #E5E5E5; }
+.dark .toolbar-button:hover { background-color: #404040; }
 .toolbar-button.active { background-color: var(--ic-primary-light); color: var(--ic-primary); }
 .toolbar-button:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -231,7 +232,8 @@ body {
   cursor: pointer; background: transparent; border: none; color: var(--ic-text-muted);
   font-size: 0.625rem;
 }
-.xs-btn:hover { background-color: var(--ic-surface-2); color: var(--ic-text); }
+.xs-btn:hover { background-color: #E5E5E5; color: var(--ic-text); }
+.dark .xs-btn:hover { background-color: #404040; }
 
 /* ── Panel tabs ─────────────────────────────────────────────────────── */
 .panel-container { container-type: inline-size; }
@@ -240,7 +242,7 @@ body {
   display: flex; align-items: stretch; gap: 0;
   height: 2.75rem; padding: 0; justify-content: stretch;
   background-color: var(--tabs-bg) !important;
-  border-bottom: 2px solid var(--tabs-border);
+  border-bottom: 1px solid var(--tabs-border);
   border-radius: 0 !important;
 }
 
@@ -253,7 +255,7 @@ body {
   background-color: var(--tabs-bg) !important;
   color: var(--tab-text) !important;
   font-family: var(--ic-font);
-  font-weight: 600; font-size: 0.6875rem; line-height: 1; cursor: pointer;
+  font-weight: 400; font-size: 0.6875rem; line-height: 1; cursor: pointer;
   transition: background var(--ic-dur-fast) var(--ic-ease), color var(--ic-dur-fast) var(--ic-ease), border-color var(--ic-dur-fast) var(--ic-ease);
 }
 .properties-tab-trigger:first-child { border-left: 1px solid var(--tabs-border); }
@@ -265,6 +267,7 @@ body {
   background-color: var(--tab-active-bg) !important;
   color: var(--tab-active-text) !important;
   border-top-color: var(--ic-primary) !important;
+  font-weight: 600 !important;
 }
 
 /* ── Resize handle ──────────────────────────────────────────────────── */
@@ -281,14 +284,14 @@ body {
 
 /* ── Drop overlay ───────────────────────────────────────────────────── */
 .drop-overlay {
-  border: 2px dashed var(--ic-success);
-  background-color: var(--ic-success-bg);
-  color: var(--ic-success);
+  border: 2px dashed var(--ic-primary);
+  background-color: rgba(0, 120, 212, 0.04);
+  color: var(--ic-primary);
 }
 
 /* ── Loading skeleton ───────────────────────────────────────────────── */
 @keyframes skeleton-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-.skeleton { background-color: var(--ic-surface-3); border-radius: 6px; animation: skeleton-pulse 2s var(--ic-ease) infinite; }
+.skeleton { background-color: var(--ic-surface-3); border-radius: 4px; animation: skeleton-pulse 2s var(--ic-ease) infinite; }
 
 /* ── Focus ring ─────────────────────────────────────────────────────── */
 :focus-visible {
