@@ -824,7 +824,8 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                   onClick={() => {
                     const doc = useIdsStore.getState().documents.find((d) => d.id === idsActiveDocId);
                     if (!doc) return;
-                    const report = validateIdsDocument(doc, useModelStore.getState().models);
+                    const { models: m, loadedProperties } = useModelStore.getState();
+                    const report = validateIdsDocument(doc, m, loadedProperties);
                     idsSetValidationReport(report);
                     setIdsPanelOpen(true);
                   }}
