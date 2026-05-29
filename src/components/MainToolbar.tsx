@@ -316,7 +316,11 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
             {tabs.map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  if (tab.id === "ids") setIdsPanelOpen(true);
+                  else if (idsPanelOpen) setIdsPanelOpen(false);
+                }}
                 className={cn(
                   "relative flex items-center gap-1.5 px-3.5 text-[12px] font-semibold tracking-wide transition-all border-b-2 whitespace-nowrap",
                   activeTab === tab.id
@@ -830,15 +834,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                     setIdsPanelOpen(true);
                   }}
                   title="IDS gegen geladene IFC-Modelle prüfen"
-                />
-              </RibbonGroup>
-              <RibbonGroup label="Panel">
-                <RibbonLargeBtn
-                  icon={<FileCheck2 size={18} />}
-                  label="IDS-Panel"
-                  active={idsPanelOpen}
-                  onClick={() => setIdsPanelOpen(!idsPanelOpen)}
-                  title="IDS-Panel öffnen/schließen"
                 />
               </RibbonGroup>
             </>
