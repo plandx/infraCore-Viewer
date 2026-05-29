@@ -773,3 +773,64 @@ Tailwind-Utilities wie `bg-background`, `text-primary`, `border-border` etc. sin
 **ValidationResultPanel** — zeigt Bestanden/Fehler je Spezifikation mit aufklappbarer Elementliste (max. 50 Fehlerelemente).
 
 **Wird gerendert von:** `App.tsx` direkt nach `<SettingsPanel />` (fest, kein Conditional außer `idsPanelOpen` im Store).
+
+---
+
+## BCF Manager (`src/bcf/`)
+
+BCF-Modul für BIM Collaboration Format (Versionen 2.0, 2.1, 3.0).
+
+### `BCFPanel.tsx`
+
+Vollbild-Panel im Outlook-Stil: linke Themenliste + rechter Detailbereich.
+
+**Props:** keine — liest Zustand aus `useBcfStore`
+
+**Layout:**
+- **Toolbar (oben):** Neu, Öffnen (Import), Versions-Selector, Export-Button
+- **Filterleiste:** Status-Filter + Typ-Filter + Themenanzahl
+- **Linke Spalte (288 px):** Scrollbare Themenliste mit Status-Badges, Typ-Icons, Priorität und letztem Änderungsdatum
+- **Rechter Detailbereich:** Titelfeld, Status/Typ/Priorität-Selektoren, Beschreibung, verknüpfte IFC-Elemente, Kommentar-Thread, Kommentareingabe
+
+**Status-Farben:** Open=blau, In Progress=orange, Resolved=grün, Closed=grau, ReOpened=rot
+
+**Typ-Icons (lucide-react):** Issue/Error → AlertTriangle, Clash → Zap, IDS/Request/Remark → Shield/MessageSquare
+
+### `bcfTypes.ts`
+
+```typescript
+BcfVersion = "2.0" | "2.1" | "3.0"
+BcfTopicStatus = "Open" | "In Progress" | "Resolved" | "Closed" | "ReOpened"
+BcfTopicType = "Issue" | "Request" | "Clash" | "IDS" | "Remark" | "Error"
+BcfPriority = "Critical" | "Major" | "Normal" | "Minor"
+```
+
+### `bcfStore.ts`
+
+Zustand-Store. Felder: `document: BcfDocument`, `activeTopicId`, `bcfPanelOpen`.
+
+| Aktion | Beschreibung |
+|---|---|
+| `addTopic(partial)` | Thema erstellen, gibt ID zurück |
+| `updateTopic(id, partial)` | Thema aktualisieren |
+| `deleteTopic(id)` | Thema löschen |
+| `addComment(topicId, text, author)` | Kommentar hinzufügen |
+| `updateComment / deleteComment` | Kommentar bearbeiten/löschen |
+| `createFromIdsFailure(specResult, elements)` | IDS-Fehler → BCF-Thema |
+| `createFromClashResult(results)` | Kollisionsergebnis → BCF-Thema(en) |
+| `setBcfPanelOpen(open)` | Panel öffnen/schließen |
+
+### `bcfWriter.ts`
+
+`exportBcf(doc, version): Promise<Uint8Array>` — erstellt BCF-ZIP via fflate. Enthält `bcf.version`, `project.bcfp`, `{guid}/markup.bcf` pro Thema.
+
+### `bcfParser.ts`
+
+`importBcf(file: File): Promise<BcfDocument>` — liest BCF-ZIP via fflate, parst `markup.bcf` XML per DOMParser.
+
+### Integration
+
+- **IDSPanel.tsx**: "BCF"-Button bei fehlgeschlagenen Spezifikationen → `createFromIdsFailure()`
+- **CollisionWindow.tsx**: "Als BCF"-Button bei Kollisionsergebnissen → `createFromClashResult([r])`
+- **MainToolbar.tsx**: Neuer "BCF"-Ribbon-Tab mit Themenanzahl-Badge
+- **App.tsx**: `bcfPanelOpen` → BCFPanel als Vollbild-Panel (exklusiv mit IDSPanel)
