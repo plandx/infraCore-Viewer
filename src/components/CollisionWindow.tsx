@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { COLLISION_CHANNEL, DEFAULT_CLASH_RULES } from "../utils/windowSync";
+import { useBcfStore } from "../bcf/bcfStore";
 import { IFC_TO_LABEL } from "../utils/ifcLoader";
 import type {
   CollisionMsg, CollisionSyncState, ClashRule, ClashResult, ClashStatus,
@@ -523,6 +524,13 @@ export function CollisionWindow() {
                                       </button>
                                     ))}
                                   </div>
+                                  <button
+                                    onClick={() => useBcfStore.getState().createFromClashResult([r])}
+                                    className="text-[9px] px-2 py-0.5 rounded border border-amber-400/40 text-amber-400 hover:bg-amber-400/10 transition-colors"
+                                    title="Als BCF-Thema exportieren"
+                                  >
+                                    Als BCF
+                                  </button>
                                 </div>
                               </div>
                             )}

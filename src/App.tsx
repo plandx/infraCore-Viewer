@@ -27,6 +27,8 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { CollisionWindow } from "./components/CollisionWindow";
 import { IDSPanel } from "./ids/IDSPanel";
 import { IdsResultsWindow } from "./ids/IdsResultsWindow";
+import { BCFPanel } from "./bcf/BCFPanel";
+import { useBcfStore } from "./bcf/bcfStore";
 
 import { ProfileViewer } from "./alignment/ProfileViewer";
 import { CrossSectionWindow } from "./alignment/CrossSectionWindow";
@@ -572,6 +574,7 @@ function MainApp() {
   const toggleAlignmentPanel = useAlignmentStore(s => s.togglePanel);
 
   const idsPanelOpen = useIdsStore(s => s.idsPanelOpen);
+  const bcfPanelOpen = useBcfStore(s => s.bcfPanelOpen);
 
   const leftPanelRef  = useRef<PanelImperativeHandle | null>(null);
   const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
@@ -894,12 +897,14 @@ function MainApp() {
         </div>
       )}
 
-      {/* Main content area — IDS panel or 3-column viewer layout */}
+      {/* Main content area — IDS/BCF panel or 3-column viewer layout */}
       <div className="flex-1 min-h-0">
         {idsPanelOpen ? (
           <IDSPanel />
+        ) : bcfPanelOpen ? (
+          <BCFPanel />
         ) : null}
-        <div className={idsPanelOpen ? "hidden" : "h-full"}>
+        <div className={(idsPanelOpen || bcfPanelOpen) ? "hidden" : "h-full"}>
         <PanelGroup orientation="horizontal" className="h-full">
 
           <Panel

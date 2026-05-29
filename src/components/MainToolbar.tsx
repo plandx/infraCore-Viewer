@@ -7,10 +7,14 @@ import {
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
   Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
   Settings, AlertTriangle, PanelLeftClose, PanelLeftOpen, Grid3x3, BoxSelect, Terminal,
-  FileCheck2, FilePlus, Play, Upload, Shield,
+  FileCheck2, FilePlus, Play, Upload, Shield, MessageSquare,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, openCollisionWindow, openIdsResultsWindow, PANEL_META } from "../utils/windowSync";
 import { useIdsStore } from "../ids/idsStore";
+import { useBcfStore } from "../bcf/bcfStore";
+import { importBcf } from "../bcf/bcfParser";
+import { exportBcf } from "../bcf/bcfWriter";
+import type { BcfVersion } from "../bcf/bcfTypes";
 import { parseIdsXml } from "../ids/idsParser";
 import { serializeIdsToXml } from "../ids/idsWriter";
 import { validateIdsDocument } from "../ids/idsValidator";
@@ -35,7 +39,7 @@ interface Props {
   rightPanelVisible: boolean;
 }
 
-export type RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras" | "ids";
+export type RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras" | "ids" | "bcf";
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -121,6 +125,14 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     addSpecification: idsAddSpecification,
     setValidationReport: idsSetValidationReport,
   } = useIdsStore();
+  const bcfTopicCount = useBcfStore((s) => s.document.topics.length);
+  const bcfPanelOpen = useBcfStore((s) => s.bcfPanelOpen);
+  const setBcfPanelOpen = useBcfStore((s) => s.setBcfPanelOpen);
+  const bcfDocument = useBcfStore((s) => s.document);
+  const bcfAddTopic = useBcfStore((s) => s.addTopic);
+  const [bcfExportVersion, setBcfExportVersion] = useState<BcfVersion>("2.1");
+  const bcfFileInputRef = useRef<HTMLInputElement>(null);
+
   const [ifcExporting, setIfcExporting]     = useState(false);
   const [viewOpen, setViewOpen]             = useState(false);
   const [infoOpen, setInfoOpen]             = useState(false);
@@ -282,6 +294,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     { id: "billing5d", label: "5D",      badge: billing5DCount > 0 ? billing5DCount : undefined },
     { id: "extras",    label: "Extras" },
     { id: "ids",       label: "IDS" },
+    { id: "bcf",       label: "BCF", badge: bcfTopicCount > 0 ? bcfTopicCount : undefined },
   ];
 
   return (
@@ -318,8 +331,9 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                 key={tab.id}
                 onClick={() => {
                   setActiveTab(tab.id);
-                  if (tab.id === "ids") setIdsPanelOpen(true);
-                  else if (idsPanelOpen) setIdsPanelOpen(false);
+                  if (tab.id === "ids") { setIdsPanelOpen(true); setBcfPanelOpen(false); }
+                  else if (tab.id === "bcf") { setBcfPanelOpen(true); setIdsPanelOpen(false); }
+                  else { if (idsPanelOpen) setIdsPanelOpen(false); if (bcfPanelOpen) setBcfPanelOpen(false); }
                 }}
                 className={cn(
                   "relative flex items-center gap-1.5 px-3.5 text-[12px] font-semibold tracking-wide transition-all border-b-2 whitespace-nowrap",
@@ -841,6 +855,73 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                   onClick={openIdsResultsWindow}
                   title="Prüfergebnisse in eigenem Fenster öffnen"
                 />
+              </RibbonGroup>
+            </>
+          )}
+
+          {activeTab === "bcf" && (
+            <>
+              <input
+                ref={bcfFileInputRef}
+                type="file"
+                accept=".bcf,.bcfzip"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const imported = await importBcf(file);
+                    useBcfStore.setState({ document: imported, activeTopicId: imported.topics[0]?.id ?? null });
+                    setBcfPanelOpen(true);
+                  } catch (err) {
+                    alert(`BCF Import Fehler: ${err}`);
+                  }
+                  e.target.value = "";
+                }}
+              />
+              <RibbonGroup label="Themen">
+                <RibbonLargeBtn
+                  icon={<MessageSquare size={18} />}
+                  label="Neu"
+                  onClick={() => { bcfAddTopic({ title: "Neues Thema" }); setBcfPanelOpen(true); }}
+                  title="Neues BCF-Thema erstellen"
+                />
+                <div className="flex flex-col gap-0.5 justify-center">
+                  <RibbonSmBtn
+                    icon={<Upload size={14} />}
+                    label="Öffnen"
+                    onClick={() => bcfFileInputRef.current?.click()}
+                    title="BCF-Datei importieren"
+                  />
+                  <RibbonSmBtn
+                    icon={<FileDown size={14} />}
+                    label="Export"
+                    disabled={bcfTopicCount === 0}
+                    onClick={async () => {
+                      const zip = await exportBcf(bcfDocument, bcfExportVersion);
+                      const blob = new Blob([zip], { type: "application/zip" });
+                      const a = document.createElement("a");
+                      a.href = URL.createObjectURL(blob);
+                      a.download = `${bcfDocument.projectName.replace(/\s+/g, "_")}_BCF${bcfExportVersion}.bcf`;
+                      a.click();
+                      URL.revokeObjectURL(a.href);
+                    }}
+                    title="BCF exportieren"
+                  />
+                </div>
+              </RibbonGroup>
+              <RibbonGroup label="Version">
+                <div className="flex items-center px-1">
+                  <select
+                    value={bcfExportVersion}
+                    onChange={(e) => setBcfExportVersion(e.target.value as BcfVersion)}
+                    className="text-[11px] bg-background border border-border rounded px-1 py-0.5"
+                  >
+                    <option value="2.1">BCF 2.1</option>
+                    <option value="2.0">BCF 2.0</option>
+                    <option value="3.0">BCF 3.0</option>
+                  </select>
+                </div>
               </RibbonGroup>
             </>
           )}

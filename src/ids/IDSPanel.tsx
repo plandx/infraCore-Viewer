@@ -12,6 +12,7 @@ import { parseIdsXml } from "./idsParser";
 import { serializeIdsToXml } from "./idsWriter";
 import { validateIdsDocument } from "./idsValidator";
 import { openIdsResultsWindow } from "../utils/windowSync";
+import { useBcfStore } from "../bcf/bcfStore";
 import type {
   IdsFacet, IdsValue, IdsCardinality, IfcVersion,
   IdsEntityFacet, IdsAttributeFacet, IdsPropertyFacet,
@@ -711,6 +712,19 @@ function ValidationResultPanel({ results }: { results: IdsSpecResult[] }) {
                 <span className="text-[10px] text-muted-foreground shrink-0">
                   {r.applicableCount > 0 ? `${r.passCount}/${r.applicableCount}` : "—"}
                 </span>
+                {r.status === "failed" && (
+                  <button
+                    className="text-[9px] px-1.5 py-0.5 rounded border border-amber-400/40 text-amber-400 hover:bg-amber-400/10 transition-colors shrink-0"
+                    title="Als BCF-Thema erstellen"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const failedEls = r.elements.filter(el => el.status === "failed");
+                      useBcfStore.getState().createFromIdsFailure(r, failedEls);
+                    }}
+                  >
+                    BCF
+                  </button>
+                )}
                 {isExpanded ? <ChevronDown size={11} className="text-muted-foreground shrink-0" /> : <ChevronRight size={11} className="text-muted-foreground shrink-0" />}
               </button>
 
