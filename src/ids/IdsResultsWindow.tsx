@@ -308,13 +308,13 @@ export function IdsResultsWindow() {
                 <div
                   key={group.key}
                   className={cn(
-                    "border rounded-lg overflow-hidden",
+                    "border rounded-lg overflow-hidden bg-card",
                     hasFail ? "border-red-500/25" : "border-green-500/25",
                   )}
                 >
                   <button
                     className={cn(
-                      "w-full flex items-center gap-2 px-3 py-2 text-left transition-colors",
+                      "w-full flex items-center gap-2 px-3 py-2 text-left text-foreground transition-colors",
                       hasFail ? "hover:bg-red-500/5" : "hover:bg-green-500/5",
                     )}
                     onClick={() => toggleExpand(group.key)}
@@ -322,7 +322,7 @@ export function IdsResultsWindow() {
                     {isExpanded
                       ? <ChevronDown size={12} className="text-muted-foreground shrink-0" />
                       : <ChevronRight size={12} className="text-muted-foreground shrink-0" />}
-                    <span className="flex-1 text-xs font-medium min-w-0 break-words">{group.label}</span>
+                    <span className="flex-1 text-xs font-medium truncate">{group.label}</span>
                     <div className="flex items-center gap-1.5 shrink-0 ml-2">
                       {group.passCount > 0 && (
                         <span className="flex items-center gap-0.5 text-[10px] text-green-500">
@@ -338,7 +338,7 @@ export function IdsResultsWindow() {
                   </button>
 
                   {isExpanded && group.entries.length > 0 && (
-                    <div className="border-t border-border/40 divide-y divide-border/15 bg-background/60">
+                    <div className="border-t border-border/40 divide-y divide-border/15 bg-background">
                       {group.entries.slice(0, VISIBLE_LIMIT).map((entry, i) => (
                         <EntryRow
                           key={`${entry.modelId}:${entry.expressId}:${i}`}
@@ -375,7 +375,7 @@ interface EntryRowProps {
 function EntryRow({ entry, showSpec, onSelect, onIsolate }: EntryRowProps) {
   return (
     <div
-      className="px-3 py-1.5 hover:bg-muted/15 transition-colors cursor-pointer group"
+      className="px-3 py-1.5 hover:bg-muted/20 transition-colors cursor-pointer group text-foreground"
       onClick={onSelect}
     >
       <div className="flex items-center gap-1.5 min-w-0">

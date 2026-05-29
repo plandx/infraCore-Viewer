@@ -104,10 +104,16 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
         const store = useModelStore.getState();
         const a = msg.a;
         switch (a.k) {
-          case "select":     await handleElementClick(a.modelId, a.expressId); break;
+          case "select":
+            await handleElementClick(a.modelId, a.expressId);
+            window.dispatchEvent(new CustomEvent("viewer:zoomToElement", { detail: { modelId: a.modelId, expressIds: [a.expressId] } }));
+            break;
           case "hide":       store.hideElement(a.modelId, a.expressId); break;
           case "showAll":    store.showAll(); break;
-          case "isolate":    store.isolateElement(a.modelId, a.expressId); break;
+          case "isolate":
+            store.isolateElement(a.modelId, a.expressId);
+            window.dispatchEvent(new CustomEvent("viewer:zoomToElement", { detail: { modelId: a.modelId, expressIds: [a.expressId] } }));
+            break;
           case "colorGroups":       store.setColorGroups(a.groups); break;
           case "applySmartView":    store.applySmartView(a.id); break;
           case "deactivateSmartView": store.deactivateSmartView(); break;
