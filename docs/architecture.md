@@ -299,3 +299,31 @@ CollisionWindow zeigt Ergebnistabelle
 ## WASM-Concurrency-Hinweis
 
 web-ifc WASM ist **nicht thread-safe** für parallele async-Aufrufe. Niemals `Promise.all` für mehrere `getPropertySets`- oder `getItemProperties`-Aufrufe auf demselben `modelId` verwenden — das korrumpiert den internen WASM-Zustand. Immer sequentielle `await`-Ketten nutzen.
+
+---
+
+## IDS-Modul (`src/ids/`)
+
+Implementierung des buildingSMART **Information Delivery Specification (IDS)** Standards.
+
+### Dateien
+
+| Datei | Beschreibung |
+|---|---|
+| `idsTypes.ts` | TypeScript-Typen für IdsDocument, IdsSpecification, IdsFacet, IdsValidationReport, … |
+| `idsParser.ts` | DOMParser-basierter XML-Parser für `.ids`-Dateien (Namespace-tolerant) |
+| `idsWriter.ts` | Serialisiert IdsDocument zurück in standard-konformes IDS-XML |
+| `idsValidator.ts` | Prüft geladene IFCModelEntry-Maps gegen IdsDocument-Spezifikationen |
+| `idsStore.ts` | Separater Zustand-5-Store für IDS-Dokumente, aktive Auswahl, Prüfergebnis |
+| `IDSPanel.tsx` | React-Vollbild-Overlay-Komponente mit Editorfeldern und Prüfergebnis-Anzeige |
+
+### Datenfluss
+
+1. Benutzer öffnet `.ids` via **IDS-Tab** in der Toolbar → `parseIdsXml()` → `idsStore.loadDocument()`
+2. Benutzer bearbeitet Spezifikationen in `IDSPanel` → Store-Aktionen aktualisieren IdsDocument
+3. "Prüfung ausführen" → `validateIdsDocument(doc, models)` → `idsStore.setValidationReport(report)`
+4. "Speichern" → `serializeIdsToXml(doc)` → Browser-Download als `.ids`
+
+### XML-Format
+
+Standard: `http://standards.buildingsmart.org/IDS` (IDS 1.0). Namespace-freie Varianten werden ebenfalls unterstützt (querySelector fällt auf tagName-Suche zurück).

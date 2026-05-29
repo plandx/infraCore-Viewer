@@ -7,8 +7,13 @@ import {
   X, List, Glasses, AppWindow, Table2, ExternalLink, Loader2, BarChart2, Sliders,
   Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
   Settings, AlertTriangle, PanelLeftClose, PanelLeftOpen, Grid3x3, BoxSelect, Terminal,
+  FileCheck2, FilePlus, Play, Upload, Shield,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, openCollisionWindow, PANEL_META } from "../utils/windowSync";
+import { useIdsStore } from "../ids/idsStore";
+import { parseIdsXml } from "../ids/idsParser";
+import { serializeIdsToXml } from "../ids/idsWriter";
+import { validateIdsDocument } from "../ids/idsValidator";
 import { HelpPanel } from "./HelpPanel";
 import type { PanelType } from "../utils/windowSync";
 import { writeIFCWithOverrides, downloadFile } from "../utils/ifcWriter";
@@ -30,7 +35,7 @@ interface Props {
   rightPanelVisible: boolean;
 }
 
-export type RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras";
+export type RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras" | "ids";
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -105,6 +110,17 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
   const [activeTab, setActiveTab] = useState<RibbonTab>("start");
   const [exportOpen, setExportOpen]         = useState(false);
+  const idsFileInputRef = useRef<HTMLInputElement>(null);
+  const {
+    documents: idsDocs,
+    activeDocumentId: idsActiveDocId,
+    idsPanelOpen,
+    createDocument: idsCreateDocument,
+    loadDocument: idsLoadDocument,
+    setIdsPanelOpen,
+    addSpecification: idsAddSpecification,
+    setValidationReport: idsSetValidationReport,
+  } = useIdsStore();
   const [ifcExporting, setIfcExporting]     = useState(false);
   const [viewOpen, setViewOpen]             = useState(false);
   const [infoOpen, setInfoOpen]             = useState(false);
@@ -265,6 +281,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     { id: "achsen",    label: "Achsen",  badge: alignmentFileCount > 0 ? alignmentFileCount : undefined },
     { id: "billing5d", label: "5D",      badge: billing5DCount > 0 ? billing5DCount : undefined },
     { id: "extras",    label: "Extras" },
+    { id: "ids",       label: "IDS" },
   ];
 
   return (
@@ -732,6 +749,98 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                 onClick={() => openCollisionWindow()} disabled={models.size === 0}
                 title="Kollisionsprüfung (Solibri-Style)" />
             </RibbonGroup>
+          )}
+
+          {activeTab === "ids" && (
+            <>
+              <input
+                ref={idsFileInputRef}
+                type="file"
+                accept=".ids,.xml"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const text = await file.text();
+                  try {
+                    const doc = parseIdsXml(text);
+                    idsLoadDocument(doc, file.name);
+                    setIdsPanelOpen(true);
+                  } catch (err) {
+                    alert(`Fehler beim Laden: ${err}`);
+                  }
+                  e.target.value = "";
+                }}
+              />
+              <RibbonGroup label="Dokument">
+                <RibbonLargeBtn
+                  icon={<FilePlus size={18} />}
+                  label="Neu"
+                  onClick={() => { idsCreateDocument(); setIdsPanelOpen(true); }}
+                  title="Neues IDS-Dokument erstellen"
+                />
+                <div className="flex flex-col gap-0.5 justify-center">
+                  <RibbonSmBtn
+                    icon={<Upload size={14} />}
+                    label="Öffnen"
+                    onClick={() => idsFileInputRef.current?.click()}
+                    title=".ids Datei laden"
+                  />
+                  <RibbonSmBtn
+                    icon={<Download size={14} />}
+                    label="Speichern"
+                    disabled={!idsActiveDocId}
+                    onClick={() => {
+                      const doc = useIdsStore.getState().documents.find((d) => d.id === idsActiveDocId);
+                      if (!doc) return;
+                      const xml = serializeIdsToXml(doc);
+                      const blob = new Blob([xml], { type: "application/xml" });
+                      const a = document.createElement("a");
+                      a.href = URL.createObjectURL(blob);
+                      a.download = doc.fileName ?? `${doc.info.title}.ids`;
+                      a.click();
+                      URL.revokeObjectURL(a.href);
+                    }}
+                    title="Aktives IDS-Dokument als .ids exportieren"
+                  />
+                </div>
+              </RibbonGroup>
+              <RibbonGroup label="Spezifikationen">
+                <RibbonLargeBtn
+                  icon={<Shield size={18} />}
+                  label="Hinzufügen"
+                  disabled={!idsActiveDocId}
+                  onClick={() => {
+                    if (idsActiveDocId) { idsAddSpecification(idsActiveDocId); setIdsPanelOpen(true); }
+                  }}
+                  title="Neue Spezifikation zum aktiven Dokument hinzufügen"
+                />
+              </RibbonGroup>
+              <RibbonGroup label="Prüfung">
+                <RibbonLargeBtn
+                  icon={<Play size={18} />}
+                  label="Prüfen"
+                  disabled={!idsActiveDocId || models.size === 0}
+                  onClick={() => {
+                    const doc = useIdsStore.getState().documents.find((d) => d.id === idsActiveDocId);
+                    if (!doc) return;
+                    const report = validateIdsDocument(doc, useModelStore.getState().models);
+                    idsSetValidationReport(report);
+                    setIdsPanelOpen(true);
+                  }}
+                  title="IDS gegen geladene IFC-Modelle prüfen"
+                />
+              </RibbonGroup>
+              <RibbonGroup label="Panel">
+                <RibbonLargeBtn
+                  icon={<FileCheck2 size={18} />}
+                  label="IDS-Panel"
+                  active={idsPanelOpen}
+                  onClick={() => setIdsPanelOpen(!idsPanelOpen)}
+                  title="IDS-Panel öffnen/schließen"
+                />
+              </RibbonGroup>
+            </>
           )}
 
         </div>

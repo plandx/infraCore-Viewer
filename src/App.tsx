@@ -25,6 +25,7 @@ import { Billing5DOverlay } from "./billing/Billing5DOverlay";
 import { BatchPanel } from "./batch/BatchPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { CollisionWindow } from "./components/CollisionWindow";
+import { IDSPanel } from "./ids/IDSPanel";
 
 import { ProfileViewer } from "./alignment/ProfileViewer";
 import { CrossSectionWindow } from "./alignment/CrossSectionWindow";
@@ -1037,6 +1038,7 @@ function MainApp() {
       )}
 
       {settingsPanelOpen && <SettingsPanel />}
+      <IDSPanel />
     </div>
   );
 }

@@ -726,3 +726,31 @@ Tailwind-Utilities wie `bg-background`, `text-primary`, `border-border` etc. sin
 ### Farben für Quellen-Badges (`BillingPanel.tsx`)
 
 `SOURCE_COLOR` Map weist jeder `QuantitySource` eine Tailwind-Klasse zu (bleibt als Tailwind-Klasse, kein CSS-Variable-Override nötig).
+
+---
+
+## IDS-Modul (`src/ids/`)
+
+### `IDSPanel` (`src/ids/IDSPanel.tsx`)
+
+**Vollbild-Overlay** für IDS-Dokumenterstellung, -bearbeitung und Validierung.
+
+| Prop | Typ | Beschreibung |
+|---|---|---|
+| — | — | Keine Props, liest Zustand aus `useIdsStore` |
+
+**Layout:**
+- **Linke Sidebar (256 px):** Dokumentliste + Spezifikationsliste, Neu/Laden/Speichern/Prüfen-Buttons
+- **Mittlerer Bereich:** Dokument-Info-Editor oder Spezifikations-Editor (Anwendbarkeit + Anforderungen als Facetten-Karten)
+- **Rechte Sidebar (320 px):** Prüfergebnis mit CSV-Export
+
+**Facetten-Karten** sind einklappbar. Jeder Facetten-Typ hat ein spezifisches Formular:
+- `EntityFacetEditor` — IFC-Typ (Datalist mit Vorschlägen) + optionaler vordefinierter Typ
+- `AttributeFacetEditor` — Attributname + optionaler Wert + Kardinalität
+- `PropertyFacetEditor` — PropertySet + Property-Name + optionaler Wert + Datentyp + Kardinalität
+- `ClassificationFacetEditor` — System + Wert + Kardinalität
+- `MaterialFacetEditor` — Materialwert + Kardinalität
+
+**ValidationResultPanel** — zeigt Bestanden/Fehler je Spezifikation mit aufklappbarer Elementliste (max. 50 Fehlerelemente).
+
+**Wird gerendert von:** `App.tsx` direkt nach `<SettingsPanel />` (fest, kein Conditional außer `idsPanelOpen` im Store).

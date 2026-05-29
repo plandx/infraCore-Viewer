@@ -589,3 +589,49 @@ Diese Zustände sind **React-State** in `ViewportContainer`, nicht im Zustand-St
 - `openFaceCrossSection(origin, normal)` — öffnet QS an Fläche
 - `closeFaceCrossSection()` — schließt QS, resettet alle Felder
 - `setFaceCrossSectionOffset(offset)` — verschiebt Schnittebene, triggert Neuberechnung
+
+---
+
+## IDS-Store (`src/ids/idsStore.ts`)
+
+**Bibliothek:** Zustand 5 — separater Store, nicht im modelStore.
+
+### Felder
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| `documents` | `IdsDocument[]` | Alle geladenen/erstellten IDS-Dokumente |
+| `activeDocumentId` | `string \| null` | Aktiv ausgewähltes Dokument |
+| `activeSpecificationId` | `string \| null` | Aktiv ausgewählte Spezifikation |
+| `validationReport` | `IdsValidationReport \| null` | Letztes Prüfergebnis |
+| `idsPanelOpen` | `boolean` | IDS-Panel sichtbar |
+
+### Dokument-Aktionen
+
+| Aktion | Beschreibung |
+|---|---|
+| `createDocument(title?)` | Erstellt neues Dokument, setzt es aktiv, gibt es zurück |
+| `loadDocument(doc, fileName?)` | Lädt geparsten Dokument in Store, setzt aktiv |
+| `removeDocument(id)` | Entfernt Dokument, aktualisiert activeDocumentId |
+| `setActiveDocument(id)` | Setzt aktives Dokument + resettet activeSpecificationId |
+| `updateDocumentInfo(id, info)` | Partial-Update von IdsInfo |
+
+### Spezifikations-Aktionen
+
+| Aktion | Beschreibung |
+|---|---|
+| `addSpecification(docId, spec?)` | Fügt neue Spezifikation hinzu, setzt sie aktiv |
+| `removeSpecification(docId, specId)` | Entfernt Spezifikation |
+| `updateSpecification(docId, specId, update)` | Partial-Update einer Spezifikation |
+| `setActiveSpecification(id)` | Setzt aktive Spezifikation |
+
+### Facetten-Aktionen
+
+Jede Seite (Applicability/Requirements) hat `add`, `remove`, `update` nach Index.
+
+### Weitere Aktionen
+
+| Aktion | Beschreibung |
+|---|---|
+| `setValidationReport(report)` | Setzt Prüfergebnis |
+| `setIdsPanelOpen(open)` | Steuert Panel-Sichtbarkeit |
