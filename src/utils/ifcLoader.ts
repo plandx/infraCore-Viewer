@@ -275,24 +275,83 @@ export async function loadIFCProperties(
   const props: Record<string, unknown> = {};
   const psets: PropertySet[] = [];
 
+  // Direct attributes — keep wrapped {value, type} objects so the UI's
+  // isIfcRef() filter can correctly hide reference handles (type=5).
   const itemProps = await api.properties.getItemProperties(modelId, expressId, false);
   if (itemProps) {
     for (const [k, v] of Object.entries(itemProps as Record<string, unknown>)) {
       if (k === "expressID") continue;
-      const scalar = (v as { value?: unknown } | null)?.value;
-      props[k] = scalar !== undefined ? scalar : v;
+      props[k] = v;
     }
   }
 
-  const instancePsets = await api.properties.getPropertySets(modelId, expressId, true, false);
-  const typePsets = await api.properties.getPropertySets(modelId, expressId, true, true).catch(() => []);
-  const rawPsets = [...instancePsets, ...typePsets];
+  // Manual pset traversal — bypasses getPropertySets() which can throw when
+  // HasPropertySets=null on a type object (IfcBuildingElementProxy, etc.).
+  //
+  // 1. Instance psets via IfcRelDefinesByProperties
+  try {
+    const elemLine = api.GetLine(modelId, expressId, false, true) as RawLine | null;
+    const isDefinedBy = elemLine?.IsDefinedBy;
+    const relRefs: { value?: number }[] = Array.isArray(isDefinedBy)
+      ? isDefinedBy as { value?: number }[]
+      : isDefinedBy != null ? [isDefinedBy as { value?: number }] : [];
 
-  for (const pset of rawPsets) {
-    if (!pset) continue;
-    const parsed = parsePsetLine(pset as RawLine);
-    if (parsed.properties.length > 0) psets.push(parsed);
-  }
+    for (const ref of relRefs) {
+      const relId = ref?.value;
+      if (!relId) continue;
+      try {
+        const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+        const relPropDef = rel?.RelatingPropertyDefinition;
+        const psetRefs: { value?: number }[] = Array.isArray(relPropDef)
+          ? relPropDef as { value?: number }[]
+          : relPropDef != null ? [relPropDef as { value?: number }] : [];
+        for (const pref of psetRefs) {
+          const psetId = pref?.value;
+          if (!psetId) continue;
+          try {
+            const pset = api.GetLine(modelId, psetId, true) as RawLine | null;
+            if (!pset) continue;
+            const parsed = parsePsetLine(pset);
+            if (parsed.properties.length > 0) psets.push(parsed);
+          } catch { /* skip malformed pset */ }
+        }
+      } catch { /* skip malformed rel */ }
+    }
+  } catch { /* element may have no inverse rels */ }
+
+  // 2. Type psets via IfcRelDefinesByType → TypeObject.HasPropertySets
+  try {
+    const schema = (api as unknown as { GetModelSchema(m: number): string }).GetModelSchema(modelId);
+    const typeRelKey = schema === "IFC2X3" ? "IsDefinedBy" : "IsTypedBy";
+    const elemLine2 = api.GetLine(modelId, expressId, false, true) as RawLine | null;
+    const typeRels = elemLine2?.[typeRelKey];
+    const typeRelRefs: { value?: number }[] = Array.isArray(typeRels)
+      ? typeRels as { value?: number }[]
+      : typeRels != null ? [typeRels as { value?: number }] : [];
+
+    for (const ref of typeRelRefs) {
+      const relId = ref?.value;
+      if (!relId) continue;
+      try {
+        const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+        const typeId = (rel?.RelatingType as { value?: number } | null)?.value;
+        if (!typeId) continue;
+        const typeObj = api.GetLine(modelId, typeId, false) as RawLine | null;
+        const hasPsets = typeObj?.HasPropertySets;
+        if (!Array.isArray(hasPsets)) continue;
+        for (const pref of hasPsets as { value?: number }[]) {
+          const psetId = pref?.value;
+          if (!psetId) continue;
+          try {
+            const pset = api.GetLine(modelId, psetId, true) as RawLine | null;
+            if (!pset) continue;
+            const parsed = parsePsetLine(pset);
+            if (parsed.properties.length > 0) psets.push(parsed);
+          } catch { /* skip malformed pset */ }
+        }
+      } catch { /* skip malformed type rel */ }
+    }
+  } catch { /* no type rels */ }
 
   return { properties: props, psets };
 }
