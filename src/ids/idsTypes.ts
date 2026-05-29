@@ -118,6 +118,7 @@ export interface IdsSpecResult {
   passCount: number;
   failCount: number;
   elements: IdsElementResult[];
+  note?: string;
 }
 
 export interface IdsValidationReport {
