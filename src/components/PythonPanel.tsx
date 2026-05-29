@@ -248,10 +248,10 @@ export function PythonPanel() {
   const viewerNames = new Set([...models.values()].map((m) => m.name));
 
   return (
-    <div className="flex flex-col h-full bg-card border-t border-border">
+    <div className="flex flex-col h-full bg-background border-t border-border" style={{ fontFamily: '"Segoe UI Variable","Segoe UI",system-ui,sans-serif' }}>
       {/* Header toolbar */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/30 shrink-0 select-none">
-        <span className="text-[10px] font-mono font-semibold text-primary shrink-0">🐍 Python</span>
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/10 shrink-0 select-none">
+        <span className="text-[12px] font-semibold text-foreground shrink-0">Python</span>
 
         <div className="flex items-center gap-1 text-[10px]">
           <Circle size={7} className={cn("fill-current", statusColor[serverStatus])} />
@@ -264,7 +264,7 @@ export function PythonPanel() {
           title="Sichtbare Modelle an Server übertragen"
           disabled={syncing || serverStatus !== "online"}
           onClick={syncModels}
-          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-muted hover:bg-muted/80 text-foreground disabled:opacity-40 transition-colors"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-[10px] border border-border bg-background hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-foreground disabled:opacity-40 transition-colors"
         >
           {syncing ? <RefreshCw size={10} className="animate-spin" /> : <Upload size={10} />}
           <span>Sync ↑</span>
@@ -275,10 +275,10 @@ export function PythonPanel() {
           disabled={running || serverStatus !== "online"}
           onClick={execute}
           className={cn(
-            "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors shrink-0",
+            "flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-[10px] font-medium transition-colors shrink-0",
             serverStatus === "online"
-              ? "bg-primary text-primary-foreground hover:opacity-90"
-              : "bg-muted text-muted-foreground",
+              ? "bg-primary text-white hover:bg-primary/90"
+              : "bg-muted text-muted-foreground border border-border",
           )}
         >
           <Play size={10} />
@@ -286,19 +286,19 @@ export function PythonPanel() {
         </button>
 
         <button title="Ausgabe löschen" onClick={() => setOutput([])}
-          className="p-1 rounded hover:bg-muted/60 text-muted-foreground">
+          className="p-1 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-muted-foreground">
           <Trash2 size={11} />
         </button>
 
         <button title="Panel schließen" onClick={() => setPythonPanelOpen(false)}
-          className="p-1 rounded hover:bg-muted/60 text-muted-foreground">
+          className="p-1 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-muted-foreground">
           <X size={13} />
         </button>
       </div>
 
       {/* Offline hint */}
       {serverStatus === "offline" && (
-        <div className="px-3 py-1.5 text-[10px] text-amber-400 bg-amber-400/10 border-b border-border shrink-0 font-mono">
+        <div className="px-3 py-1.5 text-[10px] text-muted-foreground bg-muted/10 border-b border-border shrink-0 font-mono">
           Server starten: <span className="font-semibold">python server/server.py</span>
           <span className="text-muted-foreground ml-2">— installiert Bibliotheken beim ersten Start automatisch</span>
         </div>
@@ -307,7 +307,7 @@ export function PythonPanel() {
       {/* Server model strip — Sync ↓ (reload into viewer) */}
       {serverStatus === "online" && serverModels.length > 0 && (
         <div className="flex items-center gap-1.5 px-3 py-1 border-b border-border shrink-0 bg-muted/10 overflow-x-auto">
-          <span className="text-[9px] text-muted-foreground shrink-0 uppercase tracking-wide">Server:</span>
+          <span className="text-[9px] text-muted-foreground shrink-0 uppercase">Server:</span>
           {serverModels.map((name) => {
             const inViewer   = viewerNames.has(name);
             const loading    = reloadingSet.has(name);
@@ -325,13 +325,13 @@ export function PythonPanel() {
                     : `Modell "${name}" vom Server in den Viewer übernehmen`
                 }
                 className={cn(
-                  "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border shrink-0 transition-colors",
+                  "flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-[10px] border shrink-0 transition-colors",
                   loading
                     ? "border-primary/40 bg-primary/10 text-primary"
                     : hasError
                     ? "border-red-400/40 bg-red-400/10 text-red-400"
                     : inViewer
-                    ? "border-border hover:border-primary/50 hover:bg-muted/60 text-foreground"
+                    ? "border-border hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-foreground"
                     : "border-border/30 text-muted-foreground/40 cursor-not-allowed",
                 )}
               >
@@ -366,7 +366,7 @@ export function PythonPanel() {
         </div>
 
         {/* Console */}
-        <div className="h-36 shrink-0 border-t border-border bg-[#0d1117] overflow-y-auto font-mono text-[10.5px] leading-relaxed px-3 py-2 space-y-0.5">
+        <div className="h-36 shrink-0 border-t border-border bg-[#1E1E1E] overflow-y-auto text-[10.5px] leading-relaxed px-3 py-2 space-y-0.5" style={{ fontFamily: '"Cascadia Code","Consolas",monospace' }}>
           {output.length === 0 ? (
             <span className="text-muted-foreground/50">Ausgabe erscheint hier…</span>
           ) : (

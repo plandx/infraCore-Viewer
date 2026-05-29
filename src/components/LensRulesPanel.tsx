@@ -111,7 +111,7 @@ function PropKeyPicker({ value, onChange }: { value: string; onChange: (k: strin
   return (
     <div className="relative flex-1">
       <button
-        className="w-full flex items-center justify-between bg-background border border-border rounded px-2 py-1 text-left hover:border-primary/50 focus:outline-none text-xs"
+        className="w-full flex items-center justify-between bg-background border border-border rounded-[4px] px-2 py-1 text-left hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] focus:outline-none text-xs"
         onClick={() => setOpen((v) => !v)}
       >
         <span className={cn("truncate", !value && "text-muted-foreground")}>{value ? displayLabel(value) : "Attribut…"}</span>
@@ -120,7 +120,7 @@ function PropKeyPicker({ value, onChange }: { value: string; onChange: (k: strin
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-popover border border-border rounded-md shadow-xl max-h-52 flex flex-col">
+          <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-popover border border-border rounded-[6px] shadow-[0_2px_8px_rgba(0,0,0,0.12)] max-h-52 flex flex-col">
             <div className="p-1.5 border-b border-border shrink-0 flex items-center gap-1.5">
               <Search size={10} className="text-muted-foreground shrink-0" />
               <input
@@ -142,7 +142,7 @@ function PropKeyPicker({ value, onChange }: { value: string; onChange: (k: strin
                 ? <div className="px-3 py-2 text-muted-foreground text-[11px]">Keine Treffer</div>
                 : filtered.map((k) => (
                   <button key={k}
-                    className={cn("w-full text-left px-3 py-1.5 text-xs hover:bg-muted/60 truncate", k === value && "text-primary font-medium")}
+                    className={cn("w-full text-left px-3 py-1.5 text-xs hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] truncate", k === value && "text-primary font-medium")}
                     onClick={() => { onChange(k); setOpen(false); setSearch(""); }}
                   >
                     {displayLabel(k)}
@@ -261,10 +261,10 @@ export function LensRulesPanel() {
   return (
     <div className="flex flex-col h-full overflow-hidden text-xs select-none">
       {/* Toolbar */}
-      <div className="flex flex-col gap-1.5 px-3 py-2 border-b border-border shrink-0 bg-card/40">
+      <div className="flex flex-col gap-1.5 px-3 py-2 border-b border-border shrink-0 bg-muted/10">
         <div className="flex items-center gap-1.5">
           <select
-            className="flex-1 bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
+            className="flex-1 bg-background border border-border rounded-[4px] px-1.5 py-1 text-xs text-foreground focus:outline-none"
             value={groupBy}
             onChange={(e) => setGroupBy(e.target.value as GroupBy)}
           >
@@ -274,13 +274,13 @@ export function LensRulesPanel() {
             <option value="property">Nach Attribut</option>
           </select>
           <button
-            className={cn("flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors shrink-0",
-              isApplied ? "bg-primary text-primary-foreground hover:opacity-90" : "bg-muted hover:bg-muted/80 text-foreground")}
+            className={cn("flex items-center gap-1 px-2 py-1 rounded-[4px] text-[11px] font-medium transition-colors shrink-0",
+              isApplied ? "bg-primary text-white hover:bg-primary/90" : "bg-background border border-border text-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A]")}
             onClick={() => setColorGroups(filteredLocalGroups)}
             disabled={filteredLocalGroups.length === 0 || !canBuild}
           ><Play size={11} /><span>Einfärben</span></button>
           {isApplied && (
-            <button className="p-1.5 rounded hover:bg-muted/60 text-muted-foreground" title="Zurücksetzen" onClick={() => setColorGroups(null)}>
+            <button className="p-1.5 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-muted-foreground" title="Zurücksetzen" onClick={() => setColorGroups(null)}>
               <RotateCcw size={12} />
             </button>
           )}
@@ -291,7 +291,7 @@ export function LensRulesPanel() {
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-muted-foreground shrink-0">Filter:</span>
           <select
-            className="flex-1 bg-background border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
+            className="flex-1 bg-background border border-border rounded-[4px] px-1.5 py-1 text-xs text-foreground focus:outline-none"
             value={smartViewFilterId ?? ""}
             onChange={(e) => setSmartViewFilterId(e.target.value || null)}
           >
@@ -305,7 +305,7 @@ export function LensRulesPanel() {
 
       {/* Property mode controls */}
       {groupBy === "property" && (
-        <div className="px-3 py-2 border-b border-border shrink-0 bg-card/20">
+        <div className="px-3 py-2 border-b border-border shrink-0 bg-muted/5">
           <PropKeyPicker value={propKey} onChange={setPropKey} />
         </div>
       )}
@@ -314,7 +314,7 @@ export function LensRulesPanel() {
       {localGroups.length > 0 && (
         <div className="px-3 py-1 text-[10px] text-muted-foreground border-b border-border shrink-0">
           {filteredLocalGroups.length} Gruppen · {total.toLocaleString()} Elemente
-          {smartViewFilterId && <span className="ml-2 text-amber-400 font-medium">● gefiltert</span>}
+          {smartViewFilterId && <span className="ml-2 text-primary font-medium">● gefiltert</span>}
           {isApplied && <span className="ml-2 text-primary font-medium">● aktiv</span>}
         </div>
       )}
@@ -338,7 +338,7 @@ export function LensRulesPanel() {
                   key={g.id}
                   className={cn(
                     "flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors",
-                    isIsolated ? "bg-primary/10 hover:bg-primary/15" : "hover:bg-muted/20",
+                    isIsolated ? "bg-primary/10 hover:bg-primary/15" : "hover:bg-[#E5E5E5]/40 dark:hover:bg-[#3A3A3A]/40",
                     !g.visible && "opacity-60",
                   )}
                   title={isIsolated ? "Klicken zum Zurücksetzen (oder Esc)" : "Klicken zum Isolieren"}
@@ -354,10 +354,10 @@ export function LensRulesPanel() {
                     onChange={(e) => setLocalGroups((prev) => prev.map((x) => x.id === g.id ? { ...x, color: e.target.value } : x))}
                   />
                   <span className={cn("flex-1 truncate text-[11px]", isIsolated && "text-primary font-semibold")} title={g.label}>{g.label}</span>
-                  {isIsolated && <span className="text-[9px] text-primary font-medium shrink-0 uppercase tracking-wide">ISO</span>}
+                  {isIsolated && <span className="text-[9px] text-primary font-medium shrink-0 uppercase">ISO</span>}
                   <span className="text-muted-foreground/60 shrink-0 tabular-nums">{g.entries.length.toLocaleString()}</span>
                   <button
-                    className={cn("shrink-0 p-0.5 rounded transition-colors", g.visible ? "text-muted-foreground/50 hover:text-foreground" : "text-amber-400")}
+                    className={cn("shrink-0 p-0.5 rounded-[4px] transition-colors", g.visible ? "text-muted-foreground/50 hover:text-foreground" : "text-muted-foreground")}
                     onClick={(e) => { e.stopPropagation(); setLocalGroups((prev) => prev.map((x) => x.id === g.id ? { ...x, visible: !x.visible } : x)); }}
                   >{g.visible ? <Eye size={11} /> : <EyeOff size={11} />}</button>
                 </div>

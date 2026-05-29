@@ -32,11 +32,11 @@ export function HelpPanel({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-[900px] max-h-[90vh] flex flex-col overflow-hidden"
+        className="bg-background border border-border rounded-[8px] shadow-[0_2px_8px_rgba(0,0,0,0.12)] w-full max-w-[900px] max-h-[90vh] flex flex-col overflow-hidden" style={{ fontFamily: '"Segoe UI Variable","Segoe UI",system-ui,sans-serif' }}
         onClick={e => e.stopPropagation()}
       >
         {/* ── Header ───────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0 bg-muted/20">
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0 bg-muted/10">
           <svg width="22" height="22" viewBox="0 0 32 32" className="shrink-0 rounded-[4px]">
             <rect width="32" height="32" rx="5" fill="#E8312A"/>
             <text x="16" y="23" fontFamily="Arial,Helvetica,sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
@@ -48,7 +48,7 @@ export function HelpPanel({ onClose }: { onClose: () => void }) {
           <div className="flex-1" />
           <button
             onClick={onClose}
-            className="text-muted-foreground hover:text-foreground p-1.5 rounded hover:bg-muted/60 transition-colors"
+            className="text-muted-foreground hover:text-foreground p-1.5 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] transition-colors"
           >
             <X size={15} />
           </button>
@@ -58,16 +58,16 @@ export function HelpPanel({ onClose }: { onClose: () => void }) {
         <div className="flex flex-1 min-h-0">
 
           {/* Left nav */}
-          <nav className="w-44 shrink-0 border-r border-border overflow-y-auto py-2 bg-muted/10">
+          <nav className="w-44 shrink-0 border-r border-border overflow-y-auto py-1 bg-muted/5">
             {NAV.map(item => (
               <button
                 key={item.id}
                 onClick={() => setActive(item.id)}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-left transition-all",
+                  "w-full flex items-center gap-2.5 px-4 py-2 text-xs text-left transition-colors",
                   active === item.id
                     ? "bg-primary/10 text-primary font-semibold border-r-2 border-r-primary"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                    : "text-muted-foreground hover:text-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A]"
                 )}
               >
                 {item.icon}
@@ -96,11 +96,11 @@ export function HelpPanel({ onClose }: { onClose: () => void }) {
 // ── Helper Components ─────────────────────────────────────────────────────────
 
 function SH({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-base font-bold text-foreground mb-4">{children}</h2>;
+  return <h2 className="text-sm font-semibold text-foreground mb-4">{children}</h2>;
 }
 
 function SH2({ children }: { children: React.ReactNode }) {
-  return <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2.5 mt-5 first:mt-0">{children}</h3>;
+  return <h3 className="text-[12px] font-semibold text-foreground mb-2.5 mt-5 first:mt-0">{children}</h3>;
 }
 
 function Para({ children }: { children: React.ReactNode }) {
@@ -110,7 +110,7 @@ function Para({ children }: { children: React.ReactNode }) {
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3 mb-4">
-      <div className="w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+      <div className="w-5 h-5 rounded-[3px] bg-muted border border-border text-foreground text-[10px] font-semibold flex items-center justify-center shrink-0 mt-0.5">
         {n}
       </div>
       <div>
@@ -123,7 +123,7 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex items-center bg-muted border border-border/80 rounded px-1.5 py-0.5 text-[10px] font-mono text-foreground leading-none mx-0.5">
+    <kbd className="inline-flex items-center bg-muted border border-border rounded-[3px] px-1.5 py-0.5 text-[10px] font-mono text-foreground leading-none mx-0.5">
       {children}
     </kbd>
   );
@@ -131,7 +131,7 @@ function Kbd({ children }: { children: React.ReactNode }) {
 
 function NoteBox({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex gap-2 bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-foreground/80 mb-4 leading-relaxed">
+    <div className="flex gap-2 bg-muted/30 border border-border rounded-[4px] p-3 text-xs text-foreground/80 mb-4 leading-relaxed">
       <Info size={12} className="text-primary shrink-0 mt-0.5" />
       <div>{children}</div>
     </div>
@@ -140,7 +140,7 @@ function NoteBox({ children }: { children: React.ReactNode }) {
 
 function TipBox({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex gap-2 bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 text-xs text-foreground/80 mb-4 leading-relaxed">
+    <div className="flex gap-2 bg-muted/20 border border-border rounded-[4px] p-3 text-xs text-foreground/80 mb-4 leading-relaxed">
       <Lightbulb size={12} className="text-amber-400 shrink-0 mt-0.5" />
       <div>{children}</div>
     </div>
@@ -163,13 +163,13 @@ function Table({ headers, rows }: { headers: string[]; rows: (React.ReactNode)[]
       <thead>
         <tr className="border-b border-border">
           {headers.map((h, i) => (
-            <th key={i} className="text-left py-1.5 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{h}</th>
+            <th key={i} className="text-left py-1.5 pr-4 text-[11px] font-semibold text-foreground">{h}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         {rows.map((row, i) => (
-          <tr key={i} className="border-b border-border/30 hover:bg-muted/10">
+          <tr key={i} className="border-b border-border/30 hover:bg-[#E5E5E5]/30 dark:hover:bg-[#3A3A3A]/30">
             {row.map((cell, j) => (
               <td key={j} className="py-1.5 pr-4 text-muted-foreground align-top">{cell}</td>
             ))}
@@ -222,7 +222,7 @@ function QuickstartSection() {
           { icon: <Scissors size={13}/>, title: "Schnittansicht", desc: "Schnittebene (C) setzen und mit Pfeilen in der 3D-Ansicht verschieben" },
           { icon: <Download size={13}/>, title: "Eigenschaften exportieren", desc: "Rechte Sidebar → Eigenschaft bearbeiten → IFC Export mit allen Änderungen" },
         ].map((w, i) => (
-          <div key={i} className="border border-border/50 rounded-lg p-3 bg-muted/10">
+          <div key={i} className="border border-border rounded-[6px] p-3 bg-muted/10">
             <div className="flex items-center gap-2 mb-1.5 text-foreground font-medium text-xs">
               <span className="text-primary">{w.icon}</span>{w.title}
             </div>
@@ -262,7 +262,7 @@ function NavigationSection() {
           { key: "B", desc: "Drohne" },
           { key: "Esc", desc: "Abbrechen" },
         ].map(s => (
-          <div key={s.key} className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1">
+          <div key={s.key} className="flex items-center gap-1.5 bg-muted/20 border border-border rounded-[4px] px-2 py-1">
             <Kbd>{s.key}</Kbd>
             <span className="text-[11px] text-muted-foreground">{s.desc}</span>
           </div>

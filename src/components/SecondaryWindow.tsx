@@ -90,21 +90,16 @@ export function SecondaryWindow({ panel }: { panel: string }) {
   }, [panelType, panel]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden text-xs">
+    <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden text-xs" style={{ fontFamily: '"Segoe UI Variable","Segoe UI",system-ui,sans-serif' }}>
       {/* Title bar */}
       <div
-        className="flex items-center gap-2.5 h-11 px-3.5 shrink-0 border-b border-border select-none"
-        style={{
-          background: 'var(--toolbar-bg)',
-          borderTop: '3px solid var(--color-primary)',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-        }}
+        className="flex items-center gap-2.5 h-10 px-3.5 shrink-0 border-b border-border bg-muted/10 select-none"
       >
         <svg width="16" height="16" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className="shrink-0 rounded-[3px]">
           <rect width="32" height="32" rx="5" fill="#E8312A"/>
           <text x="16" y="23" fontFamily="Arial, Helvetica, sans-serif" fontSize="16" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="-0.5">iC</text>
         </svg>
-        <span className="font-bold text-sm text-foreground">
+        <span className="font-semibold text-sm text-foreground">
           {{ hierarchy: "Hierarchiebaum", properties: "Eigenschaften", lists: "Lens Rules", smartviews: "SmartViews", sql: "SQL-Abfrage", qto: "Listen / Mengen", basket: "Auswahlkorb" }[panelType] ?? panel}
         </span>
         <div className="flex-1" />

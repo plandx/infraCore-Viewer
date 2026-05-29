@@ -140,10 +140,10 @@ export function SectionPanel() {
       className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-auto select-none"
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <div className="bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl overflow-hidden min-w-[460px] max-w-[640px]">
+      <div className="bg-background border border-border rounded-[6px] shadow-[0_2px_8px_rgba(0,0,0,0.12)] overflow-hidden min-w-[460px] max-w-[640px]" style={{ fontFamily: '"Segoe UI Variable","Segoe UI",system-ui,sans-serif' }}>
         {/* Top bar */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-border">
-          <span className="text-[11px] font-semibold text-foreground pr-2 border-r border-border mr-1">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-border bg-muted/10">
+          <span className="text-[12px] font-semibold text-foreground pr-2 border-r border-border mr-1">
             Schnitt
           </span>
 
@@ -151,10 +151,10 @@ export function SectionPanel() {
           <button
             onClick={() => setActiveTool(activeTool === "section" ? "select" : "section")}
             className={cn(
-              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors",
+              "flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] border transition-colors",
               activeTool === "section"
-                ? "bg-primary/20 text-primary border border-primary/40"
-                : "bg-muted/60 hover:bg-primary/20 hover:text-primary text-muted-foreground"
+                ? "bg-primary/10 text-primary border-primary/40"
+                : "border-border text-muted-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] hover:text-foreground"
             )}
             title={activeTool === "section" ? "Schnitt-Werkzeug deaktivieren" : "Schnitt auf Fläche klicken"}
           >
@@ -169,7 +169,7 @@ export function SectionPanel() {
             <button
               key={lbl}
               onClick={() => addAxisPreset(n as [number,number,number], lbl)}
-              className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-muted/60 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors"
+              className="px-1.5 py-0.5 rounded-[4px] text-[10px] font-mono border border-border text-muted-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] hover:text-foreground transition-colors"
               title={`Schnittebene ${lbl}-Achse hinzufügen`}
             >
               {lbl}
@@ -181,8 +181,8 @@ export function SectionPanel() {
           <button
             onClick={addBoxSection}
             className={cn(
-              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted/60 hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors",
-              selectedElement && "ring-1 ring-primary/40 text-primary/80"
+              "flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] border border-border text-muted-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] hover:text-foreground transition-colors",
+              selectedElement && "border-primary/40 text-primary/80"
             )}
             title={selectedElement ? "Box-Schnitt um ausgewähltes Element" : "Box-Schnitt aus Modell-BoundingBox"}
           >
@@ -197,7 +197,7 @@ export function SectionPanel() {
             <button
               onClick={toggleVisuals}
               className={cn(
-                "p-1 rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors",
+                "p-1 rounded-[4px] text-muted-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] hover:text-foreground transition-colors",
                 visualsHidden && "text-primary bg-primary/10"
               )}
               title={visualsHidden ? "Schnittflächen einblenden" : "Schnittflächen ausblenden"}
@@ -209,7 +209,7 @@ export function SectionPanel() {
           {sectionPlanes.length > 0 && (
             <button
               onClick={() => { clearSectionPlanes(); useModelStore.getState().setActiveTool("select"); }}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] border border-border text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30 transition-colors"
               title="Alle Schnittebenen entfernen"
             >
               <Trash2 size={10} />
@@ -220,7 +220,7 @@ export function SectionPanel() {
 
         {/* Hint when in section-from-face tool mode */}
         {activeTool === "section" && (
-          <div className="px-3 py-1.5 text-[11px] text-primary/70 text-center bg-primary/5 border-b border-primary/10">
+          <div className="px-3 py-1.5 text-[11px] text-muted-foreground text-center bg-muted/10 border-b border-border">
             Fläche im 3D-Viewer anklicken
           </div>
         )}
@@ -254,14 +254,14 @@ export function SectionPanel() {
                       <span className="text-[10px] font-medium text-foreground flex-1">Box-Schnitt</span>
                       <button
                         onClick={() => bPlanes.forEach(p => updateSectionPlane(p.id, { enabled: !allEnabled }))}
-                        className="p-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+                        className="p-0.5 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-muted-foreground hover:text-foreground transition-colors"
                         title={allEnabled ? "Box deaktivieren" : "Box aktivieren"}
                       >
                         {allEnabled ? <Eye size={10} /> : <EyeOff size={10} />}
                       </button>
                       <button
                         onClick={() => bPlanes.forEach(p => removeSectionPlane(p.id))}
-                        className="p-0.5 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
+                        className="p-0.5 rounded-[4px] hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
                         title="Box-Schnitt entfernen"
                       >
                         <X size={10} />
@@ -293,16 +293,16 @@ export function SectionPanel() {
                       />
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
-                      <button onClick={() => flipPlane(plane)} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors" title="Normale umkehren">
+                      <button onClick={() => flipPlane(plane)} className="p-1 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-muted-foreground hover:text-foreground transition-colors" title="Normale umkehren">
                         <FlipHorizontal2 size={11} />
                       </button>
-                      <button onClick={() => alignCamera(plane)} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors" title="Kamera zur Schnittebene ausrichten">
+                      <button onClick={() => alignCamera(plane)} className="p-1 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-muted-foreground hover:text-foreground transition-colors" title="Kamera zur Schnittebene ausrichten">
                         <Camera size={11} />
                       </button>
-                      <button onClick={() => updateSectionPlane(plane.id, { enabled: !plane.enabled })} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors" title={plane.enabled ? "Ebene deaktivieren" : "Ebene aktivieren"}>
+                      <button onClick={() => updateSectionPlane(plane.id, { enabled: !plane.enabled })} className="p-1 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-muted-foreground hover:text-foreground transition-colors" title={plane.enabled ? "Ebene deaktivieren" : "Ebene aktivieren"}>
                         {plane.enabled ? <Eye size={11} /> : <EyeOff size={11} />}
                       </button>
-                      <button onClick={() => removeSectionPlane(plane.id)} className="p-1 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors" title="Schnittebene löschen">
+                      <button onClick={() => removeSectionPlane(plane.id)} className="p-1 rounded-[4px] hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors" title="Schnittebene löschen">
                         <X size={11} />
                       </button>
                     </div>
