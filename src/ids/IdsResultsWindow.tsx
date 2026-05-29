@@ -1,9 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   ChevronDown, ChevronRight, AlertTriangle, Check, Download,
-  Eye, EyeOff, X, FileCheck2, ChevronsDownUp, ChevronsUpDown,
+  Eye, EyeOff, X, FileCheck2,
 } from "lucide-react";
-import { cn } from "../lib/utils";
 import { SYNC_CHANNEL, IDS_RESULTS_CHANNEL } from "../utils/windowSync";
 import type { IdsResultsMsg } from "../utils/windowSync";
 import type { SyncMsg, SyncAction } from "../utils/windowSync";
@@ -28,24 +27,19 @@ interface GroupSection {
   entries: FailEntry[];
 }
 
-// Messages from idsValidator have format: `"PSetName.PropName" fehlt`
-// or `"PSetName.PropName" = "val", erwartet: "x"`
 function extractPset(msg: string): string {
   const m = msg.match(/^"([^."]+)\./);
   return m ? m[1] : "Unbekannter PSet";
 }
 
 function extractProp(msg: string): string {
-  // `"PSetName.PropName" fehlt` → PropName
   const withPset = msg.match(/^"[^."]+\.([^"]+)"\s+fehlt/);
   if (withPset) return withPset[1];
-  // `"PropName" fehlt` → PropName
   const plain = msg.match(/^"([^"]+)"\s+fehlt/);
   if (plain) return plain[1];
-  // `Attribut "Name" fehlt oder leer` → Name
   const attr = msg.match(/Attribut "([^"]+)"/);
   if (attr) return attr[1];
-  return msg.slice(0, 40);
+  return msg.slice(0, 50);
 }
 
 function groupResults(
@@ -54,7 +48,6 @@ function groupResults(
   modelNames: Map<string, string>,
 ): GroupSection[] {
   const sections = new Map<string, GroupSection>();
-
   const ensure = (key: string, label: string) => {
     if (!sections.has(key)) sections.set(key, { key, label, passCount: 0, failCount: 0, entries: [] });
     return sections.get(key)!;
@@ -66,7 +59,6 @@ function groupResults(
         if (mode === "spec") ensure(spec.specificationId, spec.specificationName).passCount++;
         continue;
       }
-
       const failures = el.failures.map((f) => f.message);
 
       if (mode === "spec") {
@@ -93,10 +85,7 @@ function groupResults(
           if (!props.has(prop)) props.set(prop, []);
           props.get(prop)!.push(f.message);
         }
-        if (props.size === 0) {
-          // Value mismatch, not a missing prop — skip in this mode
-          continue;
-        }
+        if (props.size === 0) continue;
         for (const [prop, msgs] of props) {
           const sec = ensure(prop, prop);
           sec.failCount++;
@@ -114,16 +103,12 @@ function groupResults(
         sec.entries.push({ modelId: el.modelId, expressId: el.expressId, name: el.name, type: el.type, specName: spec.specificationName, failures });
       }
     }
-
     if (mode === "spec") {
       ensure(spec.specificationId, spec.specificationName).passCount += spec.passCount;
     }
   }
-
   return Array.from(sections.values()).sort((a, b) => b.failCount - a.failCount);
 }
-
-const VISIBLE_LIMIT = 200;
 
 export function IdsResultsWindow() {
   const [report, setReport] = useState<IdsValidationReport | null>(null);
@@ -139,7 +124,6 @@ export function IdsResultsWindow() {
   useEffect(() => {
     let ch: BroadcastChannel;
     try { ch = new BroadcastChannel(IDS_RESULTS_CHANNEL); } catch { return; }
-
     ch.onmessage = (e: MessageEvent<IdsResultsMsg>) => {
       const msg = e.data;
       if (msg.t === "state") {
@@ -148,21 +132,18 @@ export function IdsResultsWindow() {
         if (msg.modelNames) setModelNames(new Map(Object.entries(msg.modelNames)));
       }
     };
-
     ch.postMessage({ t: "req" } satisfies IdsResultsMsg);
-
     return () => ch.close();
   }, []);
 
   const syncCh = useMemo(() => {
     try { return new BroadcastChannel(SYNC_CHANNEL); } catch { return null; }
   }, []);
-
   useEffect(() => () => { syncCh?.close(); }, [syncCh]);
 
-  const sendAction = (a: SyncAction) => {
+  const sendAction = useCallback((a: SyncAction) => {
     syncCh?.postMessage({ t: "act", a } satisfies SyncMsg);
-  };
+  }, [syncCh]);
 
   const groups = useMemo(
     () => report ? groupResults(report, groupMode, modelNames) : [],
@@ -172,13 +153,13 @@ export function IdsResultsWindow() {
   const toggleExpand = useCallback((key: string) => {
     setExpandedKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
   }, []);
 
-  const expandAll = () => setExpandedKeys(new Set(groups.map((g) => g.key)));
-  const collapseAll = () => setExpandedKeys(new Set());
+  const expandAll = useCallback(() => setExpandedKeys(new Set(groups.map((g) => g.key))), [groups]);
+  const collapseAll = useCallback(() => setExpandedKeys(new Set()), []);
 
   const totalSpecs = report?.results.length ?? 0;
   const passedSpecs = report?.results.filter((r) => r.status === "passed").length ?? 0;
@@ -204,166 +185,233 @@ export function IdsResultsWindow() {
     URL.revokeObjectURL(a.href);
   };
 
+  // ── Waiting state ──────────────────────────────────────────────────────────
+  if (!report) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", alignItems: "center", justifyContent: "center", gap: 12, fontFamily: "system-ui, sans-serif", color: "#888" }}>
+        <FileCheck2 size={40} style={{ opacity: 0.2 }} />
+        <p style={{ fontSize: 14, margin: 0 }}>Warte auf Prüfergebnis vom Hauptfenster…</p>
+        <p style={{ fontSize: 11, margin: 0, opacity: 0.6 }}>Prüfung im IDS-Panel starten, um Ergebnisse hier anzuzeigen.</p>
+      </div>
+    );
+  }
+
+  // ── Main layout ────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground text-xs overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-card/60 shrink-0">
+    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden" style={{ fontSize: 13 }}>
+
+      {/* ── Header ── */}
+      <div className="shrink-0 flex items-center gap-2 px-4 border-b border-border bg-card" style={{ minHeight: 44 }}>
         <FileCheck2 size={15} className="text-primary shrink-0" />
-        <span className="font-semibold text-sm">IDS Prüfbericht</span>
-        {report && (
-          <>
-            <span className="text-muted-foreground mx-1">·</span>
-            <span className="text-muted-foreground truncate max-w-[260px]">{report.documentTitle}</span>
-            <span className="text-muted-foreground mx-1">·</span>
-            <span className="text-muted-foreground text-[10px]">{new Date(report.timestamp).toLocaleString("de-AT")}</span>
-          </>
-        )}
+        <span className="font-semibold">IDS Prüfbericht</span>
+        <span className="text-muted-foreground mx-1">·</span>
+        <span className="text-muted-foreground truncate" style={{ maxWidth: 280, fontSize: 12 }}>{report.documentTitle}</span>
+        <span className="text-muted-foreground mx-1">·</span>
+        <span className="text-muted-foreground" style={{ fontSize: 11, whiteSpace: "nowrap" }}>{new Date(report.timestamp).toLocaleString("de-AT")}</span>
         <div className="ml-auto flex items-center gap-2">
-          {report && (
-            <button
-              className="flex items-center gap-1 px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-[10px]"
-              onClick={exportCSV}
-            >
-              <Download size={10} /> CSV
-            </button>
-          )}
           <button
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            className="flex items-center gap-1 border border-border rounded px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            style={{ fontSize: 11 }}
+            onClick={exportCSV}
+          >
+            <Download size={11} /> CSV
+          </button>
+          <button
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
             onClick={() => window.close()}
             title="Fenster schließen"
           >
-            <X size={13} />
+            <X size={14} />
           </button>
         </div>
       </div>
 
-      {!report ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
-          <FileCheck2 size={40} className="opacity-20" />
-          <p className="text-sm">Warte auf Prüfergebnis vom Hauptfenster…</p>
-          <p className="text-[10px] text-muted-foreground/50">Prüfung im IDS-Panel ausführen, um Ergebnisse hier anzuzeigen.</p>
+      {/* ── Summary + Toolbar ── */}
+      <div className="shrink-0 border-b border-border bg-muted/30 px-4 py-2 flex items-center gap-4 flex-wrap" style={{ fontSize: 12 }}>
+        {/* Stats */}
+        <span className="font-medium">{totalSpecs} Specs</span>
+        <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+          <Check size={12} /> {passedSpecs} OK
+        </span>
+        {failedSpecs > 0 && (
+          <span className="flex items-center gap-1 text-red-500">
+            <AlertTriangle size={12} /> {failedSpecs} fehlgeschlagen
+          </span>
+        )}
+        {skippedSpecs > 0 && (
+          <span className="text-muted-foreground">{skippedSpecs} übersprungen</span>
+        )}
+        <span className="text-muted-foreground">|</span>
+        <span className="text-muted-foreground">{totalElements.toLocaleString()} Elemente</span>
+        {failedElements > 0 && (
+          <span className="font-medium text-red-500">{failedElements.toLocaleString()} fehlerhaft</span>
+        )}
+
+        {/* Controls */}
+        <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+          <label className="text-muted-foreground" style={{ fontSize: 11 }}>Gruppierung:</label>
+          <select
+            className="border border-border rounded px-2 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            style={{ fontSize: 12 }}
+            value={groupMode}
+            onChange={(e) => { setGroupMode(e.target.value as GroupMode); setExpandedKeys(new Set()); }}
+          >
+            <option value="spec">Prüfregel</option>
+            <option value="pset">PropertySet</option>
+            <option value="missingProp">Fehlende Property</option>
+            <option value="ifcClass">IFC-Klasse</option>
+            <option value="ifcFile">IFC-Datei</option>
+          </select>
+          <button
+            className="border border-border rounded px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            style={{ fontSize: 11 }}
+            onClick={expandAll}
+            title="Alle aufklappen"
+          >
+            Alle ↓
+          </button>
+          <button
+            className="border border-border rounded px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            style={{ fontSize: 11 }}
+            onClick={collapseAll}
+            title="Alle zuklappen"
+          >
+            Alle ↑
+          </button>
+          <button
+            className="border border-border rounded px-2 py-1 flex items-center gap-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            style={{ fontSize: 11 }}
+            onClick={() => sendAction({ k: "showAll" })}
+          >
+            <Eye size={11} /> Einblenden
+          </button>
         </div>
-      ) : (
-        <>
-          {/* Summary bar */}
-          <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-card/30 shrink-0 flex-wrap">
-            <span className="font-medium">{totalSpecs} Specs</span>
-            <span className="flex items-center gap-1 text-green-500"><Check size={11} /> {passedSpecs} OK</span>
-            {failedSpecs > 0 && <span className="flex items-center gap-1 text-red-400"><AlertTriangle size={11} /> {failedSpecs} Fehler</span>}
-            {skippedSpecs > 0 && <span className="text-muted-foreground">{skippedSpecs} übersprungen</span>}
-            <span className="text-muted-foreground">|</span>
-            <span className="text-muted-foreground">{totalElements} Elemente</span>
-            {failedElements > 0 && <span className="text-red-400">{failedElements} fehlerhaft</span>}
+      </div>
 
-            <div className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
-              <label className="text-[10px] text-muted-foreground">Gruppe:</label>
-              <select
-                className="text-[10px] bg-muted/40 border border-border rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                value={groupMode}
-                onChange={(e) => { setGroupMode(e.target.value as GroupMode); setExpandedKeys(new Set()); }}
-              >
-                <option value="spec">Prüfregel</option>
-                <option value="pset">PropertySet</option>
-                <option value="missingProp">Fehlende Property</option>
-                <option value="ifcClass">IFC-Klasse</option>
-                <option value="ifcFile">IFC-Datei</option>
-              </select>
-              <button
-                className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                onClick={expandAll}
-                title="Alle aufklappen"
-              >
-                <ChevronsUpDown size={10} />
-              </button>
-              <button
-                className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                onClick={collapseAll}
-                title="Alle zuklappen"
-              >
-                <ChevronsDownUp size={10} />
-              </button>
-              <button
-                className="flex items-center gap-1 px-2 py-0.5 text-[10px] rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                onClick={() => sendAction({ k: "showAll" })}
-                title="Alle Elemente einblenden"
-              >
-                <Eye size={10} /> Alles anzeigen
-              </button>
+      {/* ── Groups ── */}
+      <div className="flex-1 overflow-y-auto">
+        {groups.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+            <Check size={36} className="text-green-500 opacity-50" />
+            <p style={{ fontSize: 14 }}>Alle Prüfregeln bestanden</p>
+          </div>
+        ) : (
+          groups.map((group) => (
+            <GroupRow
+              key={group.key}
+              group={group}
+              isExpanded={expandedKeys.has(group.key)}
+              showSpec={groupMode !== "spec"}
+              onToggle={() => toggleExpand(group.key)}
+              onSelect={(modelId, expressId) => sendAction({ k: "select", modelId, expressId })}
+              onIsolate={(modelId, expressId) => sendAction({ k: "isolate", modelId, expressId })}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── GroupRow ───────────────────────────────────────────────────────────────────
+
+interface GroupRowProps {
+  group: GroupSection;
+  isExpanded: boolean;
+  showSpec: boolean;
+  onToggle: () => void;
+  onSelect: (modelId: string, expressId: number) => void;
+  onIsolate: (modelId: string, expressId: number) => void;
+}
+
+const ENTRY_LIMIT = 300;
+
+function GroupRow({ group, isExpanded, showSpec, onToggle, onSelect, onIsolate }: GroupRowProps) {
+  const hasFail = group.failCount > 0;
+
+  return (
+    <div className="border-b border-border">
+      {/* Group header */}
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 px-4 text-foreground bg-card hover:bg-muted/40 transition-colors text-left"
+        style={{ minHeight: 40, fontSize: 13 }}
+      >
+        <span className="text-muted-foreground shrink-0">
+          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+        <span className="flex-1 font-medium" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {group.label}
+        </span>
+        <span className="shrink-0 flex items-center gap-3" style={{ fontSize: 12 }}>
+          {group.passCount > 0 && (
+            <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+              <Check size={11} /> {group.passCount}
+            </span>
+          )}
+          {hasFail && (
+            <span
+              className="font-semibold px-2 rounded"
+              style={{
+                color: "#ef4444",
+                backgroundColor: "rgba(239,68,68,0.12)",
+                border: "1px solid rgba(239,68,68,0.3)",
+                padding: "2px 8px",
+                borderRadius: 4,
+                fontSize: 12,
+              }}
+            >
+              {group.failCount} ✗
+            </span>
+          )}
+        </span>
+      </button>
+
+      {/* Entries */}
+      {isExpanded && (
+        <div className="bg-background">
+          {/* Column headers */}
+          <div
+            className="grid border-b border-border bg-muted/20 text-muted-foreground"
+            style={{
+              gridTemplateColumns: "1fr 140px 80px 28px",
+              fontSize: 11,
+              padding: "4px 16px 4px 40px",
+              gap: 8,
+            }}
+          >
+            <span>Name / Element</span>
+            {showSpec && <span>Prüfregel</span>}
+            <span style={{ gridColumn: showSpec ? undefined : "2" }}>Typ</span>
+            <span style={{ textAlign: "right" }}>ID</span>
+            <span />
+          </div>
+
+          {group.entries.slice(0, ENTRY_LIMIT).map((entry, i) => (
+            <EntryRow
+              key={`${entry.modelId}:${entry.expressId}:${i}`}
+              entry={entry}
+              showSpec={showSpec}
+              onSelect={() => onSelect(entry.modelId, entry.expressId)}
+              onIsolate={() => onIsolate(entry.modelId, entry.expressId)}
+            />
+          ))}
+
+          {group.entries.length > ENTRY_LIMIT && (
+            <div
+              className="px-4 py-2 text-muted-foreground border-t border-border"
+              style={{ fontSize: 11, paddingLeft: 40 }}
+            >
+              … {(group.entries.length - ENTRY_LIMIT).toLocaleString()} weitere Einträge – CSV-Export für vollständige Liste
             </div>
-          </div>
-
-          {/* Groups list */}
-          <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1.5">
-            {groups.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-                <Check size={32} className="text-green-500 opacity-60" />
-                <p className="text-sm">Alle Prüfregeln bestanden</p>
-              </div>
-            )}
-            {groups.map((group) => {
-              const isExpanded = expandedKeys.has(group.key);
-              const hasFail = group.failCount > 0;
-
-              return (
-                <div
-                  key={group.key}
-                  className={cn(
-                    "border rounded-lg overflow-hidden bg-card",
-                    hasFail ? "border-red-500/25" : "border-green-500/25",
-                  )}
-                >
-                  <button
-                    className={cn(
-                      "w-full flex items-center gap-2 px-3 py-2.5 text-left text-foreground transition-colors",
-                      hasFail ? "hover:bg-red-500/5" : "hover:bg-green-500/5",
-                    )}
-                    onClick={() => toggleExpand(group.key)}
-                  >
-                    {isExpanded
-                      ? <ChevronDown size={13} className="text-muted-foreground shrink-0" />
-                      : <ChevronRight size={13} className="text-muted-foreground shrink-0" />}
-                    <span className="flex-1 text-[13px] font-medium truncate">{group.label}</span>
-                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                      {group.passCount > 0 && (
-                        <span className="flex items-center gap-0.5 text-xs text-green-500">
-                          <Check size={10} /> {group.passCount}
-                        </span>
-                      )}
-                      {hasFail && (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
-                          {group.failCount}✗
-                        </span>
-                      )}
-                    </div>
-                  </button>
-
-                  {isExpanded && group.entries.length > 0 && (
-                    <div className="border-t border-border/40 divide-y divide-border/15 bg-background">
-                      {group.entries.slice(0, VISIBLE_LIMIT).map((entry, i) => (
-                        <EntryRow
-                          key={`${entry.modelId}:${entry.expressId}:${i}`}
-                          entry={entry}
-                          showSpec={groupMode !== "spec"}
-                          onSelect={() => sendAction({ k: "select", modelId: entry.modelId, expressId: entry.expressId })}
-                          onIsolate={() => sendAction({ k: "isolate", modelId: entry.modelId, expressId: entry.expressId })}
-                        />
-                      ))}
-                      {group.entries.length > VISIBLE_LIMIT && (
-                        <div className="px-3 py-1.5 text-[10px] text-muted-foreground/60 italic">
-                          … {group.entries.length - VISIBLE_LIMIT} weitere Einträge (CSV-Export für vollständige Liste)
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
+          )}
+        </div>
       )}
     </div>
   );
 }
+
+// ── EntryRow ───────────────────────────────────────────────────────────────────
 
 interface EntryRowProps {
   entry: FailEntry;
@@ -373,41 +421,88 @@ interface EntryRowProps {
 }
 
 function EntryRow({ entry, showSpec, onSelect, onIsolate }: EntryRowProps) {
+  const [open, setOpen] = useState(false);
+
   return (
     <div
-      className="px-3 py-2 hover:bg-muted/20 transition-colors cursor-pointer group text-foreground"
-      onClick={onSelect}
+      className="border-b border-border/50 hover:bg-muted/20 transition-colors"
+      style={{ cursor: "pointer" }}
+      onClick={() => { onSelect(); setOpen((v) => !v); }}
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <AlertTriangle size={11} className="text-red-400 shrink-0 mt-px" />
-        <span className="font-medium truncate flex-1 text-[12px]">{entry.name || `#${entry.expressId}`}</span>
-        <div className="flex items-center gap-1.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
-          {entry.type && (
-            <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-px rounded">
-              {entry.type.replace(/^IFC/i, "")}
-            </span>
-          )}
-          <span className="text-[10px] text-muted-foreground/70">#{entry.expressId}</span>
-          <button
-            className="p-0.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-            title="Element isolieren"
-            onClick={(e) => { e.stopPropagation(); onIsolate(); }}
+      {/* Main row */}
+      <div
+        className="grid items-center text-foreground"
+        style={{
+          gridTemplateColumns: showSpec ? "1fr 140px 80px 60px 28px" : "1fr 80px 60px 28px",
+          fontSize: 12,
+          padding: "6px 16px 6px 40px",
+          gap: 8,
+          minHeight: 36,
+        }}
+      >
+        {/* Name */}
+        <span
+          className="flex items-center gap-2 font-medium"
+          style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
+          <AlertTriangle size={11} className="text-red-500 shrink-0" />
+          {entry.name || `#${entry.expressId}`}
+        </span>
+
+        {/* Spec (optional) */}
+        {showSpec && (
+          <span
+            className="text-muted-foreground"
+            style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            title={entry.specName}
           >
-            <EyeOff size={11} />
-          </button>
-        </div>
-      </div>
-      {showSpec && (
-        <div className="text-[10px] text-muted-foreground/60 pl-4 mt-0.5 leading-tight truncate">{entry.specName}</div>
-      )}
-      <div className="pl-4 mt-0.5 flex flex-col gap-0.5">
-        {entry.failures.slice(0, 4).map((f, fi) => (
-          <p key={fi} className="text-[10px] text-red-400/80 leading-snug break-words">{f}</p>
-        ))}
-        {entry.failures.length > 4 && (
-          <p className="text-[10px] text-muted-foreground/50">+{entry.failures.length - 4} weitere</p>
+            {entry.specName}
+          </span>
         )}
+
+        {/* Type */}
+        <span
+          className="text-muted-foreground"
+          style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
+          {entry.type?.replace(/^IFC/i, "") ?? "–"}
+        </span>
+
+        {/* Express ID */}
+        <span className="text-muted-foreground" style={{ fontSize: 11, textAlign: "right" }}>
+          #{entry.expressId}
+        </span>
+
+        {/* Isolate button */}
+        <button
+          className="flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+          style={{ width: 24, height: 24 }}
+          title="Isolieren & Zoomen"
+          onClick={(e) => { e.stopPropagation(); onIsolate(); }}
+        >
+          <EyeOff size={12} />
+        </button>
       </div>
+
+      {/* Failure messages — shown inline below row */}
+      {entry.failures.length > 0 && (
+        <div
+          className="text-red-500"
+          style={{
+            fontSize: 11,
+            padding: "0 16px 6px 64px",
+            lineHeight: 1.5,
+            display: open ? undefined : "-webkit-box",
+            WebkitLineClamp: open ? undefined : 1,
+            WebkitBoxOrient: open ? undefined : "vertical" as const,
+            overflow: open ? undefined : "hidden",
+          }}
+        >
+          {entry.failures.map((f, fi) => (
+            <div key={fi}>{f}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
