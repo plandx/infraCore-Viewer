@@ -314,23 +314,23 @@ export function IdsResultsWindow() {
                 >
                   <button
                     className={cn(
-                      "w-full flex items-center gap-2 px-3 py-2 text-left text-foreground transition-colors",
+                      "w-full flex items-center gap-2 px-3 py-2.5 text-left text-foreground transition-colors",
                       hasFail ? "hover:bg-red-500/5" : "hover:bg-green-500/5",
                     )}
                     onClick={() => toggleExpand(group.key)}
                   >
                     {isExpanded
-                      ? <ChevronDown size={12} className="text-muted-foreground shrink-0" />
-                      : <ChevronRight size={12} className="text-muted-foreground shrink-0" />}
-                    <span className="flex-1 text-xs font-medium truncate">{group.label}</span>
+                      ? <ChevronDown size={13} className="text-muted-foreground shrink-0" />
+                      : <ChevronRight size={13} className="text-muted-foreground shrink-0" />}
+                    <span className="flex-1 text-[13px] font-medium truncate">{group.label}</span>
                     <div className="flex items-center gap-1.5 shrink-0 ml-2">
                       {group.passCount > 0 && (
-                        <span className="flex items-center gap-0.5 text-[10px] text-green-500">
-                          <Check size={9} /> {group.passCount}
+                        <span className="flex items-center gap-0.5 text-xs text-green-500">
+                          <Check size={10} /> {group.passCount}
                         </span>
                       )}
                       {hasFail && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
                           {group.failCount}✗
                         </span>
                       )}
@@ -375,37 +375,37 @@ interface EntryRowProps {
 function EntryRow({ entry, showSpec, onSelect, onIsolate }: EntryRowProps) {
   return (
     <div
-      className="px-3 py-1.5 hover:bg-muted/20 transition-colors cursor-pointer group text-foreground"
+      className="px-3 py-2 hover:bg-muted/20 transition-colors cursor-pointer group text-foreground"
       onClick={onSelect}
     >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <AlertTriangle size={9} className="text-red-400 shrink-0 mt-px" />
-        <span className="font-medium truncate flex-1 text-[11px]">{entry.name || `#${entry.expressId}`}</span>
-        <div className="flex items-center gap-1 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-2 min-w-0">
+        <AlertTriangle size={11} className="text-red-400 shrink-0 mt-px" />
+        <span className="font-medium truncate flex-1 text-[12px]">{entry.name || `#${entry.expressId}`}</span>
+        <div className="flex items-center gap-1.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
           {entry.type && (
-            <span className="text-[9px] text-muted-foreground bg-muted/30 px-1 py-px rounded">
+            <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-px rounded">
               {entry.type.replace(/^IFC/i, "")}
             </span>
           )}
-          <span className="text-[9px] text-muted-foreground/70">#{entry.expressId}</span>
+          <span className="text-[10px] text-muted-foreground/70">#{entry.expressId}</span>
           <button
             className="p-0.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
             title="Element isolieren"
             onClick={(e) => { e.stopPropagation(); onIsolate(); }}
           >
-            <EyeOff size={9} />
+            <EyeOff size={11} />
           </button>
         </div>
       </div>
       {showSpec && (
-        <div className="text-[9px] text-muted-foreground/50 pl-3.5 leading-tight truncate">{entry.specName}</div>
+        <div className="text-[10px] text-muted-foreground/60 pl-4 mt-0.5 leading-tight truncate">{entry.specName}</div>
       )}
-      <div className="pl-3.5 mt-0.5 flex flex-col gap-px">
+      <div className="pl-4 mt-0.5 flex flex-col gap-0.5">
         {entry.failures.slice(0, 4).map((f, fi) => (
-          <p key={fi} className="text-[9px] text-red-300/70 leading-tight break-words">{f}</p>
+          <p key={fi} className="text-[10px] text-red-400/80 leading-snug break-words">{f}</p>
         ))}
         {entry.failures.length > 4 && (
-          <p className="text-[9px] text-muted-foreground/40">+{entry.failures.length - 4} weitere</p>
+          <p className="text-[10px] text-muted-foreground/50">+{entry.failures.length - 4} weitere</p>
         )}
       </div>
     </div>
