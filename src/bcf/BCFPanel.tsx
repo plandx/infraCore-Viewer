@@ -1,7 +1,8 @@
 import { useState } from "react";
 import {
   AlertTriangle, Zap, Shield, MessageSquare, FileDown, Plus, Trash2,
-  ChevronRight, Clock, User, Tag, Upload, X, Send,
+  ChevronRight, Clock, User, Tag, Upload, X, Send, Camera, MapPin,
+  Calendar, Eye,
 } from "lucide-react";
 import { useBcfStore } from "./bcfStore";
 import { exportBcf } from "./bcfWriter";
@@ -39,6 +40,7 @@ const PRIORITIES: BcfPriority[] = ["Critical", "Major", "Normal", "Minor"];
 const VERSIONS: BcfVersion[] = ["2.1", "2.0", "3.0"];
 
 function formatDate(iso: string): string {
+  if (!iso) return "—";
   try { return new Date(iso).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }); }
   catch { return iso; }
 }
@@ -57,6 +59,7 @@ export function BCFPanel() {
   const [newCommentText, setNewCommentText] = useState("");
   const [filterStatus, setFilterStatus] = useState<BcfTopicStatus | "all">("all");
   const [filterType, setFilterType] = useState<BcfTopicType | "all">("all");
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
 
   const activeTopic = document.topics.find((t) => t.id === activeTopicId) ?? null;
 
@@ -107,7 +110,7 @@ export function BCFPanel() {
           <Plus size={13} /> Neu
         </button>
 
-        <label className="flex items-center gap-1 px-2 py-1 rounded-[4px] bg-muted hover:bg-muted/70 text-[12px] cursor-pointer">
+        <label className="flex items-center gap-1 px-2 py-1 rounded-[4px] border border-border hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-[12px] cursor-pointer">
           <Upload size={13} /> Öffnen
           <input type="file" accept=".bcf,.bcfzip" className="hidden" onChange={handleImport} />
         </label>
@@ -116,14 +119,14 @@ export function BCFPanel() {
           <select
             value={exportVersion}
             onChange={(e) => setExportVersion(e.target.value as BcfVersion)}
-            className="text-[12px] bg-background border border-border rounded px-1 py-0.5"
+            className="text-[12px] bg-background border border-border rounded-[4px] px-1 py-0.5"
           >
             {VERSIONS.map((v) => <option key={v} value={v}>BCF {v}</option>)}
           </select>
           <button
             onClick={handleExport}
             disabled={document.topics.length === 0}
-            className="flex items-center gap-1 px-2 py-1 rounded-[4px] bg-primary text-primary-foreground text-[12px] disabled:opacity-40"
+            className="flex items-center gap-1 px-2 py-1 rounded-[4px] bg-primary text-primary-foreground text-[12px] disabled:opacity-40 hover:bg-primary/90"
           >
             <FileDown size={13} /> Export
           </button>
@@ -131,11 +134,11 @@ export function BCFPanel() {
       </div>
 
       {/* Filter bar */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 shrink-0 bg-muted/30">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-muted/20">
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value as BcfTopicStatus | "all")}
-          className="text-[11px] bg-background border border-border rounded px-1 py-0.5"
+          className="text-[11px] bg-background border border-border rounded-[4px] px-1 py-0.5"
         >
           <option value="all">Alle Status</option>
           {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -143,7 +146,7 @@ export function BCFPanel() {
         <select
           value={filterType}
           onChange={(e) => setFilterType(e.target.value as BcfTopicType | "all")}
-          className="text-[11px] bg-background border border-border rounded px-1 py-0.5"
+          className="text-[11px] bg-background border border-border rounded-[4px] px-1 py-0.5"
         >
           <option value="all">Alle Typen</option>
           {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -151,7 +154,7 @@ export function BCFPanel() {
         <span className="text-[11px] text-muted-foreground ml-auto">{filteredTopics.length} Themen</span>
       </div>
 
-      {/* Outlook-style two-pane layout */}
+      {/* Two-pane layout */}
       <div className="flex flex-1 min-h-0">
         {/* Left: topic list */}
         <div className="w-72 shrink-0 border-r border-border flex flex-col overflow-y-auto">
@@ -164,29 +167,37 @@ export function BCFPanel() {
           {filteredTopics.map((topic) => (
             <button
               key={topic.id}
-              onClick={() => setActiveTopicId(topic.id)}
+              onClick={() => { setActiveTopicId(topic.id); setSnapshotOpen(false); }}
               className={cn(
-                "flex flex-col gap-1 px-3 py-2.5 text-left border-b border-border/50 hover:bg-[#E5E5E5] dark:hover:bg-[#333333] transition-colors",
+                "flex gap-2 px-2 py-2 text-left border-b border-border/50 hover:bg-[#E5E5E5] dark:hover:bg-[#333333] transition-colors",
                 activeTopicId === topic.id && "bg-primary/8 border-l-2 border-l-primary"
               )}
             >
-              <div className="flex items-start gap-1.5">
-                <span className={cn("mt-0.5 shrink-0 text-muted-foreground")}>
-                  {TYPE_ICON[topic.type]}
-                </span>
-                <span className="font-medium text-[12px] leading-snug line-clamp-2 flex-1">{topic.title}</span>
-                <ChevronRight size={12} className="mt-0.5 shrink-0 text-muted-foreground/50" />
-              </div>
-              <div className="flex items-center gap-1.5 pl-5 flex-wrap">
-                <span className={cn("text-[10px] px-1.5 py-0.5 rounded-[3px] border", STATUS_COLOR[topic.status])}>
-                  {topic.status}
-                </span>
-                <span className={cn("text-[10px]", PRIORITY_COLOR[topic.priority])}>{topic.priority}</span>
-                <span className="text-[10px] text-muted-foreground ml-auto">{formatDate(topic.modifiedDate)}</span>
-              </div>
-              {topic.comments.length > 0 && (
-                <div className="pl-5 text-[10px] text-muted-foreground">{topic.comments.length} Kommentar(e)</div>
+              {/* Snapshot thumbnail */}
+              {topic.snapshot ? (
+                <img src={topic.snapshot} alt="" className="w-12 h-10 object-cover rounded-[3px] shrink-0 border border-border/50" />
+              ) : (
+                <div className="w-12 h-10 rounded-[3px] bg-muted/40 border border-border/30 shrink-0 flex items-center justify-center text-muted-foreground/30">
+                  <Camera size={14} />
+                </div>
               )}
+              <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <div className="flex items-start gap-1">
+                  <span className="text-muted-foreground shrink-0 mt-0.5">{TYPE_ICON[topic.type]}</span>
+                  <span className="font-medium text-[12px] leading-snug line-clamp-2 flex-1">{topic.title}</span>
+                  <ChevronRight size={11} className="shrink-0 text-muted-foreground/40 mt-0.5" />
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className={cn("text-[10px] px-1.5 py-0 rounded-[3px] border", STATUS_COLOR[topic.status])}>
+                    {topic.status}
+                  </span>
+                  <span className={cn("text-[10px]", PRIORITY_COLOR[topic.priority])}>{topic.priority}</span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">{formatDate(topic.modifiedDate)}</span>
+                </div>
+                {topic.comments.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground">{topic.comments.length} Kommentar(e)</span>
+                )}
+              </div>
             </button>
           ))}
         </div>
@@ -200,127 +211,223 @@ export function BCFPanel() {
             </div>
           ) : (
             <>
+              {/* Snapshot lightbox */}
+              {snapshotOpen && activeTopic.snapshot && (
+                <div
+                  className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center"
+                  onClick={() => setSnapshotOpen(false)}
+                >
+                  <img src={activeTopic.snapshot} alt="Snapshot" className="max-w-full max-h-full object-contain" />
+                </div>
+              )}
+
               {/* Topic header */}
               <div className="px-4 py-3 border-b border-border shrink-0">
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-2 mb-2">
                   <input
-                    className="flex-1 font-semibold text-[15px] bg-transparent border-none outline-none"
+                    className="flex-1 font-semibold text-[14px] bg-transparent border-none outline-none"
                     value={activeTopic.title}
                     onChange={(e) => updateTopic(activeTopic.id, { title: e.target.value })}
                   />
                   <button
-                    onClick={() => { deleteTopic(activeTopic.id); }}
-                    className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                    onClick={() => deleteTopic(activeTopic.id)}
+                    className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded-[4px]"
                     title="Thema löschen"
                   >
                     <Trash2 size={14} />
                   </button>
                 </div>
 
-                {/* Metadata row */}
-                <div className="flex flex-wrap gap-3 mt-2">
+                {/* Status / Type / Priority row */}
+                <div className="flex flex-wrap gap-2 mb-2">
                   <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     Status:
                     <select
                       value={activeTopic.status}
                       onChange={(e) => updateTopic(activeTopic.id, { status: e.target.value as BcfTopicStatus })}
-                      className="ml-1 text-[11px] bg-background border border-border rounded px-1 py-0.5"
+                      className="ml-1 text-[11px] bg-background border border-border rounded-[4px] px-1 py-0.5"
                     >
                       {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </label>
-
                   <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     Typ:
                     <select
                       value={activeTopic.type}
                       onChange={(e) => updateTopic(activeTopic.id, { type: e.target.value as BcfTopicType })}
-                      className="ml-1 text-[11px] bg-background border border-border rounded px-1 py-0.5"
+                      className="ml-1 text-[11px] bg-background border border-border rounded-[4px] px-1 py-0.5"
                     >
                       {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </label>
-
                   <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     Priorität:
                     <select
                       value={activeTopic.priority}
                       onChange={(e) => updateTopic(activeTopic.id, { priority: e.target.value as BcfPriority })}
-                      className="ml-1 text-[11px] bg-background border border-border rounded px-1 py-0.5"
+                      className="ml-1 text-[11px] bg-background border border-border rounded-[4px] px-1 py-0.5"
                     >
                       {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
                     </select>
                   </label>
                 </div>
 
-                <div className="flex flex-wrap gap-3 mt-1">
+                {/* Metadata row */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
                   <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     <User size={10} /> {activeTopic.creationAuthor}
                   </span>
                   <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <Clock size={10} /> {formatDate(activeTopic.creationDate)}
+                    <Clock size={10} /> Erstellt: {formatDate(activeTopic.creationDate)}
                   </span>
+                  {activeTopic.modifiedDate !== activeTopic.creationDate && (
+                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Clock size={10} /> Geändert: {formatDate(activeTopic.modifiedDate)}
+                      {activeTopic.modifiedAuthor && ` (${activeTopic.modifiedAuthor})`}
+                    </span>
+                  )}
+                  {activeTopic.dueDate && (
+                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Calendar size={10} /> Fällig: {formatDate(activeTopic.dueDate)}
+                    </span>
+                  )}
+                  {activeTopic.stage && (
+                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Tag size={10} /> Phase: {activeTopic.stage}
+                    </span>
+                  )}
+                  {activeTopic.assignedTo && (
+                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <User size={10} /> Zugewiesen: {activeTopic.assignedTo}
+                    </span>
+                  )}
                   {activeTopic.labels.length > 0 && (
                     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                       <Tag size={10} />
                       {activeTopic.labels.map((l) => (
-                        <span key={l} className="px-1.5 py-0.5 bg-muted rounded text-[10px]">{l}</span>
+                        <span key={l} className="px-1.5 py-0 bg-muted rounded-[3px] text-[10px] border border-border">{l}</span>
                       ))}
                     </span>
                   )}
                 </div>
               </div>
 
-              {/* Description */}
-              {(activeTopic.description !== undefined || activeTopic.source !== "manual") && (
-                <div className="px-4 py-2 border-b border-border/50 shrink-0">
+              {/* Scrollable detail body */}
+              <div className="flex-1 overflow-y-auto">
+                {/* Snapshot + Viewpoint */}
+                {(activeTopic.snapshot || activeTopic.viewpoint) && (
+                  <div className="px-4 py-3 border-b border-border/50 flex gap-3">
+                    {activeTopic.snapshot && (
+                      <button
+                        onClick={() => setSnapshotOpen(true)}
+                        className="relative shrink-0 group"
+                        title="Screenshot vergrößern"
+                      >
+                        <img
+                          src={activeTopic.snapshot}
+                          alt="Snapshot"
+                          className="h-24 w-36 object-cover rounded-[4px] border border-border group-hover:opacity-90 transition-opacity"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Eye size={18} className="text-white drop-shadow" />
+                        </div>
+                      </button>
+                    )}
+                    {activeTopic.viewpoint && (
+                      <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                        <span className="font-semibold text-foreground text-[12px] flex items-center gap-1">
+                          <MapPin size={11} /> Viewpoint
+                        </span>
+                        {activeTopic.viewpoint.cameraPosition && (
+                          <span className="font-mono text-[10px]">
+                            Pos: {activeTopic.viewpoint.cameraPosition.x.toFixed(2)},
+                            {" "}{activeTopic.viewpoint.cameraPosition.y.toFixed(2)},
+                            {" "}{activeTopic.viewpoint.cameraPosition.z.toFixed(2)}
+                          </span>
+                        )}
+                        {activeTopic.viewpoint.fieldOfView && (
+                          <span>FoV: {activeTopic.viewpoint.fieldOfView.toFixed(1)}°</span>
+                        )}
+                        {(activeTopic.viewpoint.selectedIfcGuids?.length ?? 0) > 0 && (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-medium text-foreground">
+                              Selektierte Elemente ({activeTopic.viewpoint.selectedIfcGuids!.length}):
+                            </span>
+                            <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
+                              {activeTopic.viewpoint.selectedIfcGuids!.map((g) => (
+                                <span key={g} className="font-mono text-[9px] bg-muted px-1 py-0 rounded-[3px] border border-border">{g}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {(activeTopic.viewpoint.coloring?.length ?? 0) > 0 && (
+                          <span>{activeTopic.viewpoint.coloring!.length} Farbgruppe(n)</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Description */}
+                <div className="px-4 py-3 border-b border-border/50">
                   <textarea
-                    className="w-full text-[12px] bg-muted/20 border border-border/50 rounded p-2 outline-none resize-none min-h-[60px]"
+                    className="w-full text-[12px] bg-muted/20 border border-border/50 rounded-[4px] p-2 outline-none resize-none min-h-[60px] focus:ring-1 focus:ring-primary"
                     value={activeTopic.description ?? ""}
                     placeholder="Beschreibung…"
                     onChange={(e) => updateTopic(activeTopic.id, { description: e.target.value || undefined })}
                   />
                 </div>
-              )}
 
-              {/* Related elements */}
-              {activeTopic.relatedExpressIds && activeTopic.relatedExpressIds.length > 0 && (
-                <div className="px-4 py-2 border-b border-border/50 shrink-0 text-[11px] text-muted-foreground">
-                  <span className="font-medium text-foreground mr-2">Verknüpfte Elemente:</span>
-                  {activeTopic.relatedExpressIds.slice(0, 5).map((r, i) => (
-                    <span key={i} className="mr-2">#{r.expressId}</span>
-                  ))}
-                  {activeTopic.relatedExpressIds.length > 5 && <span>+{activeTopic.relatedExpressIds.length - 5} weitere</span>}
-                </div>
-              )}
-
-              {/* Comment thread */}
-              <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-                {activeTopic.comments.length === 0 && (
-                  <div className="text-[12px] text-muted-foreground text-center py-4">Noch keine Kommentare.</div>
-                )}
-                {activeTopic.comments.map((c) => (
-                  <div key={c.id} className="flex flex-col gap-1 bg-muted/30 rounded-[6px] px-3 py-2 border border-border/40">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-medium">{c.author}</span>
-                      <span className="text-[10px] text-muted-foreground">{formatDate(c.date)}</span>
-                      <button
-                        onClick={() => deleteComment(activeTopic.id, c.id)}
-                        className="ml-auto text-muted-foreground/50 hover:text-destructive transition-colors"
-                      >
-                        <X size={11} />
-                      </button>
-                    </div>
-                    <p className="text-[12px] whitespace-pre-wrap">{c.text}</p>
+                {/* Related express IDs */}
+                {activeTopic.relatedExpressIds && activeTopic.relatedExpressIds.length > 0 && (
+                  <div className="px-4 py-2 border-b border-border/50 text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground mr-2">Verknüpfte Elemente:</span>
+                    {activeTopic.relatedExpressIds.slice(0, 8).map((r, i) => (
+                      <span key={i} className="mr-2 font-mono">#{r.expressId}</span>
+                    ))}
+                    {activeTopic.relatedExpressIds.length > 8 && (
+                      <span>+{activeTopic.relatedExpressIds.length - 8} weitere</span>
+                    )}
                   </div>
-                ))}
+                )}
+
+                {/* Comment thread */}
+                <div className="px-4 py-3 flex flex-col gap-3">
+                  {activeTopic.comments.length === 0 && (
+                    <div className="text-[12px] text-muted-foreground text-center py-2">Noch keine Kommentare.</div>
+                  )}
+                  {activeTopic.comments.map((c) => (
+                    <div key={c.id} className="flex flex-col gap-1 bg-muted/20 rounded-[6px] px-3 py-2 border border-border/40">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-medium">{c.author || "—"}</span>
+                        <span className="text-[10px] text-muted-foreground">{formatDate(c.date)}</span>
+                        {c.modifiedDate && c.modifiedDate !== c.date && (
+                          <span className="text-[10px] text-muted-foreground/60">
+                            (geändert {formatDate(c.modifiedDate)}{c.modifiedAuthor ? ` von ${c.modifiedAuthor}` : ""})
+                          </span>
+                        )}
+                        <button
+                          onClick={() => deleteComment(activeTopic.id, c.id)}
+                          className="ml-auto text-muted-foreground/40 hover:text-destructive transition-colors"
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                      {c.text ? (
+                        <p className="text-[12px] whitespace-pre-wrap">{c.text}</p>
+                      ) : (
+                        <p className="text-[11px] text-muted-foreground/50 italic">(kein Text)</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* New comment input */}
               <div className="px-4 py-3 border-t border-border shrink-0 flex gap-2">
                 <textarea
-                  className="flex-1 text-[12px] bg-muted/20 border border-border rounded p-2 outline-none resize-none min-h-[56px]"
-                  placeholder="Kommentar hinzufügen…"
+                  className="flex-1 text-[12px] bg-muted/20 border border-border rounded-[4px] p-2 outline-none resize-none min-h-[52px] focus:ring-1 focus:ring-primary"
+                  placeholder="Kommentar hinzufügen… (Strg+Enter)"
                   value={newCommentText}
                   onChange={(e) => setNewCommentText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) handleAddComment(); }}
@@ -328,7 +435,7 @@ export function BCFPanel() {
                 <button
                   onClick={handleAddComment}
                   disabled={!newCommentText.trim()}
-                  className="self-end px-3 py-2 rounded-[4px] bg-primary text-primary-foreground disabled:opacity-40 flex items-center gap-1 text-[12px]"
+                  className="self-end px-3 py-2 rounded-[4px] bg-primary text-primary-foreground disabled:opacity-40 flex items-center gap-1 text-[12px] hover:bg-primary/90"
                 >
                   <Send size={13} /> Senden
                 </button>
