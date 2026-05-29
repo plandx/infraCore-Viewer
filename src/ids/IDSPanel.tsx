@@ -572,10 +572,10 @@ export function IDSPanel() {
   };
 
   return (
-    <div className="fixed inset-0 top-[77px] z-50 flex bg-black/40 backdrop-blur-sm">
+    <div className="flex h-full overflow-hidden bg-background">
       <input ref={idsInputRef} type="file" accept=".ids,.xml" className="hidden" onChange={handleLoadFile} />
 
-      <div className="flex flex-1 m-4 rounded-xl border border-border shadow-2xl overflow-hidden bg-background">
+      <div className="flex flex-1 overflow-hidden">
 
         {/* Left sidebar */}
         <div className="w-64 shrink-0 flex flex-col border-r border-border bg-card/50">

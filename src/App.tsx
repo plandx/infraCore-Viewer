@@ -35,6 +35,7 @@ import { FaceCrossSectionPanel } from "./alignment/FaceCrossSectionPanel";
 import { useAlignmentStore } from "./alignment/alignmentStore";
 import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
+import { useIdsStore } from "./ids/idsStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache, LABEL_TO_IFC } from "./utils/ifcLoader";
 import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
 import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel } from "./utils/windowSync";
@@ -530,6 +531,8 @@ function MainApp() {
   const alignmentPanelOpen = useAlignmentStore(s => s.panelOpen);
   const toggleAlignmentPanel = useAlignmentStore(s => s.togglePanel);
 
+  const idsPanelOpen = useIdsStore(s => s.idsPanelOpen);
+
   const leftPanelRef  = useRef<PanelImperativeHandle | null>(null);
   const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
   const [leftCollapsed, setLeftCollapsed]   = useState(false);
@@ -850,8 +853,12 @@ function MainApp() {
         </div>
       )}
 
-      {/* Main 3-column layout */}
+      {/* Main content area — IDS panel or 3-column viewer layout */}
       <div className="flex-1 min-h-0">
+        {idsPanelOpen ? (
+          <IDSPanel />
+        ) : null}
+        <div className={idsPanelOpen ? "hidden" : "h-full"}>
         <PanelGroup orientation="horizontal" className="h-full">
 
           <Panel
@@ -1029,6 +1036,7 @@ function MainApp() {
           </Panel>
 
         </PanelGroup>
+        </div>
       </div>
 
       <StatusBar />
@@ -1038,7 +1046,6 @@ function MainApp() {
       )}
 
       {settingsPanelOpen && <SettingsPanel />}
-      <IDSPanel />
     </div>
   );
 }
