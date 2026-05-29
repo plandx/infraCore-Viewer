@@ -1,8 +1,8 @@
-import { useState, useRef, useId, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import {
   FileCheck2, Plus, Trash2, ChevronDown, ChevronRight, Play, Download, Upload,
   FilePlus, X, Check, AlertTriangle, Info, Tag, Database, Box, Layers, Hash,
-  List, Shield, Search, FolderOpen,
+  List, Shield, Search, FolderOpen, Pencil,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useIdsStore } from "./idsStore";
@@ -71,50 +71,82 @@ function SimpleValueEditor({
   );
 }
 
-// ── Searchable IFC-Type dropdown ───────────────────────────────────────────────
+// ── Multi-select IFC-Type input ────────────────────────────────────────────────
+// Stores selected types as a pipe-separated simpleValue: "IFCWALL|IFCBEAM|..."
 
-function IfcTypeInput({
+function IfcTypeMultiSelect({
   value, onChange,
 }: {
-  value: string;
+  value: string;          // pipe-separated, e.g. "IFCWALL|IFCBEAM"
   onChange: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Parse existing tags
+  const selected = useMemo(
+    () => value.split("|").map((s) => s.trim()).filter(Boolean),
+    [value],
+  );
 
   const filtered = useMemo(() => {
-    const q = (search || value).toUpperCase();
-    if (!q) return IFC_TYPES;
-    return IFC_TYPES.filter((t) => t.includes(q));
-  }, [search, value]);
+    const q = search.toUpperCase();
+    return IFC_TYPES.filter((t) => (!q || t.includes(q)) && !selected.includes(t));
+  }, [search, selected]);
 
-  const select = (t: string) => {
-    onChange(t);
-    setOpen(false);
+  const add = (t: string) => {
+    const next = [...selected, t];
+    onChange(next.join("|"));
     setSearch("");
+    inputRef.current?.focus();
+  };
+
+  const remove = (t: string) => {
+    const next = selected.filter((s) => s !== t);
+    onChange(next.join("|"));
   };
 
   return (
-    <div ref={wrapRef} className="relative">
-      <input
-        className="w-full bg-muted/40 border border-border rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-        value={open ? search : value}
-        placeholder="z.B. IFCWALL"
-        onFocus={() => { setOpen(true); setSearch(""); }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onChange={(e) => {
-          setSearch(e.target.value.toUpperCase());
-          onChange(e.target.value.toUpperCase());
-        }}
-      />
-      {open && filtered.length > 0 && (
-        <div className="absolute z-50 top-full mt-0.5 left-0 right-0 bg-popover border border-border rounded shadow-lg max-h-48 overflow-y-auto">
-          {filtered.slice(0, 40).map((t) => (
+    <div className="relative">
+      {/* Tag list + search input */}
+      <div
+        className="flex flex-wrap gap-1 min-h-[30px] bg-muted/40 border border-border rounded px-2 py-1 cursor-text focus-within:ring-1 focus-within:ring-primary/50"
+        onClick={() => { setOpen(true); inputRef.current?.focus(); }}
+      >
+        {selected.map((t) => (
+          <span key={t} className="flex items-center gap-1 bg-primary/15 text-primary text-[10px] rounded px-1.5 py-0.5 font-medium">
+            {t}
+            <button
+              className="hover:text-destructive transition-colors"
+              onMouseDown={(e) => { e.preventDefault(); remove(t); }}
+            >
+              <X size={9} />
+            </button>
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          className="flex-1 min-w-[80px] bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+          placeholder={selected.length === 0 ? "IFC-Typ suchen und hinzufügen…" : "Weiteren Typ hinzufügen…"}
+          value={search}
+          onChange={(e) => { setSearch(e.target.value.toUpperCase()); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+        />
+      </div>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-50 top-full mt-0.5 left-0 right-0 bg-popover border border-border rounded shadow-lg max-h-52 overflow-y-auto">
+          {filtered.length === 0 && (
+            <p className="px-3 py-2 text-[11px] text-muted-foreground">Keine weiteren Typen</p>
+          )}
+          {filtered.slice(0, 50).map((t) => (
             <button
               key={t}
-              className="w-full text-left px-2 py-1 text-[11px] text-foreground hover:bg-primary/10 hover:text-primary transition-colors"
-              onMouseDown={(e) => { e.preventDefault(); select(t); }}
+              className="w-full text-left px-3 py-1.5 text-[11px] text-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+              onMouseDown={(e) => { e.preventDefault(); add(t); }}
             >
               {t}
             </button>
@@ -146,9 +178,11 @@ function EntityFacetEditor({ facet, onChange }: { facet: IdsEntityFacet; onChang
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <label className="text-[10px] text-muted-foreground uppercase tracking-wide">IFC-Typ</label>
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wide">
+          IFC-Typ(en) <span className="normal-case text-muted-foreground/60">(Mehrfachauswahl möglich)</span>
+        </label>
         <div className="mt-0.5">
-          <IfcTypeInput
+          <IfcTypeMultiSelect
             value={typeStr}
             onChange={(v) => onChange({ ...facet, name: { type: "simple", value: v } })}
           />
@@ -340,12 +374,11 @@ function GroupedRequirementsView({
   onRemove: (index: number) => void;
 }) {
   const [expandedPsets, setExpandedPsets] = useState<Set<string>>(new Set());
+  // Set of original facet indices currently in edit mode
+  const [editingIndices, setEditingIndices] = useState<Set<number>>(new Set());
 
-  const nonProps = facets
-    .map((f, i) => ({ f, i }))
-    .filter(({ f }) => f.type !== "property");
+  const nonProps = facets.map((f, i) => ({ f, i })).filter(({ f }) => f.type !== "property");
 
-  // Group property facets by pset name
   const psetGroups = new Map<string, { f: IdsPropertyFacet; i: number }[]>();
   facets.forEach((f, i) => {
     if (f.type !== "property") return;
@@ -357,14 +390,19 @@ function GroupedRequirementsView({
 
   const sortedPsets = Array.from(psetGroups.keys()).sort();
 
-  const togglePset = (name: string) => {
+  const togglePset = (name: string) =>
     setExpandedPsets((prev) => {
       const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+      next.has(name) ? next.delete(name) : next.add(name);
       return next;
     });
-  };
+
+  const toggleEdit = (idx: number) =>
+    setEditingIndices((prev) => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -388,7 +426,7 @@ function GroupedRequirementsView({
               <FolderOpen size={12} className="text-primary/70 shrink-0" />
               <span className="text-xs font-semibold text-foreground flex-1 truncate">{psetName}</span>
               <span className="text-[10px] text-muted-foreground bg-muted/40 rounded px-1.5 py-0.5 shrink-0">
-                {items.length} Eigenschaften
+                {items.length}
               </span>
               {isExpanded
                 ? <ChevronDown size={12} className="text-muted-foreground shrink-0" />
@@ -399,33 +437,62 @@ function GroupedRequirementsView({
               <div className="border-t border-border/50 divide-y divide-border/30">
                 {items.map(({ f, i }) => {
                   const propName = f.baseName.type === "simple" ? f.baseName.value : "…";
-                  const hasValue = f.value?.type === "simple" && f.value.value;
+                  const hasValue = f.value?.type === "simple" && (f.value as { value: string }).value;
+                  const isEditing = editingIndices.has(i);
+
                   return (
-                    <div key={i} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/20 group">
-                      <Database size={11} className="text-primary/50 shrink-0" />
-                      <span className="text-xs text-foreground flex-1 truncate font-medium">{propName}</span>
-                      {hasValue && (
-                        <span className="text-[10px] text-muted-foreground bg-muted/40 rounded px-1 shrink-0 truncate max-w-[80px]">
-                          = {(f.value as { value: string }).value}
+                    <div key={i}>
+                      {/* Compact row */}
+                      <div className="flex items-center gap-2 px-3 py-2 hover:bg-muted/20 group">
+                        <Database size={11} className="text-primary/50 shrink-0" />
+                        <span className="text-xs text-foreground flex-1 truncate font-medium">{propName}</span>
+                        {hasValue && (
+                          <span className="text-[10px] text-muted-foreground bg-muted/40 rounded px-1 shrink-0 truncate max-w-[80px]">
+                            = {(f.value as { value: string }).value}
+                          </span>
+                        )}
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded shrink-0",
+                          f.cardinality === "required" ? "bg-primary/10 text-primary" :
+                          f.cardinality === "prohibited" ? "bg-destructive/10 text-destructive" :
+                          "bg-muted/40 text-muted-foreground"
+                        )}>
+                          {CARDINALITY_LABELS[f.cardinality]}
                         </span>
+                        {f.dataType && (
+                          <span className="text-[10px] text-muted-foreground/60 shrink-0 hidden group-hover:inline">{f.dataType}</span>
+                        )}
+                        {/* Edit / delete buttons */}
+                        <button
+                          className={cn(
+                            "p-0.5 rounded transition-all shrink-0",
+                            isEditing
+                              ? "text-primary"
+                              : "opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary"
+                          )}
+                          title="Bearbeiten"
+                          onClick={() => toggleEdit(i)}
+                        >
+                          <Pencil size={10} />
+                        </button>
+                        <button
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-destructive transition-all shrink-0"
+                          title="Entfernen"
+                          onClick={() => { setEditingIndices((prev) => { const n = new Set(prev); n.delete(i); return n; }); onRemove(i); }}
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+
+                      {/* Inline editor */}
+                      {isEditing && (
+                        <div className="px-3 pb-3 pt-2 bg-muted/10 border-t border-border/30">
+                          <PropertyFacetEditor
+                            facet={f}
+                            onChange={(nf) => onUpdate(i, nf)}
+                          />
+                        </div>
                       )}
-                      <span className={cn(
-                        "text-[10px] px-1.5 py-0.5 rounded shrink-0",
-                        f.cardinality === "required" ? "bg-primary/10 text-primary" :
-                        f.cardinality === "prohibited" ? "bg-destructive/10 text-destructive" :
-                        "bg-muted/40 text-muted-foreground"
-                      )}>
-                        {CARDINALITY_LABELS[f.cardinality]}
-                      </span>
-                      {f.dataType && (
-                        <span className="text-[10px] text-muted-foreground/60 shrink-0">{f.dataType}</span>
-                      )}
-                      <button
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-destructive transition-all shrink-0"
-                        onClick={() => onRemove(i)}
-                      >
-                        <Trash2 size={10} />
-                      </button>
                     </div>
                   );
                 })}

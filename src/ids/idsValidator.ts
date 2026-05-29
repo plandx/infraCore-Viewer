@@ -34,9 +34,55 @@ function matchValue(value: IdsValue, actual: string): boolean {
 function normalizeIfcType(label: string): string {
   const ifcName = LABEL_TO_IFC[label];
   if (ifcName) return ifcName.toUpperCase(); // "Wand" → "IFCWALL"
-  // Fallback: already an IFC name or unknown label
   const up = label.toUpperCase();
   return up.startsWith("IFC") ? up : `IFC${up}`;
+}
+
+// ── Applicability checkers (used for filtering, not reporting) ─────────────────
+
+function elementMatchesApplicability(
+  spec: IdsSpecification,
+  normalizedType: string,
+  name: string | undefined,
+  flat: FlatElementProps,
+): boolean {
+  for (const facet of spec.applicability) {
+    switch (facet.type) {
+      case "entity": {
+        if (!matchValue(facet.name, normalizedType)) return false;
+        break;
+      }
+      case "attribute": {
+        const attrName = facet.name.type === "simple" ? facet.name.value : "";
+        const attrVal = flat[attrName] !== undefined
+          ? String(flat[attrName])
+          : attrName === "Name" ? (name ?? "") : "";
+        if (facet.cardinality === "prohibited") {
+          if (attrVal) return false;
+        } else {
+          if (!attrVal) return false;
+          if (facet.value && !matchValue(facet.value, attrVal)) return false;
+        }
+        break;
+      }
+      case "property": {
+        const psetName = facet.propertySet.type === "simple" ? facet.propertySet.value : null;
+        const propName = facet.baseName.type === "simple" ? facet.baseName.value : null;
+        if (!psetName || !propName) break;
+        const propValue = flat[`${psetName}.${propName}`] ?? flat[propName];
+        const strVal = propValue !== undefined && propValue !== null ? String(propValue) : "";
+        if (facet.cardinality === "prohibited") {
+          if (strVal) return false;
+        } else {
+          if (!strVal) return false;
+          if (facet.value && !matchValue(facet.value, strVal)) return false;
+        }
+        break;
+      }
+      // classification / material / partOf: skip (cannot check without full IFC API)
+    }
+  }
+  return true;
 }
 
 // ── Element collection ─────────────────────────────────────────────────────────
@@ -49,7 +95,7 @@ function getApplicableElements(
   modelId: string; expressId: number; type: string; name?: string;
   flat: FlatElementProps;
 }> {
-  const entityFacets = spec.applicability.filter((f) => f.type === "entity") as IdsEntityFacet[];
+  const hasEntityFacet = spec.applicability.some((f) => f.type === "entity");
   const result: Array<{
     modelId: string; expressId: number; type: string; name?: string;
     flat: FlatElementProps;
@@ -61,20 +107,26 @@ function getApplicableElements(
 
     for (const [label, elements] of Object.entries(model.elementsByType)) {
       const normalizedType = normalizeIfcType(label);
-      // Skip if entity facets are defined and none match
-      if (entityFacets.length > 0 && !entityFacets.some((f) => matchValue(f.name, normalizedType))) {
-        continue;
+
+      // Quick pre-filter: if any entity facet exists, check type first (cheap)
+      if (hasEntityFacet) {
+        const entityFacets = spec.applicability.filter((f) => f.type === "entity") as IdsEntityFacet[];
+        if (!entityFacets.some((f) => matchValue(f.name, normalizedType))) continue;
       }
+
       for (const el of elements) {
         const flat: FlatElementProps = propMap?.get(el.expressId) ?? {};
-        result.push({ modelId, expressId: el.expressId, type: normalizedType, name: el.name, flat });
+        // Full applicability check (entity + attribute + property facets)
+        if (elementMatchesApplicability(spec, normalizedType, el.name, flat)) {
+          result.push({ modelId, expressId: el.expressId, type: normalizedType, name: el.name, flat });
+        }
       }
     }
   }
   return result;
 }
 
-// ── Facet checkers ─────────────────────────────────────────────────────────────
+// ── Requirement facet checkers ─────────────────────────────────────────────────
 
 function checkPropertyFacet(
   facet: IdsPropertyFacet,
@@ -84,7 +136,6 @@ function checkPropertyFacet(
   const propName = facet.baseName.type === "simple" ? facet.baseName.value : null;
   if (!psetName || !propName) return null;
 
-  // Look up "PSetName.PropertyName" first, then just "PropertyName"
   const propValue = flat[`${psetName}.${propName}`] ?? flat[propName];
 
   if (facet.cardinality === "prohibited") {
@@ -117,7 +168,6 @@ function checkAttributeFacet(
   name?: string,
 ): IdsFailureDetail | null {
   const attrName = facet.name.type === "simple" ? facet.name.value : "";
-  // Resolve value: check flat props first, then fall back to element name for "Name"
   const attrValue = flat[attrName] !== undefined
     ? String(flat[attrName])
     : attrName === "Name" ? (name ?? "") : "";
@@ -192,3 +242,4 @@ export function validateIdsDocument(
     timestamp: new Date().toISOString(), results,
   };
 }
+
