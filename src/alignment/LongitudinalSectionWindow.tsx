@@ -387,12 +387,16 @@ export function LongitudinalSectionWindow() {
         setViewSta([pivot - (pivot - cur[0]) * f, pivot + (cur[1] - pivot) * f]);
       }
 
-      // Elevation axis (Y) — use vpRef for always-current range
+      // Elevation axis (Y) — pivot in visual (exaggerated) space, then convert back to raw
       if (!ly) {
-        const cur: [number, number] = [vp.rawVEMin, vp.rawVEMax];
-        const frac  = 1 - Math.max(0, Math.min(1, (svgY - M.top) / vp.chartH));
-        const pivot = cur[0] + frac * (cur[1] - cur[0]);
-        setViewElev([pivot - (pivot - cur[0]) * f, pivot + (cur[1] - pivot) * f]);
+        const frac     = 1 - Math.max(0, Math.min(1, (svgY - M.top) / vp.chartH));
+        const pivotVis = vp.vEMin + frac * vp.vERange;
+        const vEMin_new = pivotVis - frac * vp.vERange * f;
+        const vEMax_new = pivotVis + (1 - frac) * vp.vERange * f;
+        // Convert visual range back to raw: center is the same, half scales by vExag
+        const vECenter  = (vEMin_new + vEMax_new) / 2;
+        const rawHalf   = (vEMax_new - vEMin_new) / 2 * vExagRef.current;
+        setViewElev([vECenter - rawHalf, vECenter + rawHalf]);
       }
 
       svgRectRef.current = null;
