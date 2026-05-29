@@ -73,6 +73,94 @@ function SimpleValueEditor({
   );
 }
 
+// Handles both simple values and xs:restriction enumeration lists.
+// Shows chips for each allowed value; a small list icon toggles into enumeration mode.
+function ValueEditor({
+  value, onChange, placeholder,
+}: {
+  value: IdsValue | undefined;
+  onChange: (v: IdsValue | undefined) => void;
+  placeholder?: string;
+}) {
+  const [newEnum, setNewEnum] = useState("");
+  const isEnum = value?.type === "restriction" &&
+    value.restrictions.some((r) => r.kind === "enumeration");
+
+  if (!isEnum) {
+    return (
+      <div className="flex gap-1">
+        <input
+          className="flex-1 bg-muted/40 border border-border rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+          value={value?.type === "simple" ? value.value : ""}
+          placeholder={placeholder ?? "Wert…"}
+          onChange={(e) => onChange(e.target.value ? { type: "simple", value: e.target.value } : undefined)}
+        />
+        <button
+          className="px-2 rounded border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors"
+          title="Auf Aufzählung umschalten"
+          onClick={() => onChange({ type: "restriction", base: "xs:string", restrictions: [] })}
+        >
+          <List size={11} />
+        </button>
+      </div>
+    );
+  }
+
+  const enums = (value as Extract<IdsValue, { type: "restriction" }>)
+    .restrictions.filter((r) => r.kind === "enumeration").map((r) => r.value);
+  const base = (value as Extract<IdsValue, { type: "restriction" }>).base;
+
+  const addEnum = () => {
+    const v = newEnum.trim();
+    if (!v || enums.includes(v)) return;
+    onChange({ type: "restriction", base, restrictions: [...enums, v].map((val) => ({ kind: "enumeration" as const, value: val })) });
+    setNewEnum("");
+  };
+
+  const removeEnum = (val: string) => {
+    const remaining = enums.filter((e) => e !== val);
+    onChange(remaining.length > 0
+      ? { type: "restriction", base, restrictions: remaining.map((v) => ({ kind: "enumeration" as const, value: v })) }
+      : undefined);
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap gap-1 min-h-[30px] bg-muted/40 border border-border rounded px-2 py-1">
+        {enums.length === 0 && <span className="text-[10px] text-muted-foreground/50 self-center">Erlaubte Werte…</span>}
+        {enums.map((v) => (
+          <span key={v} className="flex items-center gap-1 bg-primary/15 text-primary text-[10px] rounded px-1.5 py-0.5 font-medium">
+            {v}
+            <button onMouseDown={(e) => { e.preventDefault(); removeEnum(v); }} className="hover:text-destructive transition-colors">
+              <X size={9} />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-1">
+        <input
+          className="flex-1 bg-muted/40 border border-border rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+          value={newEnum}
+          placeholder="Wert eingeben + Enter…"
+          onChange={(e) => setNewEnum(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addEnum(); } }}
+        />
+        <button
+          className="px-2 py-1 text-[10px] rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-bold"
+          onClick={addEnum}
+        >+</button>
+        <button
+          className="px-2 rounded border border-dashed border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors"
+          title="Zurück zu einfachem Wert"
+          onClick={() => onChange(undefined)}
+        >
+          <X size={10} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Multi-select IFC-Type input ────────────────────────────────────────────────
 // Stores selected types as a pipe-separated simpleValue: "IFCWALL|IFCBEAM|..."
 
@@ -265,7 +353,7 @@ function PropertyFacetEditor({ facet, onChange }: { facet: IdsPropertyFacet; onC
         <div>
           <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Erwarteter Wert (optional)</label>
           <div className="mt-0.5">
-            <SimpleValueEditor value={facet.value} onChange={(v) => onChange({ ...facet, value: v })} />
+            <ValueEditor value={facet.value} onChange={(v) => onChange({ ...facet, value: v })} />
           </div>
         </div>
         <div>
@@ -455,8 +543,15 @@ function GroupedRequirementsView({
               <div className="border-t border-border/50 divide-y divide-border/30">
                 {items.map(({ f, i }) => {
                   const propName = f.baseName.type === "simple" ? f.baseName.value : "…";
-                  const hasValue = f.value?.type === "simple" && (f.value as { value: string }).value;
                   const isEditing = editingIndices.has(i);
+
+                  const valueLabel = (() => {
+                    if (!f.value) return null;
+                    if (f.value.type === "simple") return `= ${f.value.value}`;
+                    const enums = f.value.restrictions.filter((r) => r.kind === "enumeration").map((r) => r.value);
+                    if (enums.length > 0) return enums.join(" | ");
+                    return "(Einschränkung)";
+                  })();
 
                   return (
                     <div key={i}>
@@ -464,9 +559,9 @@ function GroupedRequirementsView({
                       <div className="flex items-center gap-2 px-3 py-2 hover:bg-muted/20 group">
                         <Database size={11} className="text-primary/50 shrink-0" />
                         <span className="text-xs text-foreground flex-1 truncate font-medium">{propName}</span>
-                        {hasValue && (
-                          <span className="text-[10px] text-muted-foreground bg-muted/40 rounded px-1 shrink-0 truncate max-w-[80px]">
-                            = {(f.value as { value: string }).value}
+                        {valueLabel && (
+                          <span className="text-[10px] text-muted-foreground bg-muted/40 rounded px-1 shrink-0 truncate max-w-[120px]" title={valueLabel}>
+                            {valueLabel}
                           </span>
                         )}
                         <span className={cn(
