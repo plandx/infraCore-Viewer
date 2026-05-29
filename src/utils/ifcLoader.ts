@@ -364,6 +364,37 @@ export async function loadIFCProperties(
     }
   } catch { /* element has no traversable inverse rels */ }
 
+  // Fallback: if no psets found, load from the aggregation parent (Decomposes).
+  // Common pattern in infrastructure IFC: sub-components (e.g. IfcBuildingElementProxy)
+  // are aggregated under a parent element that carries all the psets.
+  if (psets.length === 0) {
+    try {
+      const elemLine = api.GetLine(modelId, expressId, false, true) as RawLine | null;
+      for (const ref of toRefArray(elemLine?.Decomposes)) {
+        const relId = ref?.value;
+        if (!relId) continue;
+        try {
+          const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+          const parentId = (rel?.RelatingObject as { value?: number } | null)?.value;
+          if (!parentId) continue;
+          const parentLine = api.GetLine(modelId, parentId, false, true) as RawLine | null;
+          for (const dRef of toRefArray(parentLine?.IsDefinedBy)) {
+            const dRelId = dRef?.value;
+            if (!dRelId) continue;
+            try {
+              const dRel = api.GetLine(modelId, dRelId, false, false) as RawLine | null;
+              if (!dRel?.RelatingPropertyDefinition) continue;
+              for (const pref of toRefArray(dRel.RelatingPropertyDefinition)) {
+                const psetId = pref?.value;
+                if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+              }
+            } catch { /* skip */ }
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* no aggregation parent */ }
+  }
+
   return { properties: props, psets };
 }
 
