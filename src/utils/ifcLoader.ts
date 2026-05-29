@@ -287,100 +287,63 @@ export async function loadIFCProperties(
     }
   } catch { /* ignore — element may not have readable direct props */ }
 
-  // Manual pset traversal — bypasses getPropertySets() which throws when
-  // HasPropertySets=null on a type object (common for IfcBuildingElementProxy).
-  // Call GetLine(inverse=true) exactly ONCE per element so WASM state is stable.
   try {
-    const schema = (api as unknown as { GetModelSchema(m: number): string }).GetModelSchema(modelId);
-    const isIfc2x3 = schema === "IFC2X3";
-
-    // Single inverse lookup — covers IsDefinedBy, IsTypedBy/IsDeclaredBy in one call
+    const isIfc2x3 = api.GetModelSchema(modelId) === "IFC2X3";
     const elemLine = api.GetLine(modelId, expressId, false, true) as RawLine | null;
 
-    // ── Instance psets (IfcRelDefinesByProperties) ──────────────────────────
-    // In IFC2X3, IsDefinedBy includes BOTH property rels AND type rels
-    // In IFC4/4.3, IsDefinedBy is ONLY IfcRelDefinesByProperties
-    const isDefinedBy = elemLine?.IsDefinedBy;
-    const instanceRelRefs = toRefArray(isDefinedBy);
-    for (const ref of instanceRelRefs) {
+    for (const ref of toRefArray(elemLine?.IsDefinedBy)) {
       const relId = ref?.value;
       if (!relId) continue;
       try {
         const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-        if (!rel) continue;
-        // Only process IfcRelDefinesByProperties (has RelatingPropertyDefinition)
-        // IfcRelDefinesByType has RelatingType instead — skip it here
-        const relPropDef = rel.RelatingPropertyDefinition;
-        if (relPropDef == null) continue;
-        const psetRefs = toRefArray(relPropDef);
-        for (const pref of psetRefs) {
+        if (!rel?.RelatingPropertyDefinition) continue;
+        for (const pref of toRefArray(rel.RelatingPropertyDefinition)) {
           const psetId = pref?.value;
-          if (!psetId) continue;
-          await loadAndParsePset(api, modelId, psetId, psets);
+          if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
         }
-      } catch { /* skip malformed rel */ }
+      } catch { /* skip */ }
     }
 
-    // ── Type psets (IfcRelDefinesByType → TypeObject.HasPropertySets) ───────
-    // IFC2X3: type rels are mixed into IsDefinedBy (look for RelatingType)
-    // IFC4/4.3: use dedicated IsTypedBy inverse attribute
     const typeRelKey = isIfc2x3 ? "IsDefinedBy" : "IsTypedBy";
-    const typeRels = elemLine?.[typeRelKey];
-    const typeRelRefs = toRefArray(typeRels);
-    for (const ref of typeRelRefs) {
+    for (const ref of toRefArray(elemLine?.[typeRelKey])) {
       const relId = ref?.value;
       if (!relId) continue;
       try {
         const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-        if (!rel) continue;
-        const relatingType = rel.RelatingType;
-        if (relatingType == null) continue;
-        const typeId = (relatingType as { value?: number })?.value;
+        const typeId = (rel?.RelatingType as { value?: number } | null)?.value;
         if (!typeId) continue;
         const typeObj = api.GetLine(modelId, typeId, false) as RawLine | null;
-        if (!typeObj) continue;
-        const hasPsets = typeObj.HasPropertySets;
+        const hasPsets = typeObj?.HasPropertySets;
         if (!Array.isArray(hasPsets)) continue;
         for (const pref of hasPsets as { value?: number }[]) {
           const psetId = pref?.value;
-          if (!psetId) continue;
-          await loadAndParsePset(api, modelId, psetId, psets);
+          if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
         }
-      } catch { /* skip malformed type rel */ }
+      } catch { /* skip */ }
     }
 
-    // ── Object-inherited psets via IsDeclaredBy (IFC4/4.3 only) ────────────
-    // IfcRelDefinesByObject allows one object to inherit psets from another
     if (!isIfc2x3) {
-      const isDeclaredBy = elemLine?.IsDeclaredBy;
-      const declRefs = toRefArray(isDeclaredBy);
-      for (const ref of declRefs) {
+      for (const ref of toRefArray(elemLine?.IsDeclaredBy)) {
         const relId = ref?.value;
         if (!relId) continue;
         try {
           const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-          if (!rel) continue;
-          const relatingObjId = (rel.RelatingObject as { value?: number })?.value;
+          const relatingObjId = (rel?.RelatingObject as { value?: number } | null)?.value;
           if (!relatingObjId) continue;
-          // Load the defining object's instance psets
           const defObjLine = api.GetLine(modelId, relatingObjId, false, false) as RawLine | null;
-          if (!defObjLine) continue;
-          const defIsDefinedBy = toRefArray(defObjLine.IsDefinedBy);
-          for (const dRef of defIsDefinedBy) {
+          for (const dRef of toRefArray(defObjLine?.IsDefinedBy)) {
             const dRelId = dRef?.value;
             if (!dRelId) continue;
             try {
               const dRel = api.GetLine(modelId, dRelId, false, false) as RawLine | null;
               if (!dRel?.RelatingPropertyDefinition) continue;
-              const psetRefs = toRefArray(dRel.RelatingPropertyDefinition);
-              for (const pref of psetRefs) {
+              for (const pref of toRefArray(dRel.RelatingPropertyDefinition)) {
                 const psetId = pref?.value;
-                if (!psetId) continue;
-                await loadAndParsePset(api, modelId, psetId, psets);
+                if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
               }
             } catch { /* skip */ }
           }
-        } catch { /* skip malformed decl rel */ }
+        } catch { /* skip */ }
       }
     }
   } catch { /* element has no traversable inverse rels */ }
@@ -388,14 +351,12 @@ export async function loadIFCProperties(
   return { properties: props, psets };
 }
 
-/** Normalise any IFC reference value (single handle or array) into an array. */
 function toRefArray(v: unknown): { value?: number }[] {
   if (v == null) return [];
   if (Array.isArray(v)) return v as { value?: number }[];
   return [v as { value?: number }];
 }
 
-/** Load a single pset by expressId (recursive) and push it to the result array. */
 async function loadAndParsePset(
   api: WebIFC.IfcAPI,
   modelId: number,
@@ -421,6 +382,8 @@ export async function loadBasketProperties(
   const { api, modelId } = await getOrOpenPropModel(file);
   const result = new Map<number, { properties: Record<string, unknown>; psets: PropertySet[] }>();
 
+  const isIfc2x3 = api.GetModelSchema(modelId) === "IFC2X3";
+
   for (const eid of expressIds) {
     const props: Record<string, unknown> = {};
     const psets: PropertySet[] = [];
@@ -434,18 +397,42 @@ export async function loadBasketProperties(
           props[k] = scalar !== undefined ? scalar : v;
         }
       }
-    } catch { /* element may have no direct props */ }
+    } catch { /* ignore */ }
 
     try {
-      const _iPsets = await api.properties.getPropertySets(modelId, eid, true, false);
-      const _tPsets = await api.properties.getPropertySets(modelId, eid, true, true).catch(() => []);
-      const rawPsets = [..._iPsets, ..._tPsets];
-      for (const pset of rawPsets) {
-        if (!pset) continue;
-        const parsed = parsePsetLine(pset as RawLine);
-        if (parsed.properties.length > 0) psets.push(parsed);
+      const elemLine = api.GetLine(modelId, eid, false, true) as RawLine | null;
+
+      for (const ref of toRefArray(elemLine?.IsDefinedBy)) {
+        const relId = ref?.value;
+        if (!relId) continue;
+        try {
+          const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+          if (!rel?.RelatingPropertyDefinition) continue;
+          for (const pref of toRefArray(rel.RelatingPropertyDefinition)) {
+            const psetId = pref?.value;
+            if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+          }
+        } catch { /* skip */ }
       }
-    } catch { /* psets optional */ }
+
+      const typeRelKey = isIfc2x3 ? "IsDefinedBy" : "IsTypedBy";
+      for (const ref of toRefArray(elemLine?.[typeRelKey])) {
+        const relId = ref?.value;
+        if (!relId) continue;
+        try {
+          const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+          const typeId = (rel?.RelatingType as { value?: number } | null)?.value;
+          if (!typeId) continue;
+          const typeObj = api.GetLine(modelId, typeId, false) as RawLine | null;
+          const hasPsets = typeObj?.HasPropertySets;
+          if (!Array.isArray(hasPsets)) continue;
+          for (const pref of hasPsets as { value?: number }[]) {
+            const psetId = pref?.value;
+            if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* no inverse rels */ }
 
     result.set(eid, { properties: props, psets });
   }
@@ -466,16 +453,6 @@ function extractScalar(v: unknown): unknown {
 
 type RawLine = Record<string, unknown>;
 
-/**
- * Extracts a scalar value from any IFC property or quantity entity, covering:
- * - IfcPropertySingleValue        → NominalValue
- * - IfcQuantityLength/Area/Volume/Count/Weight/Time → *Value fields
- * - IfcPropertyEnumeratedValue    → EnumerationValues (joined)
- * - IfcPropertyBoundedValue       → LowerBoundValue…UpperBoundValue
- * - IfcPropertyListValue          → ListValues (joined)
- * - IfcPropertyReferenceValue     → PropertyReference
- * - IfcPropertyTableValue         → DefiningValues (joined)
- */
 function extractPropValue(prop: RawLine): unknown {
   // IfcPropertySingleValue
   if (prop.NominalValue !== undefined) return extractScalar(prop.NominalValue);
@@ -516,17 +493,6 @@ function extractPropValue(prop: RawLine): unknown {
   return null;
 }
 
-/**
- * Parses an IfcPropertySet or IfcElementQuantity (or any IfcPreDefinedPropertySet
- * subtype) into a normalised { name, properties } structure.
- *
- * Handles:
- *  - HasProperties  (IfcPropertySet and subtypes)
- *  - Quantities     (IfcElementQuantity / QuantitySet)
- *
- * For predefined property sets (IfcDoorLiningProperties etc.) all direct
- * attributes other than Name/Description/GlobalId/type/expressID are exposed.
- */
 function parsePsetLine(pset: RawLine): { name: string; properties: PropertySet["properties"] } {
   const name = String((pset.Name as { value?: string } | undefined)?.value ?? "PropertySet");
   const props: PropertySet["properties"] = [];
@@ -566,11 +532,6 @@ function parsePsetLine(pset: RawLine): { name: string; properties: PropertySet["
   return { name, properties: props };
 }
 
-/**
- * Applies all properties from a property set line to all given elements.
- * pset must already be loaded with flatten=true.
- * Handles both IfcPropertySet (HasProperties) and IfcElementQuantity (Quantities).
- */
 function applyPset(
   pset: RawLine,
   eids: Iterable<number>,
@@ -617,11 +578,9 @@ export async function loadAllElementProperties(
 
   const eidSet = new Set(expressIds);
 
-  // ── 1. Direct item properties — batch load all elements at once ──────────
   let lines: unknown[];
   try {
-    lines = (api as unknown as { GetLines(m: number, ids: number[], f: boolean, inv: boolean): unknown[] })
-      .GetLines(modelId, expressIds, false, false);
+    lines = api.GetLines(modelId, expressIds, false, false);
   } catch {
     lines = [];
     for (let i = 0; i < expressIds.length; i++) {
@@ -642,7 +601,6 @@ export async function loadAllElementProperties(
   onProgress?.(Math.round(expressIds.length * 0.2), expressIds.length);
   await yieldToMain();
 
-  // ── 2. Instance property sets via IfcRelDefinesByProperties ─────────────
   {
     const relIds     = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYPROPERTIES);
     const psetToEids = new Map<number, Set<number>>();
@@ -679,7 +637,6 @@ export async function loadAllElementProperties(
   onProgress?.(Math.round(expressIds.length * 0.7), expressIds.length);
   await yieldToMain();
 
-  // ── 3. Type-level property sets via IfcRelDefinesByType ──────────────────
   {
     const relIds = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYTYPE);
     const total  = relIds.size();
@@ -1159,7 +1116,6 @@ async function extractStructure(
 ): Promise<{ spatialTree: SpatialNode | null; elementsByType: Record<string, ElementNode[]> }> {
   const elementsByType: Record<string, ElementNode[]> = {};
 
-  // ── 1. Spatial tree ──────────────────────────────────────────────────────
   let spatialTree: SpatialNode | null = null;
   try {
     const raw = await api.properties.getSpatialStructure(modelId, false);
@@ -1182,15 +1138,10 @@ async function extractStructure(
     console.warn("[IFC] Spatial structure extraction failed:", e);
   }
 
-  // ── 2. Elements by type — discovered dynamically from the model ────────────
-  // GetAllTypesOfModel returns every type code actually used in the file, so
-  // this works for IFC 2x3, 4, and 4.3 without any hardcoded class list.
   let allModelTypes: { typeID: number; typeName: string }[] = [];
   try {
-    allModelTypes = (api as unknown as { GetAllTypesOfModel(m: number): { typeID: number; typeName: string }[] })
-      .GetAllTypesOfModel(modelId) ?? [];
+    allModelTypes = api.GetAllTypesOfModel(modelId) ?? [];
   } catch {
-    // Fallback: use the ELEMENT_LABELS map if GetAllTypesOfModel is unavailable
     for (const [k, v] of Object.entries(ELEMENT_LABELS)) {
       allModelTypes.push({ typeID: Number(k), typeName: String(v) });
     }
