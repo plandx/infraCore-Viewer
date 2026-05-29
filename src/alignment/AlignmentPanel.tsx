@@ -143,8 +143,8 @@ function AlignmentRow({ alignment, color, visible, selected, onToggleVisible, on
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-xs select-none",
-        selected ? "bg-muted" : "hover:bg-muted/50"
+        "flex items-center gap-1.5 px-2 py-1 rounded-[4px] cursor-pointer text-xs select-none border-b border-border/20",
+        selected ? "bg-muted" : "hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A]"
       )}
       onClick={onSelect}
     >
@@ -155,7 +155,7 @@ function AlignmentRow({ alignment, color, visible, selected, onToggleVisible, on
       >
         {visible ? <Eye size={12} /> : <EyeOff size={12} />}
       </button>
-      <span className="shrink-0 w-2.5 h-2.5 rounded-full border border-border" style={{ backgroundColor: color }} />
+      <span className="shrink-0 w-2.5 h-2.5 rounded-[2px] border border-border" style={{ backgroundColor: color }} />
       <span className="flex-1 truncate">{alignment.displayName}</span>
       <span className="text-muted-foreground shrink-0">{formatLength(alignment.length)}</span>
       {alignment.zSource === "profile"    && <span className="text-sky-400   text-[10px] font-mono shrink-0">Z</span>}
@@ -263,7 +263,7 @@ export function AlignmentPanel({ onClose }: { onClose?: () => void }) {
         {onClose && (
           <button
             onClick={onClose}
-            className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors shrink-0"
+            className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded-[4px] transition-colors shrink-0"
             title="Achsen-Panel schließen"
           >
             <X size={12} />
@@ -276,8 +276,8 @@ export function AlignmentPanel({ onClose }: { onClose?: () => void }) {
         <div className="p-2">
           <div
             className={cn(
-              "border-2 border-dashed rounded-md px-3 py-4 flex flex-col items-center gap-1.5 cursor-pointer transition-colors",
-              dragOver ? "border-sky-500 bg-sky-950/30" : "border-border hover:border-muted-foreground hover:bg-muted/20"
+              "border-2 border-dashed rounded-[6px] px-3 py-4 flex flex-col items-center gap-1.5 cursor-pointer transition-colors",
+              dragOver ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground hover:bg-muted/20"
             )}
             onClick={() => inputRef.current?.click()}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -334,8 +334,8 @@ export function AlignmentPanel({ onClose }: { onClose?: () => void }) {
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors",
                   stationToolActive
-                    ? "bg-sky-600 text-white"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    ? "bg-primary text-white rounded-[4px]"
+                    : "rounded-[4px] border border-border text-muted-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A]"
                 )}
               >
                 <Ruler size={11} />
@@ -344,7 +344,7 @@ export function AlignmentPanel({ onClose }: { onClose?: () => void }) {
             </div>
             {/* Hovered station display */}
             {stationToolActive && hoveredStation && (
-              <div className="bg-muted rounded px-2 py-1 text-xs">
+              <div className="bg-muted/30 border border-border rounded-[4px] px-2 py-1 text-xs">
                 <span className="text-muted-foreground">{hoveredStation.name}: </span>
                 <span className="text-sky-400 font-mono">{formatStation(hoveredStation.station)}</span>
               </div>
@@ -358,7 +358,7 @@ export function AlignmentPanel({ onClose }: { onClose?: () => void }) {
               <select
                 value={sampleInterval}
                 onChange={e => setSampleInterval(Number(e.target.value))}
-                className="flex-1 bg-muted border border-border text-foreground text-xs rounded px-1 py-0.5"
+                className="flex-1 bg-background border border-border text-foreground text-xs rounded-[4px] px-1 py-0.5"
               >
                 {[1, 2, 5, 10, 25, 50].map(v => (
                   <option key={v} value={v}>{v} m</option>
@@ -374,7 +374,7 @@ export function AlignmentPanel({ onClose }: { onClose?: () => void }) {
 
         {/* Selected alignment details */}
         {selectedAlign && segmentCounts && (
-          <div className="mx-2 mb-2 p-2 bg-muted rounded-md text-xs border border-border">
+          <div className="mx-2 mb-2 p-2 bg-muted/30 rounded-[6px] text-xs border border-border">
             <div className="font-semibold truncate mb-1">{selectedAlign.displayName}</div>
             <div className="text-muted-foreground mb-0.5">
               {formatStation(selectedAlign.staStart)} – {formatStation(selectedAlign.staEnd)}

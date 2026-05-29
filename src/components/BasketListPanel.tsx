@@ -72,7 +72,7 @@ export function BasketListPanel({ onSelectElement }: { onSelectElement?: (modelI
                 onClick={() => onSelectElement?.(entry.modelId, entry.expressId)}
               >
                 <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20"
+                  className="w-2.5 h-2.5 rounded-[2px] shrink-0 ring-1 ring-black/20"
                   style={{ backgroundColor: entry.modelColor }}
                 />
                 <div className="flex-1 min-w-0">

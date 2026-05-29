@@ -40,7 +40,7 @@ function PropKeyInput({ value, onChange, onSelect, propKeys, placeholder = "Eige
   return (
     <div className="relative min-w-0">
       <input
-        className="w-full bg-muted/30 border border-border rounded px-2 py-1 text-xs outline-none focus:border-primary/50 font-mono"
+        className="w-full bg-muted/30 border border-border rounded-[4px] px-2 py-1 text-xs outline-none focus:border-primary/50 font-mono"
         value={search}
         placeholder={placeholder}
         onChange={(e) => { setSearch(e.target.value); onChange(e.target.value); setOpen(true); }}
@@ -48,7 +48,7 @@ function PropKeyInput({ value, onChange, onSelect, propKeys, placeholder = "Eige
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-50 top-full left-0 mt-0.5 w-64 max-h-48 overflow-y-auto bg-card border border-border rounded shadow-xl">
+        <div className="absolute z-50 top-full left-0 mt-0.5 w-64 max-h-48 overflow-y-auto bg-card border border-border rounded-[6px] shadow-md">
           {filtered.map((k) => (
             <button key={k} type="button"
               className="w-full text-left px-2 py-1 text-[11px] hover:bg-muted/60 truncate font-mono"
@@ -76,10 +76,10 @@ function FilterSection({ filters, filterLogic, propKeys, onUpdate, smartViews }:
   return (
     <div className="px-3 py-2.5 border-b border-border">
       <div className="flex items-center justify-between mb-2">
-        <span className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wide">Filter</span>
+        <span className="font-semibold text-[11px] text-muted-foreground">Filter</span>
         <div className="flex items-center gap-1.5">
           <select
-            className="text-[10px] bg-muted/30 border border-border rounded px-1 py-0.5 text-foreground focus:outline-none"
+            className="text-[10px] bg-muted/30 border border-border rounded-[4px] px-1 py-0.5 text-foreground focus:outline-none"
             value=""
             title={smartViews.length === 0 ? "Keine SmartViews vorhanden" : "Filter aus SmartView laden"}
             onChange={(e) => {
@@ -98,7 +98,7 @@ function FilterSection({ filters, filterLogic, propKeys, onUpdate, smartViews }:
           {filters.length >= 2 && (
             <button
               onClick={() => onUpdate(filters, filterLogic === "AND" ? "OR" : "AND")}
-              className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted/50 font-mono font-semibold"
+              className="text-[10px] px-1.5 py-0.5 rounded-[4px] border border-border hover:bg-muted/50 font-mono font-semibold"
               title="Logik umschalten">
               {filterLogic}
             </button>
@@ -113,14 +113,14 @@ function FilterSection({ filters, filterLogic, propKeys, onUpdate, smartViews }:
               <PropKeyInput value={f.key} onChange={(v) => patchF(f.id, { key: v })} propKeys={propKeys} />
             </div>
             <select
-              className="bg-muted/30 border border-border rounded px-1 py-1 text-[11px] outline-none shrink-0"
+              className="bg-muted/30 border border-border rounded-[4px] px-1 py-1 text-[11px] outline-none shrink-0"
               value={f.condition}
               onChange={(e) => patchF(f.id, { condition: e.target.value as SmartCondition })}>
               {ALL_CONDITIONS.map((c) => <option key={c} value={c}>{CONDITION_LABELS[c]}</option>)}
             </select>
             {!CONDITIONS_WITHOUT_VALUE.includes(f.condition) && (
               <input
-                className="flex-1 min-w-0 bg-muted/30 border border-border rounded px-2 py-1 text-xs outline-none focus:border-primary/50"
+                className="flex-1 min-w-0 bg-muted/30 border border-border rounded-[4px] px-2 py-1 text-xs outline-none focus:border-primary/50"
                 value={f.value} placeholder="Wert…"
                 onChange={(e) => patchF(f.id, { value: e.target.value })} />
             )}
@@ -162,7 +162,7 @@ function PsetAdder({ propKeys, onAdd }: { propKeys: string[]; onAdd: (keys: stri
 
   return (
     <div className="relative mt-2">
-      <div className="flex items-center gap-1.5 bg-muted/20 border border-border/60 rounded px-2 py-1">
+      <div className="flex items-center gap-1.5 bg-muted/20 border border-border/60 rounded-[4px] px-2 py-1">
         <Search size={10} className="text-muted-foreground shrink-0" />
         <input
           className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
@@ -175,7 +175,7 @@ function PsetAdder({ propKeys, onAdd }: { propKeys: string[]; onAdd: (keys: stri
         {search && <button className="text-muted-foreground hover:text-foreground" onMouseDown={() => setSearch("")}><X size={9} /></button>}
       </div>
       {open && psetNames.length > 0 && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-0.5 bg-card border border-border rounded shadow-xl max-h-48 overflow-y-auto">
+        <div className="absolute z-50 top-full left-0 right-0 mt-0.5 bg-card border border-border rounded-[6px] shadow-md max-h-48 overflow-y-auto">
           {psetNames.map((name) => {
             const keys = psetMap.get(name)!;
             return (
@@ -228,7 +228,7 @@ function ColumnSection({ columns, propKeys, onUpdate }: {
   return (
     <div className="px-3 py-2.5 border-b border-border">
       <div className="flex items-center justify-between mb-2">
-        <span className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wide">Spalten</span>
+        <span className="font-semibold text-[11px] text-muted-foreground">Spalten</span>
         <button onClick={add} className="toolbar-button p-0.5 rounded" title="Spalte hinzufügen"><Plus size={12} /></button>
       </div>
       <div className="space-y-1">
@@ -242,7 +242,7 @@ function ColumnSection({ columns, propKeys, onUpdate }: {
                 propKeys={propKeys} placeholder="Eigenschaft…" />
             </div>
             <input
-              className="flex-1 min-w-0 bg-muted/30 border border-border rounded px-2 py-1 text-xs outline-none focus:border-primary/50"
+              className="flex-1 min-w-0 bg-muted/30 border border-border rounded-[4px] px-2 py-1 text-xs outline-none focus:border-primary/50"
               value={col.label} placeholder="Spaltenname…"
               onChange={(e) => patchC(col.id, { label: e.target.value })} />
             <div className="flex flex-col shrink-0 gap-px">
@@ -287,12 +287,12 @@ function ColumnFilterDropdown({ colId, allValues, active, onClose, onToggle, onS
   return (
     <div
       data-col-filter={colId}
-      className="absolute z-50 top-full left-0 mt-1 w-56 bg-card border border-border rounded-lg shadow-2xl flex flex-col"
+      className="absolute z-50 top-full left-0 mt-1 w-56 bg-card border border-border rounded-[6px] shadow-md flex flex-col"
       style={{ maxHeight: 300 }}
     >
       {/* Search */}
       <div className="p-2 border-b border-border">
-        <div className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1">
+        <div className="flex items-center gap-1.5 bg-muted/40 rounded-[4px] px-2 py-1">
           <Search size={11} className="text-muted-foreground shrink-0" />
           <input
             autoFocus
@@ -403,7 +403,7 @@ function ResultsTable({ columns, allRows, columnFilters, onFilterToggle, onFilte
                       data-col-filter={col.id}
                       onClick={() => onOpenFilterCol(isOpen ? null : col.id)}
                       className={cn(
-                        "flex items-center gap-0.5 px-1 py-0.5 rounded border text-[10px] shrink-0 transition-colors",
+                        "flex items-center gap-0.5 px-1 py-0.5 rounded-[4px] border text-[10px] shrink-0 transition-colors",
                         hasFilter
                           ? "text-primary border-primary/50 bg-primary/10 font-semibold"
                           : "text-muted-foreground border-border hover:text-foreground hover:bg-muted/50"
@@ -614,7 +614,7 @@ export function QuantityListPanel() {
         <div className="flex items-center justify-between px-2.5 py-2 border-b border-border bg-card/50">
           <div className="flex items-center gap-1.5">
             <Table2 size={12} className="text-muted-foreground" />
-            <span className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wide">Listen</span>
+            <span className="font-semibold text-[11px] text-muted-foreground">Listen</span>
           </div>
           <button onClick={handleNew} className="toolbar-button p-0.5 rounded" title="Neue Liste"><Plus size={13} /></button>
         </div>
@@ -695,7 +695,7 @@ export function QuantityListPanel() {
             {/* Run always accessible */}
             <button
               onClick={(e) => { e.stopPropagation(); handleRun(); }}
-              className="flex items-center gap-1 px-2.5 py-1 rounded bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-opacity"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-[4px] bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-opacity"
             >
               <Play size={10} /> Ausführen
             </button>
@@ -727,21 +727,21 @@ export function QuantityListPanel() {
                 <button
                   onClick={handleIsolate}
                   disabled={results.length === 0}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-border text-[11px] hover:bg-muted/50 disabled:opacity-40 transition-colors"
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-[4px] border border-border text-[11px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] disabled:opacity-40 transition-colors"
                   title="Ergebnis im Viewer isolieren">
                   <ScanEye size={11} /> Isolieren
                 </button>
                 <button
                   onClick={handleAddToBasket}
                   disabled={results.length === 0}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-border text-[11px] hover:bg-muted/50 disabled:opacity-40 transition-colors"
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-[4px] border border-border text-[11px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] disabled:opacity-40 transition-colors"
                   title="Ergebnis zum Auswahlkorb hinzufügen">
                   <ShoppingBasket size={11} /> Zum Korb
                 </button>
                 <button
                   onClick={handleExport}
                   disabled={results.length === 0}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-border text-[11px] hover:bg-muted/50 disabled:opacity-40 transition-colors">
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-[4px] border border-border text-[11px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] disabled:opacity-40 transition-colors">
                   <Download size={11} /> XLSX
                 </button>
               </div>

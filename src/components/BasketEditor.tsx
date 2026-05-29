@@ -314,7 +314,7 @@ export function BasketEditor({ onClose, mode = "modal" }: { onClose: () => void;
     <div
       className={mode === "window"
         ? "flex flex-col h-full w-full bg-card overflow-hidden"
-        : "flex flex-col w-full max-w-[92vw] h-[85vh] bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
+        : "flex flex-col w-full max-w-[92vw] h-[85vh] bg-card border border-border rounded-[6px] shadow-md overflow-hidden"
       }
       onMouseDown={(e) => e.stopPropagation()}
     >
@@ -328,7 +328,7 @@ export function BasketEditor({ onClose, mode = "modal" }: { onClose: () => void;
           <div className="flex-1" />
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+            className="p-1 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-muted-foreground hover:text-foreground transition-colors"
           >
             <X size={15} />
           </button>
@@ -339,7 +339,7 @@ export function BasketEditor({ onClose, mode = "modal" }: { onClose: () => void;
           <button
             onClick={handleExport}
             disabled={loading || rows.length === 0 || exporting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-xs font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
             Als XLSX exportieren
@@ -348,7 +348,7 @@ export function BasketEditor({ onClose, mode = "modal" }: { onClose: () => void;
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={loading || rows.length === 0 || importing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-muted hover:bg-muted/80 text-foreground border border-border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-xs font-medium bg-muted hover:bg-muted/80 text-foreground border border-border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {importing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
             XLSX importieren
@@ -365,7 +365,7 @@ export function BasketEditor({ onClose, mode = "modal" }: { onClose: () => void;
             <button
               onClick={handleExportIFC}
               disabled={ifcExporting}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 disabled:opacity-40 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-xs font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 disabled:opacity-40 transition-colors"
               title="Modifizierte IFC-Datei(en) herunterladen"
             >
               {ifcExporting ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
@@ -500,7 +500,7 @@ export function BasketEditor({ onClose, mode = "modal" }: { onClose: () => void;
               `${rows.length} Element${rows.length !== 1 ? "e" : ""} · ${columns.length} Eigenschaft${columns.length !== 1 ? "en" : ""}`
             }
           </span>
-          <button onClick={onClose} className="px-3 py-1.5 rounded hover:bg-muted/60 transition-colors">
+          <button onClick={onClose} className="px-3 py-1.5 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] transition-colors">
             Schließen
           </button>
         </div>

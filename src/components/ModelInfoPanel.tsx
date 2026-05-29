@@ -44,7 +44,7 @@ export function ModelInfoPanel() {
                   key={m.id}
                   onClick={() => setActiveId(m.id)}
                   className={cn(
-                    "shrink-0 px-2 py-0.5 rounded-t text-[10px] truncate max-w-[120px] transition-colors",
+                    "shrink-0 px-2 py-0.5 rounded-[4px] text-[10px] truncate max-w-[120px] transition-colors",
                     active.id === m.id
                       ? "bg-background border border-b-background border-border font-semibold text-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -52,7 +52,7 @@ export function ModelInfoPanel() {
                   title={m.name}
                 >
                   <span
-                    className="inline-block w-1.5 h-1.5 rounded-full mr-1 shrink-0"
+                    className="inline-block w-1.5 h-1.5 rounded-[2px] mr-1 shrink-0"
                     style={{ backgroundColor: m.color }}
                   />
                   {m.name.replace(/\.ifc$/i, "")}

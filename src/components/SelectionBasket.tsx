@@ -31,13 +31,13 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
 
   return (
     <div
-      className="flex items-center gap-1 bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl px-2 py-1.5 select-none text-xs"
+      className="flex items-center gap-1 bg-card/95 backdrop-blur border border-border rounded-[6px] shadow-md px-2 py-1.5 select-none text-xs"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <Archive size={12} className="text-muted-foreground shrink-0" />
       <span className="text-muted-foreground font-medium">Auswahlkorb</span>
       {count > 0 && (
-        <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[10px] font-bold min-w-[18px] text-center">
+        <span className="bg-primary text-primary-foreground rounded-[3px] px-1.5 text-[10px] font-semibold min-w-[18px] text-center">
           {count}
         </span>
       )}
@@ -48,7 +48,7 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
         onClick={() => setBasketAutoAdd(!basketAutoAdd)}
         title={basketAutoAdd ? "Auto-Hinzufügen aktiv (klicken zum Deaktivieren)" : "Auto-Hinzufügen: jeder Klick fügt zum Korb hinzu"}
         className={cn(
-          "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors",
+          "flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] transition-colors",
           basketAutoAdd
             ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
             : "hover:bg-muted/60 text-muted-foreground"
@@ -65,25 +65,25 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
         onClick={handleSet}
         disabled={!hasSelection}
         title="Auswahl setzen (=)"
-        className="px-2 py-0.5 rounded hover:bg-muted/60 disabled:opacity-40 disabled:cursor-not-allowed font-mono text-foreground"
+        className="px-2 py-0.5 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] disabled:opacity-40 disabled:cursor-not-allowed font-mono text-foreground"
       >=</button>
       <button
         onClick={() => selectedElement && addToBasket(selectedElement.modelId, selectedElement.expressId)}
         disabled={!hasSelection || inBasket}
         title="Zur Auswahl hinzufügen (+)"
-        className="px-2 py-0.5 rounded hover:bg-muted/60 disabled:opacity-40 disabled:cursor-not-allowed font-mono text-foreground"
+        className="px-2 py-0.5 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] disabled:opacity-40 disabled:cursor-not-allowed font-mono text-foreground"
       >+</button>
       <button
         onClick={() => selectedElement && removeFromBasket(selectedElement.modelId, selectedElement.expressId)}
         disabled={!hasSelection || !inBasket}
         title="Von Auswahl entfernen (−)"
-        className="px-2 py-0.5 rounded hover:bg-muted/60 disabled:opacity-40 disabled:cursor-not-allowed font-mono text-foreground"
+        className="px-2 py-0.5 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] disabled:opacity-40 disabled:cursor-not-allowed font-mono text-foreground"
       >−</button>
       <button
         onClick={() => { clearBasket(); setBasketMode(null); }}
         disabled={count === 0}
         title="Auswahlkorb leeren"
-        className="p-0.5 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+        className="p-0.5 rounded-[4px] hover:bg-destructive/20 hover:text-destructive text-muted-foreground disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <X size={10} />
       </button>
@@ -96,7 +96,7 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
           <button
             onClick={onOpenEditor}
             title="Eigenschaften bearbeiten"
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] hover:bg-muted/60 text-muted-foreground transition-colors"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] hover:bg-muted/60 text-muted-foreground transition-colors"
           >
             <Table2 size={11} />
             <span>Bearbeiten</span>
@@ -107,7 +107,7 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
             onClick={() => toggleMode("highlight")}
             title="Hervorheben"
             className={cn(
-              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors",
+              "flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] transition-colors",
               basketMode === "highlight"
                 ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
                 : "hover:bg-muted/60 text-muted-foreground"
@@ -120,7 +120,7 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
             onClick={() => toggleMode("ghost")}
             title="Invertiert durchsichtig"
             className={cn(
-              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors",
+              "flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] transition-colors",
               basketMode === "ghost"
                 ? "bg-blue-500/20 text-blue-400 border border-blue-500/40"
                 : "hover:bg-muted/60 text-muted-foreground"
@@ -133,7 +133,7 @@ export function SelectionBasket({ onOpenEditor }: { onOpenEditor?: () => void })
             onClick={() => toggleMode("isolate")}
             title="Isolieren"
             className={cn(
-              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors",
+              "flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] transition-colors",
               basketMode === "isolate"
                 ? "bg-primary/20 text-primary border border-primary/40"
                 : "hover:bg-muted/60 text-muted-foreground"

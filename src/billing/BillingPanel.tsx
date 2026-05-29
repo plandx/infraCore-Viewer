@@ -127,13 +127,13 @@ function ElementList({ elements, entries, selectedKey, onSelect }: {
           placeholder="Suchen…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full px-2.5 py-1.5 text-xs bg-muted border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+          className="w-full px-2.5 py-1.5 text-xs bg-muted border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary"
         />
         {types.length > 1 && (
           <select
             value={filterType}
             onChange={e => setFilterType(e.target.value)}
-            className="w-full px-2 py-1 text-xs bg-muted border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary text-muted-foreground"
+            className="w-full px-2 py-1 text-xs bg-muted border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary text-muted-foreground"
           >
             <option value="">Alle IFC-Typen ({elements.length})</option>
             {types.map(t => <option key={t} value={t}>{t.replace(/^Ifc/, "")} ({elements.filter(e => e.ifcType === t).length})</option>)}
@@ -145,7 +145,7 @@ function ElementList({ elements, entries, selectedKey, onSelect }: {
             onClick={() => setOnlyTracked(v => !v)}
             title={onlyTracked ? "Alle anzeigen" : "Nur erfasste anzeigen"}
             className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded text-[10px] flex-1 transition-colors border",
+              "flex items-center gap-1 px-2 py-1 rounded-[4px] text-[10px] flex-1 transition-colors border",
               onlyTracked
                 ? "bg-primary/15 text-primary border-primary/30"
                 : "bg-muted text-muted-foreground border-border hover:bg-muted/70"
@@ -158,7 +158,7 @@ function ElementList({ elements, entries, selectedKey, onSelect }: {
             onClick={() => setSortMode(nextSortMode())}
             title={`Sortierung: ${sortLabel}`}
             className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-colors border shrink-0",
+              "flex items-center gap-1 px-2 py-1 rounded-[4px] text-[10px] transition-colors border shrink-0",
               sortMode !== "model"
                 ? "bg-primary/15 text-primary border-primary/30"
                 : "bg-muted text-muted-foreground border-border hover:bg-muted/70"
@@ -543,7 +543,7 @@ export function BillingPanel({ elements }: Props) {
         {Object.keys(entries).length > 0 && (
           <button
             onClick={() => bcRef.current?.postMessage({ t: "isolateTracked" } satisfies BillingMsg)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-muted hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors"
+            className="flex items-center gap-1 px-2 py-1 rounded-[4px] text-xs bg-muted hover:bg-primary/20 hover:text-primary text-muted-foreground transition-colors"
             title="Nur erfasste Objekte isolieren"
           >
             <ScanEye size={12} />
@@ -553,7 +553,7 @@ export function BillingPanel({ elements }: Props) {
           <button
             onClick={() => setShowCheckPanel(v => !v)}
             className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
+              "flex items-center gap-1 px-2 py-1 rounded-[4px] text-xs transition-colors",
               showCheckPanel
                 ? "bg-primary text-primary-foreground"
                 : Object.keys(checkResults).some(k => { const r = checkResults[k]; return r && !(r.guidOk !== false && r.volumeOk && r.positionOk && r.sizeOk); })
@@ -568,7 +568,7 @@ export function BillingPanel({ elements }: Props) {
         <button
           onClick={handleToggleViz}
           className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors",
+            "flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] text-xs font-medium transition-colors border border-border",
             vizActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
           )}
           title="3D-Visualisierung"
@@ -577,8 +577,8 @@ export function BillingPanel({ elements }: Props) {
           Viz
         </button>
         <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
-        <button onClick={() => fileInputRef.current?.click()} className="p-1.5 rounded text-xs bg-muted hover:bg-muted/80 text-muted-foreground transition-colors" title="Importieren"><FileUp size={13} /></button>
-        <button onClick={handleExport} className="p-1.5 rounded text-xs bg-muted hover:bg-muted/80 text-muted-foreground transition-colors" title="Exportieren"><FileDown size={13} /></button>
+        <button onClick={() => fileInputRef.current?.click()} className="p-1.5 rounded-[4px] text-xs bg-muted hover:bg-muted/80 text-muted-foreground transition-colors" title="Importieren"><FileUp size={13} /></button>
+        <button onClick={handleExport} className="p-1.5 rounded-[4px] text-xs bg-muted hover:bg-muted/80 text-muted-foreground transition-colors" title="Exportieren"><FileDown size={13} /></button>
       </div>
 
       {importError && (
@@ -597,7 +597,7 @@ export function BillingPanel({ elements }: Props) {
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleCheckAll}
-              className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-amber-400/20 hover:bg-amber-400/30 text-amber-400 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 rounded-[4px] text-xs bg-amber-400/20 hover:bg-amber-400/30 text-amber-400 transition-colors"
             >
               <ShieldCheck size={11} />Alle prüfen
             </button>
@@ -708,7 +708,7 @@ function NotTrackedView({ selectedKey, elements, onAdd }: {
       {el && (
         <button
           onClick={() => onAdd(el)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-xs bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
         >
           <Plus size={12} />
           In 5D-Liste aufnehmen
@@ -826,7 +826,7 @@ function TrackedDetailView(props: DetailProps) {
             {t.label}
             {t.badge !== undefined && (
               <span className={cn(
-                "text-[9px] px-1.5 py-0.5 rounded-full font-mono",
+                "text-[9px] px-1.5 py-0.5 rounded-[3px] font-mono",
                 tab === t.id ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
               )}>
                 {t.badge}
@@ -933,7 +933,7 @@ function IdTab({
 
   const CheckRow = ({ ok, label, stored, current }: { ok: boolean | null; label: string; stored?: string; current?: string }) => (
     <div className={cn(
-      "flex items-start gap-2 px-3 py-2 rounded-md text-xs",
+      "flex items-start gap-2 px-3 py-2 rounded-[6px] text-xs",
       ok === null  ? "bg-muted/30 text-muted-foreground" :
       ok           ? "bg-green-500/10 text-green-400" :
                      "bg-red-500/10 text-red-400",
@@ -960,8 +960,8 @@ function IdTab({
 
       {/* GUID */}
       <section className="space-y-1.5">
-        <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">IFC Global ID</h4>
-        <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-md">
+        <h4 className="text-[10px] font-semibold text-muted-foreground">IFC Global ID</h4>
+        <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-[6px]">
           <code className="text-xs font-mono flex-1 break-all text-foreground">{entry.guid}</code>
           {currentElement && currentElement.guid !== entry.guid && (
             <span className="text-[9px] text-red-400 shrink-0">⚠ GUID geändert</span>
@@ -977,13 +977,13 @@ function IdTab({
       {/* Fingerprint */}
       <section className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
-          <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Fingerabdruck</h4>
+          <h4 className="text-[10px] font-semibold text-muted-foreground">Fingerabdruck</h4>
           <div className="flex gap-1.5">
             {identity && (
               <button
                 onClick={onCheck}
                 disabled={pendingSnapshot}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors disabled:opacity-40"
+                className="flex items-center gap-1 px-2 py-1 rounded-[4px] text-[10px] bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors disabled:opacity-40"
               >
                 {pendingSnapshot ? <RefreshCw size={10} className="animate-spin" /> : <ShieldCheck size={10} />}
                 Prüfen
@@ -992,7 +992,7 @@ function IdTab({
             <button
               onClick={onSnapshot}
               disabled={pendingSnapshot}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-muted hover:bg-muted/80 text-muted-foreground border border-border transition-colors disabled:opacity-40"
+              className="flex items-center gap-1 px-2 py-1 rounded-[4px] text-[10px] bg-muted hover:bg-muted/80 text-muted-foreground border border-border transition-colors disabled:opacity-40"
             >
               {pendingSnapshot ? <RefreshCw size={10} className="animate-spin" /> : <Fingerprint size={10} />}
               {identity ? "Neu erfassen" : "Erfassen"}
@@ -1009,7 +1009,7 @@ function IdTab({
             <p className="text-[10px] text-muted-foreground px-1">
               Erfasst: {fmtDate(identity.capturedAt)}
             </p>
-            <div className="bg-muted/30 rounded-md overflow-hidden">
+            <div className="bg-muted/30 rounded-[6px] overflow-hidden">
               <table className="w-full text-[11px]">
                 <tbody>
                   <tr className="border-b border-border/40">
@@ -1043,7 +1043,7 @@ function IdTab({
       {checkResult && identity && (
         <section className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Prüfergebnis</h4>
+            <h4 className="text-[10px] font-semibold text-muted-foreground">Prüfergebnis</h4>
             <span className="text-[10px] text-muted-foreground/60">{fmtDate(checkResult.checkedAt)}</span>
             {allOk !== null && (
               <span className={cn(
@@ -1147,7 +1147,7 @@ function StagesTab({ entry, onAddStage, onRemoveStage, stageLabel, setStageLabel
           </table>
 
           {hasOver100 && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-orange-500/10 border border-orange-500/25 text-xs text-orange-400">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-[6px] bg-orange-500/10 border border-orange-500/25 text-xs text-orange-400 rounded-[4px]">
               <AlertTriangle size={12} className="shrink-0" />
               <span>% Stand: Aktuell <span className="font-semibold">{latestDeg}%</span> — Wert liegt über 100%</span>
             </div>
@@ -1157,8 +1157,8 @@ function StagesTab({ entry, onAddStage, onRemoveStage, stageLabel, setStageLabel
         <p className="text-xs text-muted-foreground">Noch kein Abrechnungsstand erfasst.</p>
       )}
 
-      <div className="bg-muted/30 border border-border rounded-lg p-3 flex flex-col gap-2 shrink-0">
-        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Neuer Stand</span>
+      <div className="bg-muted/30 border border-border rounded-[6px] p-3 flex flex-col gap-2 shrink-0">
+        <span className="text-[10px] font-semibold text-muted-foreground">Neuer Stand</span>
 
         {/* Quick 10% step buttons */}
         <div className="grid grid-cols-5 gap-1">
@@ -1168,7 +1168,7 @@ function StagesTab({ entry, onAddStage, onRemoveStage, stageLabel, setStageLabel
               type="button"
               onClick={() => setStageDegree(String(v))}
               className={cn(
-                "py-1 rounded text-[10px] font-mono transition-colors border",
+                "py-1 rounded-[4px] text-[10px] font-mono transition-colors border",
                 Number(stageDegree) === v
                   ? "bg-primary/20 text-primary border-primary/30"
                   : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
@@ -1180,11 +1180,11 @@ function StagesTab({ entry, onAddStage, onRemoveStage, stageLabel, setStageLabel
         </div>
 
         <input type="text" placeholder="Bezeichnung *" value={stageLabel} onChange={e => setStageLabel(e.target.value)}
-          className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+          className="px-2 py-1.5 text-xs bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary" />
 
         <div className="grid grid-cols-2 gap-2">
           <input type="date" value={stageDate} onChange={e => setStageDate(e.target.value)}
-            className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+            className="px-2 py-1.5 text-xs bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary" />
           <div className="flex items-center gap-1.5">
             <input type="number" min={0} value={stageDegree} onChange={e => setStageDegree(e.target.value)}
               className={cn(
@@ -1198,14 +1198,14 @@ function StagesTab({ entry, onAddStage, onRemoveStage, stageLabel, setStageLabel
         <div className="flex items-center gap-1.5">
           <User size={11} className="text-muted-foreground shrink-0" />
           <input type="text" placeholder="Erfasst von (optional)" value={stageCreatedBy} onChange={e => setStageCreatedBy(e.target.value)}
-            className="flex-1 px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+            className="flex-1 px-2 py-1.5 text-xs bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary" />
         </div>
 
         <input type="text" placeholder="Notiz (optional)" value={stageNote} onChange={e => setStageNote(e.target.value)}
-          className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+          className="px-2 py-1.5 text-xs bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary" />
 
         <button onClick={onAddStage} disabled={!stageLabel.trim()}
-          className="self-end flex items-center gap-1 px-3 py-1.5 rounded text-xs bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity">
+          className="self-end flex items-center gap-1 px-3 py-1.5 rounded-[4px] text-xs bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity">
           <Plus size={12} />Hinzufügen
         </button>
       </div>
@@ -1221,7 +1221,7 @@ function DocsTab({ entry, onAddDoc, onRemoveDoc, docDocId, setDocDocId, docTitle
       {entry.documents.length > 0 ? (
         <div className="flex flex-col gap-1.5">
           {entry.documents.map(doc => (
-            <div key={doc.id} className="flex items-center gap-2 px-3 py-2 bg-muted/30 border border-border rounded-md">
+            <div key={doc.id} className="flex items-center gap-2 px-3 py-2 bg-muted/30 border border-border rounded-[6px]">
               {doc.docId && <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">{doc.docId}</span>}
               <span className="text-xs flex-1 truncate">{doc.title}</span>
               {doc.url && (
@@ -1237,18 +1237,18 @@ function DocsTab({ entry, onAddDoc, onRemoveDoc, docDocId, setDocDocId, docTitle
         <p className="text-xs text-muted-foreground">Noch keine Dokumente verknüpft.</p>
       )}
 
-      <div className="bg-muted/30 border border-border rounded-lg p-3 flex flex-col gap-2 shrink-0">
-        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Neues Dokument</span>
+      <div className="bg-muted/30 border border-border rounded-[6px] p-3 flex flex-col gap-2 shrink-0">
+        <span className="text-[10px] font-semibold text-muted-foreground">Neues Dokument</span>
         <div className="grid grid-cols-2 gap-2">
           <input type="text" placeholder="Dok.-Nr. (optional)" value={docDocId} onChange={e => setDocDocId(e.target.value)}
-            className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+            className="px-2 py-1.5 text-xs bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary" />
           <input type="text" placeholder="Titel *" value={docTitle} onChange={e => setDocTitle(e.target.value)}
-            className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+            className="px-2 py-1.5 text-xs bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary" />
           <input type="text" placeholder="URL (optional)" value={docUrl} onChange={e => setDocUrl(e.target.value)}
-            className="col-span-2 px-2 py-1.5 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary" />
+            className="col-span-2 px-2 py-1.5 text-xs bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary" />
         </div>
         <button onClick={onAddDoc} disabled={!docTitle.trim()}
-          className="self-end flex items-center gap-1 px-3 py-1.5 rounded text-xs bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity">
+          className="self-end flex items-center gap-1 px-3 py-1.5 rounded-[4px] text-xs bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity">
           <Plus size={12} />Hinzufügen
         </button>
       </div>
@@ -1303,14 +1303,14 @@ function CheckPanel({
         <button
           onClick={onCheckAll}
           disabled={pendingKeys.size > 0}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors disabled:opacity-40"
+          className="flex items-center gap-1 px-2 py-1 rounded-[4px] text-xs bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors disabled:opacity-40"
         >
           {pendingKeys.size > 0
             ? <RefreshCw size={10} className="animate-spin" />
             : <RefreshCw size={10} />}
           Alle prüfen
         </button>
-        <button onClick={onClose} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors ml-1">
+        <button onClick={onClose} className="p-1 rounded-[4px] text-muted-foreground hover:text-foreground transition-colors ml-1">
           <X size={14} />
         </button>
       </div>
