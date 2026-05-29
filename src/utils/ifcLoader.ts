@@ -312,12 +312,28 @@ export async function loadIFCProperties(
         const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
         const typeId = (rel?.RelatingType as { value?: number } | null)?.value;
         if (!typeId) continue;
+
+        // Standard path: type's HasPropertySets
         const typeObj = api.GetLine(modelId, typeId, false) as RawLine | null;
-        const hasPsets = typeObj?.HasPropertySets;
-        if (!Array.isArray(hasPsets)) continue;
-        for (const pref of hasPsets as { value?: number }[]) {
+        for (const pref of (typeObj?.HasPropertySets as { value?: number }[] | null) ?? []) {
           const psetId = pref?.value;
           if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+        }
+
+        // Non-standard path: some exporters attach psets to the type via
+        // IfcRelDefinesByProperties instead of HasPropertySets
+        const typeWithInverse = api.GetLine(modelId, typeId, false, true) as RawLine | null;
+        for (const dRef of toRefArray(typeWithInverse?.IsDefinedBy)) {
+          const dRelId = dRef?.value;
+          if (!dRelId) continue;
+          try {
+            const dRel = api.GetLine(modelId, dRelId, false, false) as RawLine | null;
+            if (!dRel?.RelatingPropertyDefinition) continue;
+            for (const pref of toRefArray(dRel.RelatingPropertyDefinition)) {
+              const psetId = pref?.value;
+              if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+            }
+          } catch { /* skip */ }
         }
       } catch { /* skip */ }
     }
@@ -423,12 +439,25 @@ export async function loadBasketProperties(
           const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
           const typeId = (rel?.RelatingType as { value?: number } | null)?.value;
           if (!typeId) continue;
+
           const typeObj = api.GetLine(modelId, typeId, false) as RawLine | null;
-          const hasPsets = typeObj?.HasPropertySets;
-          if (!Array.isArray(hasPsets)) continue;
-          for (const pref of hasPsets as { value?: number }[]) {
+          for (const pref of (typeObj?.HasPropertySets as { value?: number }[] | null) ?? []) {
             const psetId = pref?.value;
             if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+          }
+
+          const typeWithInverse = api.GetLine(modelId, typeId, false, true) as RawLine | null;
+          for (const dRef of toRefArray(typeWithInverse?.IsDefinedBy)) {
+            const dRelId = dRef?.value;
+            if (!dRelId) continue;
+            try {
+              const dRel = api.GetLine(modelId, dRelId, false, false) as RawLine | null;
+              if (!dRel?.RelatingPropertyDefinition) continue;
+              for (const pref of toRefArray(dRel.RelatingPropertyDefinition)) {
+                const psetId = pref?.value;
+                if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+              }
+            } catch { /* skip */ }
           }
         } catch { /* skip */ }
       }
