@@ -523,8 +523,10 @@ function useIdsResultsSync() {
 
     const broadcast = () => {
       const { validationReport } = useIdsStore.getState();
-      const { settings } = useModelStore.getState();
-      ch.postMessage({ t: "state", report: validationReport, theme: settings.theme } satisfies IdsResultsMsg);
+      const { settings, models } = useModelStore.getState();
+      const modelNames: Record<string, string> = {};
+      for (const [id, m] of models) modelNames[id] = m.name ?? id;
+      ch.postMessage({ t: "state", report: validationReport, theme: settings.theme, modelNames } satisfies IdsResultsMsg);
     };
 
     ch.onmessage = (e: MessageEvent<IdsResultsMsg>) => {

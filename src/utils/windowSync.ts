@@ -363,7 +363,7 @@ export function openCollisionWindow() {
 export const IDS_RESULTS_CHANNEL = "infracore-ids-results";
 
 export type IdsResultsMsg =
-  | { t: "state"; report: import("../ids/idsTypes").IdsValidationReport | null; theme: string }
+  | { t: "state"; report: import("../ids/idsTypes").IdsValidationReport | null; theme: string; modelNames?: Record<string, string> }
   | { t: "req" };
 
 export function openIdsResultsWindow() {
