@@ -275,55 +275,82 @@ export async function loadIFCProperties(
   const props: Record<string, unknown> = {};
   const psets: PropertySet[] = [];
 
-  // Direct attributes — keep wrapped {value, type} objects so the UI's
-  // isIfcRef() filter can correctly hide reference handles (type=5).
+  // Keep wrapped {value, type} objects so the UI's isIfcRef() filter hides handles (type=5).
   try {
     const itemProps = await api.properties.getItemProperties(modelId, expressId, false);
     if (itemProps) {
       for (const [k, v] of Object.entries(itemProps as Record<string, unknown>)) {
-        if (k === "expressID") continue;
-        props[k] = v;
+        if (k !== "expressID") props[k] = v;
       }
     }
-  } catch { /* ignore — element may not have readable direct props */ }
+  } catch { /* ignore */ }
 
-  try {
-    const isIfc2x3 = api.GetModelSchema(modelId) === "IFC2X3";
-    const elemLine = api.GetLine(modelId, expressId, false, true) as RawLine | null;
+  // Single inverse lookup — reused by both main traversal and Decomposes fallback below.
+  let elemLine: RawLine | null = null;
+  try { elemLine = api.GetLine(modelId, expressId, false, true) as RawLine | null; } catch { /* ignore */ }
 
-    for (const ref of toRefArray(elemLine?.IsDefinedBy)) {
+  const isIfc2x3 = (() => { try { return api.GetModelSchema(modelId) === "IFC2X3"; } catch { return false; } })();
+
+  // Instance psets via IfcRelDefinesByProperties
+  for (const ref of toRefArray(elemLine?.IsDefinedBy)) {
+    const relId = ref?.value;
+    if (!relId) continue;
+    try {
+      const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+      if (!rel?.RelatingPropertyDefinition) continue;
+      for (const pref of toRefArray(rel.RelatingPropertyDefinition)) {
+        const psetId = pref?.value;
+        if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+      }
+    } catch { /* skip */ }
+  }
+
+  // Type psets via IfcRelDefinesByType
+  // IFC2X3: type rels mixed into IsDefinedBy; IFC4/4.3: dedicated IsTypedBy
+  const typeRelKey = isIfc2x3 ? "IsDefinedBy" : "IsTypedBy";
+  for (const ref of toRefArray(elemLine?.[typeRelKey])) {
+    const relId = ref?.value;
+    if (!relId) continue;
+    try {
+      const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+      const typeId = (rel?.RelatingType as { value?: number } | null)?.value;
+      if (!typeId) continue;
+
+      // Standard: type.HasPropertySets
+      const typeObj = api.GetLine(modelId, typeId, false) as RawLine | null;
+      for (const pref of (typeObj?.HasPropertySets as { value?: number }[] | null) ?? []) {
+        const psetId = pref?.value;
+        if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+      }
+
+      // Non-standard: some exporters assign psets to the type via IfcRelDefinesByProperties
+      const typeInv = api.GetLine(modelId, typeId, false, true) as RawLine | null;
+      for (const dRef of toRefArray(typeInv?.IsDefinedBy)) {
+        const dRelId = dRef?.value;
+        if (!dRelId) continue;
+        try {
+          const dRel = api.GetLine(modelId, dRelId, false, false) as RawLine | null;
+          if (!dRel?.RelatingPropertyDefinition) continue;
+          for (const pref of toRefArray(dRel.RelatingPropertyDefinition)) {
+            const psetId = pref?.value;
+            if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* skip */ }
+  }
+
+  // Object-inherited psets via IfcRelDefinesByObject (IFC4/4.3 only)
+  if (!isIfc2x3) {
+    for (const ref of toRefArray(elemLine?.IsDeclaredBy)) {
       const relId = ref?.value;
       if (!relId) continue;
       try {
         const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-        if (!rel?.RelatingPropertyDefinition) continue;
-        for (const pref of toRefArray(rel.RelatingPropertyDefinition)) {
-          const psetId = pref?.value;
-          if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
-        }
-      } catch { /* skip */ }
-    }
-
-    const typeRelKey = isIfc2x3 ? "IsDefinedBy" : "IsTypedBy";
-    for (const ref of toRefArray(elemLine?.[typeRelKey])) {
-      const relId = ref?.value;
-      if (!relId) continue;
-      try {
-        const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-        const typeId = (rel?.RelatingType as { value?: number } | null)?.value;
-        if (!typeId) continue;
-
-        // Standard path: type's HasPropertySets
-        const typeObj = api.GetLine(modelId, typeId, false) as RawLine | null;
-        for (const pref of (typeObj?.HasPropertySets as { value?: number }[] | null) ?? []) {
-          const psetId = pref?.value;
-          if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
-        }
-
-        // Non-standard path: some exporters attach psets to the type via
-        // IfcRelDefinesByProperties instead of HasPropertySets
-        const typeWithInverse = api.GetLine(modelId, typeId, false, true) as RawLine | null;
-        for (const dRef of toRefArray(typeWithInverse?.IsDefinedBy)) {
+        const relatingObjId = (rel?.RelatingObject as { value?: number } | null)?.value;
+        if (!relatingObjId) continue;
+        const defObjLine = api.GetLine(modelId, relatingObjId, false, false) as RawLine | null;
+        for (const dRef of toRefArray(defObjLine?.IsDefinedBy)) {
           const dRelId = dRef?.value;
           if (!dRelId) continue;
           try {
@@ -337,62 +364,34 @@ export async function loadIFCProperties(
         }
       } catch { /* skip */ }
     }
+  }
 
-    if (!isIfc2x3) {
-      for (const ref of toRefArray(elemLine?.IsDeclaredBy)) {
-        const relId = ref?.value;
-        if (!relId) continue;
-        try {
-          const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-          const relatingObjId = (rel?.RelatingObject as { value?: number } | null)?.value;
-          if (!relatingObjId) continue;
-          const defObjLine = api.GetLine(modelId, relatingObjId, false, false) as RawLine | null;
-          for (const dRef of toRefArray(defObjLine?.IsDefinedBy)) {
-            const dRelId = dRef?.value;
-            if (!dRelId) continue;
-            try {
-              const dRel = api.GetLine(modelId, dRelId, false, false) as RawLine | null;
-              if (!dRel?.RelatingPropertyDefinition) continue;
-              for (const pref of toRefArray(dRel.RelatingPropertyDefinition)) {
-                const psetId = pref?.value;
-                if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
-              }
-            } catch { /* skip */ }
-          }
-        } catch { /* skip */ }
-      }
-    }
-  } catch { /* element has no traversable inverse rels */ }
-
-  // Fallback: if no psets found, load from the aggregation parent (Decomposes).
-  // Common pattern in infrastructure IFC: sub-components (e.g. IfcBuildingElementProxy)
-  // are aggregated under a parent element that carries all the psets.
+  // Fallback: inherit from aggregation parent when element has no own psets.
+  // Infrastructure IFC pattern: sub-components (e.g. IfcBuildingElementProxy) are
+  // aggregated under a parent element (e.g. IfcFlowSegment) that carries the psets.
   if (psets.length === 0) {
-    try {
-      const elemLine = api.GetLine(modelId, expressId, false, true) as RawLine | null;
-      for (const ref of toRefArray(elemLine?.Decomposes)) {
-        const relId = ref?.value;
-        if (!relId) continue;
-        try {
-          const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-          const parentId = (rel?.RelatingObject as { value?: number } | null)?.value;
-          if (!parentId) continue;
-          const parentLine = api.GetLine(modelId, parentId, false, true) as RawLine | null;
-          for (const dRef of toRefArray(parentLine?.IsDefinedBy)) {
-            const dRelId = dRef?.value;
-            if (!dRelId) continue;
-            try {
-              const dRel = api.GetLine(modelId, dRelId, false, false) as RawLine | null;
-              if (!dRel?.RelatingPropertyDefinition) continue;
-              for (const pref of toRefArray(dRel.RelatingPropertyDefinition)) {
-                const psetId = pref?.value;
-                if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
-              }
-            } catch { /* skip */ }
-          }
-        } catch { /* skip */ }
-      }
-    } catch { /* no aggregation parent */ }
+    for (const ref of toRefArray(elemLine?.Decomposes)) {
+      const relId = ref?.value;
+      if (!relId) continue;
+      try {
+        const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+        const parentId = (rel?.RelatingObject as { value?: number } | null)?.value;
+        if (!parentId) continue;
+        const parentLine = api.GetLine(modelId, parentId, false, true) as RawLine | null;
+        for (const dRef of toRefArray(parentLine?.IsDefinedBy)) {
+          const dRelId = dRef?.value;
+          if (!dRelId) continue;
+          try {
+            const dRel = api.GetLine(modelId, dRelId, false, false) as RawLine | null;
+            if (!dRel?.RelatingPropertyDefinition) continue;
+            for (const pref of toRefArray(dRel.RelatingPropertyDefinition)) {
+              const psetId = pref?.value;
+              if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+            }
+          } catch { /* skip */ }
+        }
+      } catch { /* skip */ }
+    }
   }
 
   return { properties: props, psets };
@@ -446,39 +445,63 @@ export async function loadBasketProperties(
       }
     } catch { /* ignore */ }
 
-    try {
-      const elemLine = api.GetLine(modelId, eid, false, true) as RawLine | null;
+    let elemLine: RawLine | null = null;
+    try { elemLine = api.GetLine(modelId, eid, false, true) as RawLine | null; } catch { /* ignore */ }
 
-      for (const ref of toRefArray(elemLine?.IsDefinedBy)) {
+    for (const ref of toRefArray(elemLine?.IsDefinedBy)) {
+      const relId = ref?.value;
+      if (!relId) continue;
+      try {
+        const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+        if (!rel?.RelatingPropertyDefinition) continue;
+        for (const pref of toRefArray(rel.RelatingPropertyDefinition)) {
+          const psetId = pref?.value;
+          if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+        }
+      } catch { /* skip */ }
+    }
+
+    const typeRelKey = isIfc2x3 ? "IsDefinedBy" : "IsTypedBy";
+    for (const ref of toRefArray(elemLine?.[typeRelKey])) {
+      const relId = ref?.value;
+      if (!relId) continue;
+      try {
+        const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
+        const typeId = (rel?.RelatingType as { value?: number } | null)?.value;
+        if (!typeId) continue;
+
+        const typeObj = api.GetLine(modelId, typeId, false) as RawLine | null;
+        for (const pref of (typeObj?.HasPropertySets as { value?: number }[] | null) ?? []) {
+          const psetId = pref?.value;
+          if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+        }
+
+        const typeInv = api.GetLine(modelId, typeId, false, true) as RawLine | null;
+        for (const dRef of toRefArray(typeInv?.IsDefinedBy)) {
+          const dRelId = dRef?.value;
+          if (!dRelId) continue;
+          try {
+            const dRel = api.GetLine(modelId, dRelId, false, false) as RawLine | null;
+            if (!dRel?.RelatingPropertyDefinition) continue;
+            for (const pref of toRefArray(dRel.RelatingPropertyDefinition)) {
+              const psetId = pref?.value;
+              if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
+            }
+          } catch { /* skip */ }
+        }
+      } catch { /* skip */ }
+    }
+
+    if (psets.length === 0) {
+      for (const ref of toRefArray(elemLine?.Decomposes)) {
         const relId = ref?.value;
         if (!relId) continue;
         try {
           const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-          if (!rel?.RelatingPropertyDefinition) continue;
-          for (const pref of toRefArray(rel.RelatingPropertyDefinition)) {
-            const psetId = pref?.value;
-            if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
-          }
-        } catch { /* skip */ }
-      }
-
-      const typeRelKey = isIfc2x3 ? "IsDefinedBy" : "IsTypedBy";
-      for (const ref of toRefArray(elemLine?.[typeRelKey])) {
-        const relId = ref?.value;
-        if (!relId) continue;
-        try {
-          const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-          const typeId = (rel?.RelatingType as { value?: number } | null)?.value;
-          if (!typeId) continue;
-
-          const typeObj = api.GetLine(modelId, typeId, false) as RawLine | null;
-          for (const pref of (typeObj?.HasPropertySets as { value?: number }[] | null) ?? []) {
-            const psetId = pref?.value;
-            if (psetId) await loadAndParsePset(api, modelId, psetId, psets);
-          }
-
-          const typeWithInverse = api.GetLine(modelId, typeId, false, true) as RawLine | null;
-          for (const dRef of toRefArray(typeWithInverse?.IsDefinedBy)) {
+          const parentId = (rel?.RelatingObject as { value?: number } | null)?.value;
+          if (!parentId) continue;
+          const parentLine = api.GetLine(modelId, parentId, false, true) as RawLine | null;
+          for (const dRef of toRefArray(parentLine?.IsDefinedBy)) {
             const dRelId = dRef?.value;
             if (!dRelId) continue;
             try {
@@ -492,7 +515,7 @@ export async function loadBasketProperties(
           }
         } catch { /* skip */ }
       }
-    } catch { /* no inverse rels */ }
+    }
 
     result.set(eid, { properties: props, psets });
   }

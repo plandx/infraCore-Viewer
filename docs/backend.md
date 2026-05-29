@@ -28,54 +28,60 @@ Fortschritts-Phasen: Initialisieren → Geometrie laden → Struktur lesen → A
 
 ### `loadIFCProperties(file, expressId)`
 
-Lädt Eigenschaften **eines** Elements (öffnet Datei neu):
-- Direkte Attribute via `getItemProperties(...)` — skalare Werte werden aus `{value: ...}`-Objekten ausgepackt
-- Instanz-Psets via `getPropertySets(modelId, expressId, recursive=true, includeType=false)`
-- Typ-Psets via `getPropertySets(modelId, expressId, recursive=true, includeType=true)` (`.catch(() => [])`)
-- Psets werden mit `parsePsetLine()` geparst — unterstützt alle IFC-Eigenschaftstypen (siehe unten)
-- Beide Aufrufe **sequentiell** (nicht parallel!) — WASM ist nicht concurrency-safe
-- Gibt `{ properties: Record<string,unknown>, psets: PropertySet[] }` zurück
+Lädt Eigenschaften **eines** Elements für das Properties-Panel. Nutzt `getOrOpenPropModel()` (gecachtes Modell-Handle).
 
-### `loadAllElementProperties(file, expressIds, onProgress)`
+Traversierungs-Reihenfolge:
+1. **Direkte Attribute** via `getItemProperties()` — `{value, type}`-Objekte bleiben gewrappt, damit `isIfcRef()` im UI Handle-Referenzen (type=5) korrekt ausblendet
+2. **Instanz-Psets** via `IsDefinedBy` → `IfcRelDefinesByProperties.RelatingPropertyDefinition`
+3. **Typ-Psets** via `IsTypedBy` (IFC4/4.3) bzw. `IsDefinedBy` (IFC2X3) → `IfcRelDefinesByType.RelatingType`:
+   - Standard-Pfad: `TypeObject.HasPropertySets`
+   - Nicht-standard: Psets direkt am Typ-Objekt via `IfcRelDefinesByProperties` (manche Exporter)
+4. **Vererbte Psets** via `IsDeclaredBy` → `IfcRelDefinesByObject.RelatingObject.IsDefinedBy` (IFC4/4.3)
+5. **Aggregations-Fallback** (nur wenn keine Psets gefunden): `Decomposes` → `IfcRelAggregates.RelatingObject.IsDefinedBy` — deckt den Infrastruktur-Muster ab, wo Sub-Komponenten (z. B. `IfcBuildingElementProxy`) als Kinder eines Träger-Elements (z. B. `IfcFlowSegment`) modelliert werden, das alle Psets hält
 
-Batch-Laden für alle Elemente (einmal Datei öffnen, alle lesen):
-- Gibt `Map<number, FlatElementProps>` zurück
-- Keys: direkte Attribute + `"PsetName.PropName"` Namespaced-Keys
-- Kurz-Aliases: erster Pset gewinnt bei Kollision
-- Lädt ebenfalls instanz- und typ-level Psets über `applyPset()` (unterstützt HasProperties + Quantities)
-- Wird von `BatchPanel` für datalist-Autocomplete und von `QuantityListPanel` (`PropertyLoader`) genutzt
+`GetLine(inverse=true)` wird **einmal** pro Element aufgerufen und gecacht — beide Traversierungsschritte (Hauptlauf + Fallback) nutzen dasselbe Ergebnis.
 
-**Wichtig:** `FlatElementProps = Record<string, unknown>` ist in `types/ifc.ts` definiert.
+Gibt `{ properties: Record<string,unknown>, psets: PropertySet[] }` zurück.
 
 ### `loadBasketProperties(file, expressIds)`
 
-Batch-Laden für Auswahlkorb-Elemente (einmal Datei öffnen):
+Batch-Laden für Auswahlkorb-Elemente (einmal Datei öffnen). Dieselbe Traversierungslogik wie `loadIFCProperties` inkl. Aggregations-Fallback.
+
 - Gibt `Map<number, { properties: Record<string,unknown>; psets: PropertySet[] }>` zurück
-- Anders als `loadAllElementProperties` bleiben `properties` und `psets` getrennt
-  (wird vom `BasketEditor` benötigt um direkte Attribute von Pset-Werten zu unterscheiden)
-- Lädt ebenfalls instanz- und typ-level Psets (sequentiell)
+- `properties` und `psets` bleiben getrennt (wird vom `BasketEditor` benötigt)
+
+### `loadAllElementProperties(file, expressIds, onProgress)`
+
+Batch-Laden für alle Elemente — optimierter O(R + P)-Algorithmus statt O(N × R).
+
+**Vorgehen:**
+1. Alle Element-Zeilen auf einmal via `GetLines()` (batch, kein inverser Aufruf)
+2. Alle `IfcRelDefinesByProperties` einmal einlesen → `psetId → Set<expressId>` Index aufbauen
+3. Jeden Pset genau einmal laden und auf alle zugehörigen Elemente verteilen
+4. Analog für `IfcRelDefinesByType` → `TypeObject.HasPropertySets`
+
+Gibt `Map<number, FlatElementProps>` zurück. Keys: direkte Attribute + `"PsetName.PropName"`-Namespace. Kurz-Alias: erster Pset gewinnt bei Kollision.
+
+> Der Aggregations-Fallback (Decomposes) ist hier **nicht** implementiert — dieser Batch-Pfad läuft beim SQL-Export, wo die Parent-Element-Daten bereits als eigene Zeilen vorhanden sind.
 
 ### `getIfcApi()` *(exportiert)*
 
-Gibt die gemeinsame `IfcAPI`-Instanz zurück (Singleton). Wird auch von `ifcWriter.ts` genutzt.
+Singleton-`IfcAPI`-Instanz. Wird auch von `ifcWriter.ts` genutzt.
 
 ### WASM-Concurrency-Regel
 
-`web-ifc`'s WASM-Backend hält internen Zustand und ist **nicht safe für parallele async-Aufrufe**. Niemals `Promise.all([getPropertySets(...), getPropertySets(...)])` verwenden — das korrumpiert den State und führt zu unvollständigen Attributen. Immer sequentiell awaiten:
+`web-ifc`'s WASM-Backend hält internen Zustand — niemals parallele async-Aufrufe (`Promise.all`). Alle WASM-Aufrufe sequentiell awaiten.
 
-```typescript
-const instancePsets = await api.properties.getPropertySets(modelId, eid, true, false);
-const typePsets     = await api.properties.getPropertySets(modelId, eid, true, true).catch(() => []);
-```
+### Pset-Traversierungs-Übersicht
 
-### Pset-Lade-Strategie (instanz- vs. typ-level)
-
-IFC kennt zwei Arten von PropertySets:
-- **Instanz-Psets** (`IFCRELDEFINESBYPROPERTIES`): direkt am Element hängend → `includeType=false`
-- **Typ-Psets** (`IfcTypeObject.HasPropertySets` via `IFCRELDEFINESBYTYPE`): am Typ-Objekt → `includeType=true`
-
-Beide werden immer geladen und zusammengeführt (`[...instancePsets, ...typePsets]`).
-`recursive=true` bei beiden Aufrufen ist zwingend, sonst enthält `HasProperties` nur Express-ID-Referenzen statt expandierter Objekte.
+| Pfad | Beziehung | Schemas |
+|---|---|---|
+| Instanz | `IsDefinedBy` → `IfcRelDefinesByProperties` | 2x3, 4, 4.3 |
+| Typ (standard) | `IsTypedBy` → `IfcRelDefinesByType` → `HasPropertySets` | 4, 4.3 |
+| Typ (standard) | `IsDefinedBy` → `IfcRelDefinesByType` → `HasPropertySets` | 2x3 |
+| Typ (nicht-standard) | wie oben → `TypeObj.IsDefinedBy` → `IfcRelDefinesByProperties` | 4, 4.3 |
+| Vererbt | `IsDeclaredBy` → `IfcRelDefinesByObject` → `IsDefinedBy` | 4, 4.3 |
+| Aggregations-Fallback | `Decomposes` → `IfcRelAggregates` → Parent-`IsDefinedBy` | alle |
 
 ### `parsePsetLine(pset)` *(intern)*
 
