@@ -203,9 +203,9 @@ export function CollisionWindow() {
 
   const sevDot  = (s: Severity) => s === "error" ? "bg-red-500"    : s === "warning" ? "bg-amber-400"  : "bg-blue-400";
   const sevText = (s: Severity) => s === "error" ? "text-red-400"  : s === "warning" ? "text-amber-400": "text-blue-400";
-  const sevBg   = (s: Severity) => s === "error" ? "bg-red-400/10 border-red-400/30 text-red-400"
-                                 : s === "warning" ? "bg-amber-400/10 border-amber-400/30 text-amber-400"
-                                 : "bg-blue-400/10 border-blue-400/30 text-blue-400";
+  const sevBg   = (s: Severity) => s === "error" ? "border-red-400/40 text-red-400"
+                                 : s === "warning" ? "border-amber-400/40 text-amber-400"
+                                 : "border-blue-400/40 text-blue-400";
 
   const toggleSort = (s: SortBy) => {
     if (sortBy === s) setSortAsc(p => !p);
@@ -311,9 +311,9 @@ export function CollisionWindow() {
                       <button
                         onClick={(e) => requestDeleteRule(e, rule.id)}
                         title={confirmDeleteId === rule.id ? "Nochmal klicken zum Bestätigen" : "Löschen"}
-                        className={cn("p-1 rounded transition-colors text-[9px] font-medium",
+                        className={cn("p-1 rounded-[3px] transition-colors text-[9px] font-medium",
                           confirmDeleteId === rule.id
-                            ? "bg-red-500/15 text-red-400 border border-red-400/30 px-1.5"
+                            ? "text-red-500 border border-red-400/40 px-1.5"
                             : "text-muted-foreground hover:text-red-400")}>
                         {confirmDeleteId === rule.id ? "Löschen?" : <Trash2 size={10} />}
                       </button>
@@ -345,7 +345,7 @@ export function CollisionWindow() {
             </div>
             <button onClick={sendRun}
               disabled={state.running || serverOnline === false}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity">
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-[4px] text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity">
               {state.running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
               {state.running ? `Analysiere… ${state.progress}%` : "Prüfung starten"}
             </button>
@@ -419,7 +419,7 @@ export function CollisionWindow() {
                       ["status",   "Status"],
                     ] as [GroupBy, string][]).map(([g, label]) => (
                       <button key={g} onClick={() => setGroupBy(g)}
-                        className={cn("px-1.5 py-0.5 rounded border transition-colors",
+                        className={cn("px-1.5 py-0.5 rounded-[3px] border transition-colors",
                           groupBy === g ? "border-primary/60 bg-primary/10 text-primary" : "border-border hover:border-primary/30")}>
                         {label}
                       </button>
@@ -517,8 +517,8 @@ export function CollisionWindow() {
                                     <span className="text-[9px] text-muted-foreground">Status:</span>
                                     {(["new","approved","resolved"] as ClashStatus[]).map(s => (
                                       <button key={s} onClick={() => sendSetStatus(r, s)}
-                                        className={cn("text-[9px] px-2 py-0.5 rounded border transition-colors",
-                                          r.status === s ? "border-primary bg-primary/10 text-primary" :
+                                        className={cn("text-[9px] px-2 py-0.5 rounded-[4px] border transition-colors",
+                                          r.status === s ? "border-primary/60 text-primary" :
                                           "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground")}>
                                         {s === "new" ? "Offen" : s === "approved" ? "Akzeptiert" : "Gelöst"}
                                       </button>
@@ -553,9 +553,9 @@ export function CollisionWindow() {
 
 function StatusChip({ status }: { status: ClashStatus }) {
   const cls =
-    status === "new"      ? "bg-amber-400/10 text-amber-400 border-amber-400/30" :
-    status === "approved" ? "bg-green-400/10 text-green-400 border-green-400/30" :
-    "bg-muted/50 text-muted-foreground border-border";
+    status === "new"      ? "text-amber-600 border-amber-500/50 dark:text-amber-400" :
+    status === "approved" ? "text-green-600 border-green-500/50 dark:text-green-400" :
+    "text-muted-foreground border-border";
   const label = status === "new" ? "Offen" : status === "approved" ? "Akzeptiert" : "Gelöst";
   return <span className={cn("text-[9px] px-1.5 py-0.5 rounded border font-medium", cls)}>{label}</span>;
 }
@@ -677,12 +677,12 @@ function RuleEditorPanel({ rule, allTypes, loadedPropKeys, propValues, smartView
           <div className="flex flex-col gap-1 flex-1 min-w-32">
             <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Name</label>
             <input value={draft.name} onChange={e => setDraft(p => ({ ...p, name: e.target.value }))}
-              className="px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              className="px-3 py-1.5 text-sm bg-background border border-border rounded-[4px] focus:outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
           <div className="flex flex-col gap-1 w-40">
             <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Prüftyp</label>
             <select value={draft.checkType} onChange={e => setDraft(p => ({ ...p, checkType: e.target.value as CheckType }))}
-              className="px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
+              className="px-3 py-1.5 text-sm bg-background border border-border rounded-[4px] focus:outline-none focus:ring-2 focus:ring-primary/30">
               <option value="hard-clash">Harte Kollision</option>
               <option value="clearance">Mindestabstand</option>
               <option value="duplicate">Duplikat</option>
@@ -745,11 +745,11 @@ function RuleEditorPanel({ rule, allTypes, loadedPropKeys, propValues, smartView
       {/* Footer */}
       <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-border shrink-0">
         <button onClick={onClose}
-          className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/60 rounded-lg transition-colors">
+          className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/60 rounded-[4px] transition-colors">
           Abbrechen
         </button>
         <button onClick={() => onSave(draft)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-[4px] text-sm font-medium hover:opacity-90 transition-opacity">
           <Check size={14} /> Speichern
         </button>
       </div>
@@ -778,8 +778,8 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, smar
 
   const isA = side === "A";
   const badgeCls = isA
-    ? "bg-blue-500/20 text-blue-400 border-blue-400/30"
-    : "bg-orange-500/20 text-orange-400 border-orange-400/30";
+    ? "text-blue-600 border-blue-500/50 dark:text-blue-400"
+    : "text-orange-600 border-orange-500/50 dark:text-orange-400";
 
   const filteredTypes = useMemo(
     () => allTypes.filter(t => {
@@ -803,7 +803,7 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, smar
 
       {/* Group header */}
       <div className="flex items-start gap-2">
-        <span className={cn("inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold border shrink-0 mt-0.5", badgeCls)}>{side}</span>
+        <span className={cn("inline-flex items-center justify-center w-5 h-5 rounded-[3px] text-[10px] font-bold border shrink-0 mt-0.5", badgeCls)}>{side}</span>
         <div>
           <p className="text-xs font-semibold">
             {isA ? "Gruppe A — Geprüfte Elemente" : "Gruppe B — Referenzelemente"}
@@ -817,7 +817,7 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, smar
 
       {/* SmartView import */}
       <select
-        className="w-full px-2 py-1 text-[10px] bg-background border border-border rounded-lg focus:outline-none text-foreground"
+        className="w-full px-2 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none text-foreground"
         value=""
         onChange={(e) => {
           const sv = smartViews.find((v) => v.id === e.target.value);
@@ -838,9 +838,9 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, smar
           const allSel = available.every(t => filter.ifcTypes.includes(t));
           return (
             <button key={preset.label} onClick={() => togglePreset(preset)}
-              className={cn("text-[9px] px-2 py-0.5 rounded border transition-colors",
-                allSel ? "bg-primary/15 border-primary/40 text-primary" :
-                "bg-muted border-border text-muted-foreground hover:border-primary/30 hover:text-foreground")}>
+              className={cn("text-[9px] px-2 py-0.5 rounded-[3px] border transition-colors",
+                allSel ? "border-primary/60 text-primary" :
+                "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground")}>
               {preset.label}
             </button>
           );
@@ -857,7 +857,7 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, smar
       {filter.ifcTypes.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {filter.ifcTypes.map(t => (
-            <span key={t} className={cn("flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border", badgeCls)}>
+            <span key={t} className={cn("flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-[3px] border", badgeCls)}>
               {IFC_TO_LABEL[t] ?? t.replace("Ifc","")}
               <button onClick={() => onToggleType(t)} className="hover:opacity-70 transition-opacity"><X size={8} /></button>
             </span>
@@ -868,7 +868,7 @@ function FilterEditor({ side, filter, allTypes, loadedPropKeys, propValues, smar
       )}
 
       {/* Collapsible type list */}
-      <div className="border border-border rounded-lg overflow-hidden">
+      <div className="border border-border rounded-[6px] overflow-hidden">
         <button
           onClick={() => setTypeListOpen(o => !o)}
           className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors">
@@ -941,7 +941,7 @@ function ConditionRow({ condition, loadedPropKeys, valueOptions, onUpdate, onRem
       {/* Property key */}
       <select value={condition.propName}
         onChange={e => onUpdate({ propName: e.target.value, value: "" })}
-        className="flex-1 min-w-0 px-2 py-1 text-[10px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/40">
+        className="flex-1 min-w-0 px-2 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary/40">
         <option value="">Eigenschaft…</option>
         {loadedPropKeys.map(k => <option key={k} value={k}>{k}</option>)}
       </select>
@@ -949,7 +949,7 @@ function ConditionRow({ condition, loadedPropKeys, valueOptions, onUpdate, onRem
       {/* Operator */}
       <select value={condition.operator}
         onChange={e => onUpdate({ operator: e.target.value as PropCondition["operator"] })}
-        className="px-1.5 py-1 text-[10px] bg-background border border-border rounded-md focus:outline-none shrink-0"
+        className="px-1.5 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none shrink-0"
         style={{ width: 76 }}>
         <option value="contains">enthält</option>
         <option value="equals">gleich</option>
@@ -962,14 +962,14 @@ function ConditionRow({ condition, loadedPropKeys, valueOptions, onUpdate, onRem
         valueOptions.length > 0 ? (
           <select value={condition.value}
             onChange={e => onUpdate({ value: e.target.value })}
-            className="w-24 shrink-0 px-1.5 py-1 text-[10px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/40">
+            className="w-24 shrink-0 px-1.5 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary/40">
             <option value="">Wert…</option>
             {valueOptions.map(v => <option key={v} value={v}>{v}</option>)}
           </select>
         ) : (
           <input value={condition.value} placeholder="Wert"
             onChange={e => onUpdate({ value: e.target.value })}
-            className="w-24 shrink-0 px-2 py-1 text-[10px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/40" />
+            className="w-24 shrink-0 px-2 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary/40" />
         )
       )}
 

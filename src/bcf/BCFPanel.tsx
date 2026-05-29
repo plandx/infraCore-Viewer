@@ -10,11 +10,11 @@ import type { BcfTopicStatus, BcfTopicType, BcfVersion, BcfPriority } from "./bc
 import { cn } from "../lib/utils";
 
 const STATUS_COLOR: Record<BcfTopicStatus, string> = {
-  Open: "bg-blue-500/15 text-blue-500 border-blue-500/30",
-  "In Progress": "bg-orange-500/15 text-orange-500 border-orange-500/30",
-  Resolved: "bg-green-500/15 text-green-500 border-green-500/30",
-  Closed: "bg-muted text-muted-foreground border-border",
-  ReOpened: "bg-red-500/15 text-red-500 border-red-500/30",
+  Open: "bg-transparent text-blue-600 border-blue-500/50 dark:text-blue-400",
+  "In Progress": "bg-transparent text-orange-600 border-orange-500/50 dark:text-orange-400",
+  Resolved: "bg-transparent text-green-600 border-green-500/50 dark:text-green-400",
+  Closed: "bg-transparent text-muted-foreground border-border",
+  ReOpened: "bg-transparent text-red-600 border-red-500/50 dark:text-red-400",
 };
 
 const TYPE_ICON: Record<BcfTopicType, React.ReactNode> = {
@@ -97,17 +97,17 @@ export function BCFPanel() {
   return (
     <div className="flex flex-col h-full bg-background text-foreground text-[13px]">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0 flex-wrap">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0 flex-wrap bg-background">
         <span className="font-semibold text-[13px] mr-1">BCF Manager</span>
 
         <button
           onClick={() => { addTopic({ title: "Neues Thema" }); }}
-          className="flex items-center gap-1 px-2 py-1 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[12px]"
+          className="flex items-center gap-1 px-2 py-1 rounded-[4px] bg-primary/10 hover:bg-primary/20 text-primary text-[12px]"
         >
           <Plus size={13} /> Neu
         </button>
 
-        <label className="flex items-center gap-1 px-2 py-1 rounded bg-muted hover:bg-muted/70 text-[12px] cursor-pointer">
+        <label className="flex items-center gap-1 px-2 py-1 rounded-[4px] bg-muted hover:bg-muted/70 text-[12px] cursor-pointer">
           <Upload size={13} /> Öffnen
           <input type="file" accept=".bcf,.bcfzip" className="hidden" onChange={handleImport} />
         </label>
@@ -123,7 +123,7 @@ export function BCFPanel() {
           <button
             onClick={handleExport}
             disabled={document.topics.length === 0}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground text-[12px] disabled:opacity-40"
+            className="flex items-center gap-1 px-2 py-1 rounded-[4px] bg-primary text-primary-foreground text-[12px] disabled:opacity-40"
           >
             <FileDown size={13} /> Export
           </button>
@@ -166,19 +166,19 @@ export function BCFPanel() {
               key={topic.id}
               onClick={() => setActiveTopicId(topic.id)}
               className={cn(
-                "flex flex-col gap-1 px-3 py-2.5 text-left border-b border-border/50 hover:bg-muted/40 transition-colors",
-                activeTopicId === topic.id && "bg-primary/10 border-l-2 border-l-primary"
+                "flex flex-col gap-1 px-3 py-2.5 text-left border-b border-border/50 hover:bg-[#E5E5E5] dark:hover:bg-[#333333] transition-colors",
+                activeTopicId === topic.id && "bg-primary/8 border-l-2 border-l-primary"
               )}
             >
               <div className="flex items-start gap-1.5">
-                <span className={cn("mt-0.5 shrink-0", topic.type === "Clash" ? "text-yellow-500" : topic.type === "IDS" ? "text-blue-400" : "text-muted-foreground")}>
+                <span className={cn("mt-0.5 shrink-0 text-muted-foreground")}>
                   {TYPE_ICON[topic.type]}
                 </span>
                 <span className="font-medium text-[12px] leading-snug line-clamp-2 flex-1">{topic.title}</span>
                 <ChevronRight size={12} className="mt-0.5 shrink-0 text-muted-foreground/50" />
               </div>
               <div className="flex items-center gap-1.5 pl-5 flex-wrap">
-                <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border", STATUS_COLOR[topic.status])}>
+                <span className={cn("text-[10px] px-1.5 py-0.5 rounded-[3px] border", STATUS_COLOR[topic.status])}>
                   {topic.status}
                 </span>
                 <span className={cn("text-[10px]", PRIORITY_COLOR[topic.priority])}>{topic.priority}</span>
@@ -300,7 +300,7 @@ export function BCFPanel() {
                   <div className="text-[12px] text-muted-foreground text-center py-4">Noch keine Kommentare.</div>
                 )}
                 {activeTopic.comments.map((c) => (
-                  <div key={c.id} className="flex flex-col gap-1 bg-muted/20 rounded-lg px-3 py-2 border border-border/40">
+                  <div key={c.id} className="flex flex-col gap-1 bg-muted/30 rounded-[6px] px-3 py-2 border border-border/40">
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-medium">{c.author}</span>
                       <span className="text-[10px] text-muted-foreground">{formatDate(c.date)}</span>
@@ -328,7 +328,7 @@ export function BCFPanel() {
                 <button
                   onClick={handleAddComment}
                   disabled={!newCommentText.trim()}
-                  className="self-end px-3 py-2 rounded bg-primary text-primary-foreground disabled:opacity-40 flex items-center gap-1 text-[12px]"
+                  className="self-end px-3 py-2 rounded-[4px] bg-primary text-primary-foreground disabled:opacity-40 flex items-center gap-1 text-[12px]"
                 >
                   <Send size={13} /> Senden
                 </button>

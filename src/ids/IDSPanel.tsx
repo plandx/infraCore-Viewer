@@ -130,7 +130,7 @@ function ValueEditor({
       <div className="flex flex-wrap gap-1 min-h-[30px] bg-muted/40 border border-border rounded px-2 py-1">
         {enums.length === 0 && <span className="text-[10px] text-muted-foreground/50 self-center">Erlaubte Werte…</span>}
         {enums.map((v) => (
-          <span key={v} className="flex items-center gap-1 bg-primary/15 text-primary text-[10px] rounded px-1.5 py-0.5 font-medium">
+          <span key={v} className="flex items-center gap-1 bg-primary/10 text-primary text-[10px] rounded-[3px] px-1.5 py-0.5 font-medium">
             {v}
             <button onMouseDown={(e) => { e.preventDefault(); removeEnum(v); }} className="hover:text-destructive transition-colors">
               <X size={9} />
@@ -218,7 +218,7 @@ function IfcTypeMultiSelect({
         onClick={() => { setOpen(true); inputRef.current?.focus(); }}
       >
         {selected.map((t) => (
-          <span key={t} className="flex items-center gap-1 bg-primary/15 text-primary text-[10px] rounded px-1.5 py-0.5 font-medium shrink-0">
+          <span key={t} className="flex items-center gap-1 bg-primary/10 text-primary text-[10px] rounded-[3px] px-1.5 py-0.5 font-medium shrink-0">
             {t}
             <button
               className="hover:text-destructive transition-colors"
@@ -444,7 +444,7 @@ function FacetCard({ facet, onUpdate, onRemove }: { facet: IdsFacet; onUpdate: (
   };
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden bg-card/50">
+    <div className="border border-border rounded-[6px] overflow-hidden bg-card/50">
       <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30 transition-colors" onClick={() => setExpanded((v) => !v)}>
         <span className="text-muted-foreground shrink-0">{facetIcon(facet.type)}</span>
         <span className="text-xs font-medium flex-1 truncate text-foreground">{title()}</span>
@@ -524,7 +524,7 @@ function GroupedRequirementsView({
         const isExpanded = expandedPsets.has(psetName);
 
         return (
-          <div key={psetName} className="border border-border rounded-lg overflow-hidden bg-card/30">
+          <div key={psetName} className="border border-border rounded-[6px] overflow-hidden bg-card/30">
             {/* Group header */}
             <button
               className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/30 transition-colors text-left"
@@ -566,10 +566,10 @@ function GroupedRequirementsView({
                           </span>
                         )}
                         <span className={cn(
-                          "text-[10px] px-1.5 py-0.5 rounded shrink-0",
-                          f.cardinality === "required" ? "bg-primary/10 text-primary" :
-                          f.cardinality === "prohibited" ? "bg-destructive/10 text-destructive" :
-                          "bg-muted/40 text-muted-foreground"
+                          "text-[10px] px-1.5 py-0.5 rounded-[3px] border shrink-0",
+                          f.cardinality === "required" ? "border-primary/40 text-primary" :
+                          f.cardinality === "prohibited" ? "border-destructive/40 text-destructive" :
+                          "border-border text-muted-foreground"
                         )}>
                           {CARDINALITY_LABELS[f.cardinality]}
                         </span>
@@ -695,17 +695,17 @@ function ValidationResultPanel({ results }: { results: IdsSpecResult[] }) {
         {results.map((r) => {
           const isExpanded = expandedSpec === r.specificationId;
           const statusColor =
-            r.status === "passed" ? "text-green-500 bg-green-500/10 border-green-500/20" :
-            r.status === "failed" ? "text-red-400 bg-red-400/10 border-red-400/20" :
-            "text-muted-foreground bg-muted/30 border-border";
+            r.status === "passed" ? "border-green-500/60 text-green-600 dark:text-green-400" :
+            r.status === "failed" ? "border-red-500/60 text-red-500" :
+            "text-muted-foreground border-border";
 
           return (
-            <div key={r.specificationId} className={cn("border rounded-lg overflow-hidden", r.status === "failed" ? "border-red-400/20" : "border-border")}>
+            <div key={r.specificationId} className={cn("border rounded-[6px] overflow-hidden", r.status === "failed" ? "border-red-400/20" : "border-border")}>
               <button
                 className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/20 transition-colors"
                 onClick={() => setExpandedSpec(isExpanded ? null : r.specificationId)}
               >
-                <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0", statusColor)}>
+                <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-[3px] border shrink-0", statusColor)}>
                   {r.status === "passed" ? "OK" : r.status === "failed" ? "FAIL" : "SKIP"}
                 </span>
                 <span className="text-xs font-medium flex-1 truncate">{r.specificationName}</span>
@@ -714,7 +714,7 @@ function ValidationResultPanel({ results }: { results: IdsSpecResult[] }) {
                 </span>
                 {r.status === "failed" && (
                   <button
-                    className="text-[9px] px-1.5 py-0.5 rounded border border-amber-400/40 text-amber-400 hover:bg-amber-400/10 transition-colors shrink-0"
+                    className="text-[9px] px-1.5 py-0.5 rounded-[3px] border border-amber-500/40 text-amber-600 hover:bg-amber-400/10 transition-colors shrink-0"
                     title="Als BCF-Thema erstellen"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -849,7 +849,7 @@ export function IDSPanel() {
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
             <FileCheck2 size={15} className="text-primary shrink-0" />
             <span className="text-sm font-semibold flex-1">IDS</span>
-            <button className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors" onClick={() => setIdsPanelOpen(false)}>
+            <button className="p-1 rounded-[4px] text-muted-foreground hover:text-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] transition-colors" onClick={() => setIdsPanelOpen(false)}>
               <X size={13} />
             </button>
           </div>
@@ -857,13 +857,13 @@ export function IDSPanel() {
           {/* Actions */}
           <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border/50 shrink-0">
             <button
-              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded-[4px] bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
               onClick={() => createDocument()}
             >
               <FilePlus size={11} /> Neu
             </button>
             <button
-              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded-[4px] border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
               onClick={() => idsInputRef.current?.click()}
             >
               <Upload size={11} /> Laden
@@ -935,10 +935,10 @@ export function IDSPanel() {
                 <button
                   key={spec.id}
                   className={cn(
-                    "w-full flex items-center gap-2 px-3 py-2 text-left rounded mx-1 transition-colors group",
+                    "w-full flex items-center gap-2 px-3 py-2 text-left rounded-[4px] mx-1 transition-colors group",
                     spec.id === activeSpecificationId
-                      ? "bg-primary/10 text-primary"
-                      : "text-foreground/80 hover:bg-muted/40"
+                      ? "bg-primary/8 border-l-2 border-l-primary text-primary"
+                      : "text-foreground/80 hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A]"
                   )}
                   style={{ width: "calc(100% - 8px)" }}
                   onClick={() => setActiveSpecification(spec.id)}
@@ -984,14 +984,14 @@ export function IDSPanel() {
                 </div>
               )}
               <button
-                className="flex items-center justify-center gap-1.5 w-full py-1.5 text-[11px] rounded bg-muted/40 border border-border text-foreground hover:bg-muted/70 transition-colors"
+                className="flex items-center justify-center gap-1.5 w-full py-1.5 text-[11px] rounded-[4px] bg-muted/40 border border-border text-foreground hover:bg-muted/70 transition-colors"
                 onClick={handleSave}
               >
                 <Download size={11} /> Speichern (.ids)
               </button>
               <button
                 className={cn(
-                  "flex items-center justify-center gap-1.5 w-full py-1.5 text-[11px] rounded transition-colors",
+                  "flex items-center justify-center gap-1.5 w-full py-1.5 text-[11px] rounded-[4px] transition-colors",
                   models.size > 0
                     ? "bg-primary text-primary-foreground hover:bg-primary/90"
                     : "bg-muted/40 border border-border text-muted-foreground cursor-not-allowed opacity-50"
@@ -1125,8 +1125,8 @@ export function IDSPanel() {
                   {/* Applicability */}
                   <div className="flex-1 p-4 min-w-0">
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="text-xs font-semibold text-foreground uppercase tracking-wide">Anwendbarkeit</span>
-                      <span className="text-[10px] bg-primary/10 text-primary rounded px-1.5 py-0.5 font-medium">{activeSpec.applicability.length}</span>
+                      <span className="text-[11px] font-semibold text-muted-foreground">Anwendbarkeit</span>
+                      <span className="text-[10px] bg-primary/10 text-primary rounded-[3px] px-1.5 py-0.5 font-medium">{activeSpec.applicability.length}</span>
                     </div>
                     <div className="flex flex-col gap-2">
                       {activeSpec.applicability.map((facet, i) => (
@@ -1143,8 +1143,8 @@ export function IDSPanel() {
                   {/* Requirements — grouped by PropertySet */}
                   <div className="flex-1 p-4 min-w-0">
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="text-xs font-semibold text-foreground uppercase tracking-wide">Anforderungen</span>
-                      <span className="text-[10px] bg-primary/10 text-primary rounded px-1.5 py-0.5 font-medium">{activeSpec.requirements.length}</span>
+                      <span className="text-[11px] font-semibold text-muted-foreground">Anforderungen</span>
+                      <span className="text-[10px] bg-primary/10 text-primary rounded-[3px] px-1.5 py-0.5 font-medium">{activeSpec.requirements.length}</span>
                     </div>
                     <GroupedRequirementsView
                       facets={activeSpec.requirements}
@@ -1165,7 +1165,7 @@ export function IDSPanel() {
             <Shield size={13} className="text-primary shrink-0" />
             <span className="text-xs font-semibold flex-1">Prüfergebnis</span>
             <button
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              className="p-1 rounded-[4px] text-muted-foreground hover:text-foreground hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] transition-colors"
               onClick={openIdsResultsWindow}
               title="Ergebnisse in eigenem Fenster öffnen"
             >

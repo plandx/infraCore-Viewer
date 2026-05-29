@@ -210,14 +210,14 @@ export function IdsResultsWindow() {
         <span className="text-muted-foreground" style={{ fontSize: 11, whiteSpace: "nowrap" }}>{new Date(report.timestamp).toLocaleString("de-AT")}</span>
         <div className="ml-auto flex items-center gap-2">
           <button
-            className="flex items-center gap-1 border border-border rounded px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            className="flex items-center gap-1 border border-border rounded-[4px] px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
             style={{ fontSize: 11 }}
             onClick={exportCSV}
           >
             <Download size={11} /> CSV
           </button>
           <button
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            className="p-1 rounded-[4px] text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
             onClick={() => window.close()}
             title="Fenster schließen"
           >
@@ -251,7 +251,7 @@ export function IdsResultsWindow() {
         <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
           <label className="text-muted-foreground" style={{ fontSize: 11 }}>Gruppierung:</label>
           <select
-            className="border border-border rounded px-2 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            className="border border-border rounded-[4px] px-2 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
             style={{ fontSize: 12 }}
             value={groupMode}
             onChange={(e) => { setGroupMode(e.target.value as GroupMode); setExpandedKeys(new Set()); }}
@@ -263,7 +263,7 @@ export function IdsResultsWindow() {
             <option value="ifcFile">IFC-Datei</option>
           </select>
           <button
-            className="border border-border rounded px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            className="border border-border rounded-[4px] px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
             style={{ fontSize: 11 }}
             onClick={expandAll}
             title="Alle aufklappen"
@@ -271,7 +271,7 @@ export function IdsResultsWindow() {
             Alle ↓
           </button>
           <button
-            className="border border-border rounded px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            className="border border-border rounded-[4px] px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
             style={{ fontSize: 11 }}
             onClick={collapseAll}
             title="Alle zuklappen"
@@ -279,7 +279,7 @@ export function IdsResultsWindow() {
             Alle ↑
           </button>
           <button
-            className="border border-border rounded px-2 py-1 flex items-center gap-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            className="border border-border rounded-[4px] px-2 py-1 flex items-center gap-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
             style={{ fontSize: 11 }}
             onClick={() => sendAction({ k: "showAll" })}
           >
@@ -350,17 +350,7 @@ function GroupRow({ group, isExpanded, showSpec, onToggle, onSelect, onIsolate }
             </span>
           )}
           {hasFail && (
-            <span
-              className="font-semibold px-2 rounded"
-              style={{
-                color: "#ef4444",
-                backgroundColor: "rgba(239,68,68,0.12)",
-                border: "1px solid rgba(239,68,68,0.3)",
-                padding: "2px 8px",
-                borderRadius: 4,
-                fontSize: 12,
-              }}
-            >
+            <span className="font-semibold text-[12px] px-2 py-0.5 rounded-[4px] border border-red-500/40 text-red-500">
               {group.failCount} ✗
             </span>
           )}
