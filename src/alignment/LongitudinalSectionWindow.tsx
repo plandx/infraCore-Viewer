@@ -370,24 +370,27 @@ export function LongitudinalSectionWindow() {
       if (lx && ly) return;
 
       const rect = svg.getBoundingClientRect();
-      const cw   = rect.width  - M.left - M.right;
-      const ch   = rect.height - M.top  - M.bottom;
+      const vp   = vpRef.current;
       const f    = e.deltaY > 0 ? 1.25 : 1 / 1.25;
 
-      // Station axis (X)
+      // Convert screen coords → viewBox coords (handles CSS scaling / preserveAspectRatio:none)
+      const totalW = M.left + vp.chartW + M.right;
+      const totalH = M.top  + vp.chartH + M.bottom;
+      const svgX   = (e.clientX - rect.left) * totalW / rect.width;
+      const svgY   = (e.clientY - rect.top)  * totalH / rect.height;
+
+      // Station axis (X) — use vpRef for always-current range
       if (!lx) {
-        const cur = viewStaRef.current ?? [domainRef.current.sMin, domainRef.current.sMax] as [number, number];
-        const frac  = Math.max(0, Math.min(1, (e.clientX - rect.left - M.left) / cw));
+        const cur: [number, number] = [vp.vMin, vp.vMax];
+        const frac  = Math.max(0, Math.min(1, (svgX - M.left) / vp.chartW));
         const pivot = cur[0] + frac * (cur[1] - cur[0]);
         setViewSta([pivot - (pivot - cur[0]) * f, pivot + (cur[1] - pivot) * f]);
       }
 
-      // Elevation axis (Y) — fall back to the actual rendered range (rawVEMin/rawVEMax),
-      // not domain.eMin/eMax, so the first zoom event uses the correct 1:1 baseline
+      // Elevation axis (Y) — use vpRef for always-current range
       if (!ly) {
-        const vp = vpRef.current;
-        const cur = viewElevRef.current ?? [vp.rawVEMin, vp.rawVEMax] as [number, number];
-        const frac  = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top - M.top) / ch));
+        const cur: [number, number] = [vp.rawVEMin, vp.rawVEMax];
+        const frac  = 1 - Math.max(0, Math.min(1, (svgY - M.top) / vp.chartH));
         const pivot = cur[0] + frac * (cur[1] - cur[0]);
         setViewElev([pivot - (pivot - cur[0]) * f, pivot + (cur[1] - pivot) * f]);
       }
