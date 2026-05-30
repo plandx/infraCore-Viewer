@@ -44,7 +44,27 @@ start "Preview Server" cmd /k "cd /d "%~dp0" & npm run preview"
 :: Browser nach kurzer Wartezeit oeffnen
 echo Warte auf Server-Start...
 timeout /t 4 /nobreak >nul
-start "" "http://localhost:4173"
+:: Neues Browser-Fenster öffnen (Chrome/Edge bevorzugt, Fallback auf Standard-Browser)
+set "URL=http://localhost:4173"
+set "CHROME="
+set "EDGE="
+for %%P in (
+    "%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+    "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+    "%LocalAppData%\Google\Chrome\Application\chrome.exe"
+) do if exist "%%~P" set "CHROME=%%~P"
+for %%P in (
+    "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
+    "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+) do if exist "%%~P" set "EDGE=%%~P"
+
+if defined CHROME (
+    start "" %CHROME% --new-window "%URL%"
+) else if defined EDGE (
+    start "" %EDGE% --new-window "%URL%"
+) else (
+    start "" "%URL%"
+)
 
 echo.
 echo ============================================================
