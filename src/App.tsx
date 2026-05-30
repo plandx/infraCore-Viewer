@@ -40,8 +40,9 @@ import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { useIdsStore } from "./ids/idsStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache, LABEL_TO_IFC } from "./utils/ifcLoader";
-import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, IDS_RESULTS_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
-import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel, IdsResultsMsg } from "./utils/windowSync";
+import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, IDS_RESULTS_CHANNEL, BCF_LIGHT_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
+import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel, IdsResultsMsg, BcfLightMsg } from "./utils/windowSync";
+import { BcfLightWindow } from "./bcf/BcfLightWindow";
 import { runServerClash } from "./utils/serverClash";
 import type { IFCModelEntry } from "./types/ifc";
 
@@ -56,6 +57,7 @@ const IS_COLLISION = _params.has("collision");
 const IS_BASKET = _params.has("basket");
 const IS_ABWICKLUNG = _params.has("abwicklung");
 const IS_IDS_RESULTS = _params.has("ids-results");
+const IS_BCF_LIGHT = _params.has("bcf-light");
 
 // ── root export (secondary windows skip the full app) ─────────────────────────
 
@@ -67,6 +69,7 @@ export default function App() {
   }, []);
   if (IS_COLLISION) return <CollisionWindow />;
   if (IS_IDS_RESULTS) return <IdsResultsWindow />;
+  if (IS_BCF_LIGHT) return <BcfLightWindow />;
   if (IS_SECONDARY) return <SecondaryWindow panel={SECONDARY_PANEL} />;
   if (IS_CROSS_SECTION) return <CrossSectionWindow />;
   if (IS_LONG_SECTION) return <LongitudinalSectionWindow />;
@@ -582,6 +585,14 @@ function MainApp() {
   const [leftCollapsed, setLeftCollapsed]   = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
 
+  useEffect(() => {
+    if (bcfPanelOpen || idsPanelOpen) {
+      rightPanelRef.current?.resize(38);
+    } else {
+      rightPanelRef.current?.resize(22);
+    }
+  }, [bcfPanelOpen, idsPanelOpen]);
+
   const activeLoads = loadStates.size;
   const hasModels = models.size > 0;
 
@@ -801,6 +812,39 @@ function MainApp() {
   useCollisionSync();
   useIdsResultsSync();
 
+  // BCF Light pop-out sync
+  useEffect(() => {
+    let ch: BroadcastChannel;
+    try { ch = new BroadcastChannel(BCF_LIGHT_CHANNEL); } catch { return; }
+
+    function sendState() {
+      const { document, activeTopicId } = useBcfStore.getState();
+      ch.postMessage({ t: "state", topics: document.topics, activeId: activeTopicId } satisfies BcfLightMsg);
+    }
+
+    ch.onmessage = (e: MessageEvent<BcfLightMsg>) => {
+      const msg = e.data;
+      if (msg.t === "req") {
+        sendState();
+      } else if (msg.t === "setActive") {
+        useBcfStore.getState().setActiveTopicId(msg.id);
+      } else if (msg.t === "jumpViewpoint") {
+        window.dispatchEvent(new CustomEvent("viewer:bcfViewpoint", {
+          detail: {
+            position:  msg.viewpoint.cameraPosition,
+            direction: msg.viewpoint.cameraDirection,
+            up:        msg.viewpoint.cameraUpVector,
+            fov:       msg.viewpoint.fieldOfView,
+          },
+        }));
+      }
+    };
+
+    const unsub = useBcfStore.subscribe(sendState);
+
+    return () => { ch.close(); unsub(); };
+  }, []);
+
   // Billing window element-list provider
   useEffect(() => {
     let bc: BroadcastChannel | null = null;
@@ -898,14 +942,9 @@ function MainApp() {
         </div>
       )}
 
-      {/* Main content area — IDS/BCF panel or 3-column viewer layout */}
+      {/* Main content area — 3-column viewer layout (BCF/IDS in right panel) */}
       <div className="flex-1 min-h-0">
-        {idsPanelOpen ? (
-          <IDSPanel />
-        ) : bcfPanelOpen ? (
-          <BCFPanel />
-        ) : null}
-        <div className={(idsPanelOpen || bcfPanelOpen) ? "hidden" : "h-full"}>
+        <div className="h-full">
         <PanelGroup orientation="horizontal" className="h-full">
 
           <Panel
@@ -1061,24 +1100,32 @@ function MainApp() {
           <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
           <Panel
-            defaultSize={22} minSize={14} collapsible
+            defaultSize={22} minSize={14} collapsible={!bcfPanelOpen && !idsPanelOpen}
             panelRef={rightPanelRef}
             onResize={(s) => setRightCollapsed(s.asPercentage === 0)}
           >
             <div className="h-full overflow-hidden border-l border-border panel-container flex flex-col">
-              <div className="shrink-0 flex items-center justify-end px-2 py-0.5 border-b border-border/30 bg-muted/10">
-                <button
-                  onClick={() => rightPanelRef.current?.collapse()}
-                  className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors"
-                  title="Leiste ausblenden"
-                >
-                  <ChevronRight size={11} />
-                </button>
-              </div>
-              <ModelInfoPanel />
-              <div className="flex-1 min-h-0 overflow-hidden">
-                <PropertiesPanel />
-              </div>
+              {bcfPanelOpen ? (
+                <BCFPanel />
+              ) : idsPanelOpen ? (
+                <IDSPanel />
+              ) : (
+                <>
+                  <div className="shrink-0 flex items-center justify-end px-2 py-0.5 border-b border-border/30 bg-muted/10">
+                    <button
+                      onClick={() => rightPanelRef.current?.collapse()}
+                      className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors"
+                      title="Leiste ausblenden"
+                    >
+                      <ChevronRight size={11} />
+                    </button>
+                  </div>
+                  <ModelInfoPanel />
+                  <div className="flex-1 min-h-0 overflow-hidden">
+                    <PropertiesPanel />
+                  </div>
+                </>
+              )}
             </div>
           </Panel>
 

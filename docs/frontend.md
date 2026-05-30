@@ -24,6 +24,8 @@ const SECONDARY_PANEL = params.get("panel") ?? "hierarchy";
 
 `main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
 
+`MainApp` betreibt einen `BroadcastChannel(BCF_LIGHT_CHANNEL)`-Listener für das BCF-Pop-out-Fenster. BCF- und IDS-Panels öffnen sich jetzt **im rechten Panel** der 3-Spalten-Ansicht (statt das Viewport zu ersetzen). Wenn `bcfPanelOpen || idsPanelOpen` wird das rechte Panel auf 38% vergrößert; sonst zurück auf 22%.
+
 `MainApp` betreibt einen `BroadcastChannel("infracore-billing")`-Listener: antwortet auf `{ t: "ready" }` mit der aktuellen Elementliste und sendet bei Modellwechsel automatisch `{ t: "elements", list }`.
 
 ---
@@ -782,15 +784,27 @@ BCF-Modul für BIM Collaboration Format (Versionen 2.0, 2.1, 3.0).
 
 ### `BCFPanel.tsx`
 
-Vollbild-Panel im Outlook-Stil: linke Themenliste + rechter Detailbereich.
+Resizable Panel (react-resizable-panels): linke Themenliste + rechter Detailbereich. Wird im rechten Panel der 3-Spalten-Ansicht gezeigt (nicht mehr als Vollbild).
 
 **Props:** keine — liest Zustand aus `useBcfStore`
 
 **Layout:**
 - **Toolbar (oben):** Neu, Öffnen (Import), Versions-Selector, Export-Button
-- **Filterleiste:** Status-Filter + Typ-Filter + Themenanzahl
-- **Linke Spalte (288 px):** Scrollbare Themenliste mit Status-Badges, Typ-Icons, Priorität und letztem Änderungsdatum
-- **Rechter Detailbereich:** Titelfeld, Status/Typ/Priorität-Selektoren, Beschreibung, verknüpfte IFC-Elemente, Kommentar-Thread, Kommentareingabe
+- **Filterleiste:** Suchfeld (Titel/Beschreibung/Autor), Status-Filter, Typ-Filter, Themenanzahl
+- **Linke Spalte (PanelGroup, 32% default):** Scrollbare Themenliste mit Status-Badges, Typ-Icons, Priorität und letztem Änderungsdatum
+- **Rechter Detailbereich (PanelGroup, 68% default):**
+  - Header: Titelfeld, Status/Typ/Priorität-Selektoren, Metadaten
+  - Body-PanelGroup (vertikal): Beschreibung + "Verknüpfte Elemente" (oben) | Kommentar-Thread + Eingabe (unten)
+- **"In Korb"-Button** im Abschnitt "Verknüpfte Elemente": legt alle `relatedExpressIds` in den selectionBasket und aktiviert `basketMode = "isolate"`
+- **"Im Modell zeigen"**: öffnet BCF-Light-Pop-out und navigiert Kamera via `viewer:bcfViewpoint`
+
+### `BcfLightWindow.tsx`
+
+Pop-out-Fenster (`?bcf-light`, 480×720px) für schlanke BCF-Navigation ohne den Haupt-Viewer zu verlassen.
+
+- Kommuniziert über `BCF_LIGHT_CHANNEL` mit dem Main-Fenster
+- Themenliste links, Detailansicht (Snapshot, Beschreibung, Kommentare) rechts
+- "Im Modell zeigen" sendet `{ t: "jumpViewpoint" }` an Main-Fenster
 
 **Status-Farben:** Open=blau, In Progress=orange, Resolved=grün, Closed=grau, ReOpened=rot
 
@@ -833,4 +847,4 @@ Zustand-Store. Felder: `document: BcfDocument`, `activeTopicId`, `bcfPanelOpen`.
 - **IDSPanel.tsx**: "BCF"-Button bei fehlgeschlagenen Spezifikationen → `createFromIdsFailure()`
 - **CollisionWindow.tsx**: "Als BCF"-Button bei Kollisionsergebnissen → `createFromClashResult([r])`
 - **MainToolbar.tsx**: Neuer "BCF"-Ribbon-Tab mit Themenanzahl-Badge
-- **App.tsx**: `bcfPanelOpen` → BCFPanel als Vollbild-Panel (exklusiv mit IDSPanel)
+- **App.tsx**: `bcfPanelOpen` → BCFPanel im rechten Panel (38% Breite); `idsPanelOpen` → IDSPanel im rechten Panel (38%); sonst ModelInfo+Properties (22%)

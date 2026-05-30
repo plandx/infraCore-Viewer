@@ -39,10 +39,27 @@ Korb:           http://localhost:5173/?basket
 Längenschnitt:  http://localhost:5173/?longitudinal-section
 Abwicklung:     http://localhost:5173/?abwicklung
 IDS-Ergebnisse: http://localhost:5173/?ids-results
+BCF Light:      http://localhost:5173/?bcf-light
 ```
 
 `main.tsx` erkennt `?billing` und rendert `<BillingApp>` statt `<App>`.
-`App.tsx` erkennt (in Reihenfolge) `?collision`, `?ids-results`, `?secondary`, `?cross-section`, `?long-section`, `?basket` und rendert die jeweilige Ansicht.
+`App.tsx` erkennt (in Reihenfolge) `?collision`, `?ids-results`, `?bcf-light`, `?secondary`, `?cross-section`, `?long-section`, `?basket` und rendert die jeweilige Ansicht.
+
+### BCF Light Window (`?bcf-light`)
+
+**Kanal:** `BCF_LIGHT_CHANNEL = "infracore-bcf-light"`
+
+Leichtgewichtiges Pop-out für BCF-Themennavigation (480×720px). Zeigt Themenliste links + aktives Thema rechts. Kommuniziert bidirektional mit dem Main-Fenster.
+
+```typescript
+type BcfLightMsg =
+  | { t: "state"; topics: BcfTopic[]; activeId: string | null }  // main → popup
+  | { t: "req" }                                                   // popup → main: initiale Anfrage
+  | { t: "setActive"; id: string }                                 // popup → main: Thema wechseln
+  | { t: "jumpViewpoint"; viewpoint: BcfViewpoint }               // popup → main: Kamera springen
+```
+
+Das Main-Fenster subscribed auf bcfStore und sendet bei jeder Änderung `{ t: "state" }` an den Kanal.
 
 ---
 

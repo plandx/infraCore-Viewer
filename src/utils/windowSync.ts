@@ -329,3 +329,18 @@ export function openIdsResultsWindow() {
   const url = `${window.location.pathname}?ids-results`;
   window.open(url, "infracore-ids-results", "width=1100,height=780,resizable=yes");
 }
+
+// ── BCF Light (pop-out) window ────────────────────────────────────────────────
+
+export const BCF_LIGHT_CHANNEL = "infracore-bcf-light";
+
+export type BcfLightMsg =
+  | { t: "state"; topics: import("../bcf/bcfTypes").BcfTopic[]; activeId: string | null }
+  | { t: "req" }
+  | { t: "setActive"; id: string }
+  | { t: "jumpViewpoint"; viewpoint: import("../bcf/bcfTypes").BcfViewpoint };
+
+export function openBcfLightWindow() {
+  const base = location.href.split("?")[0];
+  window.open(`${base}?bcf-light`, "infracore-bcf-light", "width=480,height=720,resizable=yes,menubar=no,toolbar=no");
+}
