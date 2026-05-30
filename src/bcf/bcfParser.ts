@@ -98,7 +98,7 @@ function parseMarkup(
 
   // BCF 2.1: Date/Author/Comment inside <Comment> are CHILD ELEMENTS, Guid is an attribute
   const comments: BcfComment[] = [];
-  for (const cEl of Array.from(doc.querySelectorAll("Comment"))) {
+  for (const cEl of Array.from(doc.querySelectorAll("Comment[Guid]"))) {
     const text = getText(cEl, "Comment");
     const dateRaw = getText(cEl, "Date") || getAttr(cEl, "Date");
     comments.push({

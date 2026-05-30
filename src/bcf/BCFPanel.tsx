@@ -105,6 +105,7 @@ export function BCFPanel() {
 
   function jumpToViewpoint(topic: typeof activeTopic) {
     if (!topic?.viewpoint?.cameraPosition || !topic.viewpoint.cameraDirection) return;
+    useBcfStore.getState().setBcfPanelOpen(false);
     window.dispatchEvent(new CustomEvent("viewer:bcfViewpoint", {
       detail: {
         position:  topic.viewpoint.cameraPosition,
