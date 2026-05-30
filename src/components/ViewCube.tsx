@@ -44,6 +44,10 @@ export function ViewCube({ cameraRef, controlsRef, visible, onPreset }: Props) {
 
   // Subscribe to controls.change and directly mutate the cube DOM element —
   // zero React state updates on camera move, no re-renders at 60fps.
+  //
+  // Problem: ViewCube mounts before ViewportContainer's init useEffect runs,
+  // so controlsRef.current is null on first render. We poll with RAF until
+  // controls become available, then subscribe once and stay subscribed.
   useEffect(() => {
     if (!visible) return;
 
@@ -51,9 +55,6 @@ export function ViewCube({ cameraRef, controlsRef, visible, onPreset }: Props) {
       const cube = cubeRef.current;
       const camera = cameraRef.current;
       if (!cube || !camera) return;
-      // Invert the camera quaternion → gives world-to-camera rotation.
-      // Three.js Y-up → CSS Y-down: negate Y row + Y column of the 3×3 rotation block.
-      // CSS matrix3d is column-major: each group of 4 values = one column (X,Y,Z,W).
       _qInv.copy(camera.quaternion).invert();
       _mat.makeRotationFromQuaternion(_qInv);
       const e = _mat.elements;
@@ -61,13 +62,26 @@ export function ViewCube({ cameraRef, controlsRef, visible, onPreset }: Props) {
         `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
     };
 
-    // Sync immediately on mount so cube shows correct orientation before first orbit.
-    updateTransform();
+    let rafId = 0;
+    let subscribedControls: typeof controlsRef.current = null;
 
-    const controls = controlsRef.current;
-    if (controls) controls.addEventListener("change", updateTransform);
+    const trySubscribe = () => {
+      const controls = controlsRef.current;
+      if (controls) {
+        subscribedControls = controls;
+        controls.addEventListener("change", updateTransform);
+        updateTransform(); // initial sync once controls exist
+      } else {
+        // Controls not ready yet — retry next frame (typically resolves in 1–2 frames)
+        rafId = requestAnimationFrame(trySubscribe);
+      }
+    };
+
+    trySubscribe();
+
     return () => {
-      if (controls) controls.removeEventListener("change", updateTransform);
+      cancelAnimationFrame(rafId);
+      subscribedControls?.removeEventListener("change", updateTransform);
     };
   }, [visible, cameraRef, controlsRef]);
 
