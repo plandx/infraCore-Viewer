@@ -252,6 +252,8 @@ interface CachedModel {
   relDefIndex?: Map<number, number[]>;
   /** Forward index: expressId → list of psetIds from type (IfcRelDefinesByType) */
   relTypeIndex?: Map<number, number[]>;
+  /** Aggregation index: child expressId → parent expressId (from IfcRelAggregates + IfcRelDecomposes) */
+  parentIndex?: Map<number, number>;
 }
 const propModelCache = new Map<File, CachedModel>();
 
@@ -303,8 +305,32 @@ function buildRelDefIndex(cached: CachedModel): void {
     }
   } catch { /* ignore */ }
 
+  // Build child → parent aggregation index from IfcRelAggregates and IfcRelDecomposes.
+  // Needed for IfcBuildingElementPart and similar parts that carry no own PSets —
+  // their PSets live on the parent assembly/element.
+  const parentIndex = new Map<number, number>();
+  const AGG_TYPES = [WebIFC.IFCRELAGGREGATES, WebIFC.IFCRELDECOMPOSES];
+  for (const relType of AGG_TYPES) {
+    try {
+      const relIds = api.GetLineIDsWithType(modelId, relType);
+      const total = relIds.size();
+      for (let i = 0; i < total; i++) {
+        const rel = api.GetLine(modelId, relIds.get(i), false, false) as Record<string, unknown> | null;
+        if (!rel) continue;
+        const parentId = (rel.RelatingObject as { value?: number } | null)?.value;
+        if (!parentId) continue;
+        const children = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
+        for (const c of children) {
+          const childId = c?.value;
+          if (childId) parentIndex.set(childId, parentId);
+        }
+      }
+    } catch { /* type may not exist in this schema */ }
+  }
+
   cached.relDefIndex = relDefIndex;
   cached.relTypeIndex = relTypeIndex;
+  cached.parentIndex = parentIndex;
 }
 
 async function getOrOpenPropModel(file: File): Promise<CachedModel> {
@@ -385,19 +411,22 @@ export async function loadIFCProperties(
     } catch { /* skip */ }
   }
 
-  // Fallback: inherit from aggregation parent when element still has no psets.
-  // Infrastructure IFC pattern: sub-components aggregated under a parent that carries the psets.
+  // Fallback: inherit from aggregation parent when element has no own psets.
+  // Uses the forward parentIndex (IfcRelAggregates + IfcRelDecomposes) —
+  // schema-independent, covers IfcBuildingElementPart, IfcDiscreteAccessory, etc.
   if (psets.length === 0) {
-    for (const ref of toRefArray(elemLine?.Decomposes)) {
-      const relId = ref?.value;
-      if (!relId) continue;
-      try {
-        const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-        const parentId = (rel?.RelatingObject as { value?: number } | null)?.value;
-        if (!parentId) continue;
-        for (const psetId of cached.relDefIndex?.get(parentId) ?? []) await addPset(psetId);
-        for (const psetId of cached.relTypeIndex?.get(parentId) ?? []) await addPset(psetId);
-      } catch { /* skip */ }
+    const parentId = cached.parentIndex?.get(expressId);
+    if (parentId) {
+      for (const psetId of cached.relDefIndex?.get(parentId) ?? []) await addPset(psetId);
+      for (const psetId of cached.relTypeIndex?.get(parentId) ?? []) await addPset(psetId);
+      // Walk one more level up (part → assembly → building element)
+      if (psets.length === 0) {
+        const grandParentId = cached.parentIndex?.get(parentId);
+        if (grandParentId) {
+          for (const psetId of cached.relDefIndex?.get(grandParentId) ?? []) await addPset(psetId);
+          for (const psetId of cached.relTypeIndex?.get(grandParentId) ?? []) await addPset(psetId);
+        }
+      }
     }
   }
 
@@ -480,18 +509,19 @@ export async function loadBasketProperties(
       } catch { /* skip */ }
     }
 
-    // Aggregation parent fallback when still no psets found
+    // Aggregation parent fallback — uses forward parentIndex, no inverse lookups
     if (psets.length === 0) {
-      for (const ref of toRefArray(elemLine?.Decomposes)) {
-        const relId = ref?.value;
-        if (!relId) continue;
-        try {
-          const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-          const parentId = (rel?.RelatingObject as { value?: number } | null)?.value;
-          if (!parentId) continue;
-          for (const psetId of cached.relDefIndex?.get(parentId) ?? []) await addPset(psetId);
-          for (const psetId of cached.relTypeIndex?.get(parentId) ?? []) await addPset(psetId);
-        } catch { /* skip */ }
+      const parentId = cached.parentIndex?.get(eid);
+      if (parentId) {
+        for (const psetId of cached.relDefIndex?.get(parentId) ?? []) await addPset(psetId);
+        for (const psetId of cached.relTypeIndex?.get(parentId) ?? []) await addPset(psetId);
+        if (psets.length === 0) {
+          const grandParentId = cached.parentIndex?.get(parentId);
+          if (grandParentId) {
+            for (const psetId of cached.relDefIndex?.get(grandParentId) ?? []) await addPset(psetId);
+            for (const psetId of cached.relTypeIndex?.get(grandParentId) ?? []) await addPset(psetId);
+          }
+        }
       }
     }
 
