@@ -165,6 +165,7 @@ export function LensRulesPanel() {
   const setColorGroups = useModelStore((s) => s.setColorGroups);
   const loadedProperties = useModelStore((s) => s.loadedProperties);
   const isolateEntries = useModelStore((s) => s.isolateEntries);
+  const addIsolateKeys = useModelStore((s) => s.addIsolateKeys);
   const showAll = useModelStore((s) => s.showAll);
   const smartViews = useModelStore((s) => s.smartViews);
 
@@ -234,10 +235,14 @@ export function LensRulesPanel() {
     })).filter((g) => g.entries.length > 0);
   }, [localGroups, smartViewFilterId, namedSmartViews, elementBasePropsMap, loadedProperties]);
 
-  function handleGroupClick(g: ColorGroup) {
-    if (isolatedGroupId === g.id) {
+  function handleGroupClick(g: ColorGroup, additive: boolean) {
+    if (!additive && isolatedGroupId === g.id) {
       showAll();
       setIsolatedGroupId(null);
+    } else if (additive) {
+      const keys = g.entries.map(({ modelId, expressId }) => `${modelId}:${expressId}`);
+      addIsolateKeys(keys);
+      setIsolatedGroupId(g.id);
     } else {
       isolateEntries(g.entries);
       setIsolatedGroupId(g.id);
@@ -342,7 +347,7 @@ export function LensRulesPanel() {
                     !g.visible && "opacity-60",
                   )}
                   title={isIsolated ? "Klicken zum Zurücksetzen (oder Esc)" : "Klicken zum Isolieren"}
-                  onClick={() => handleGroupClick(g)}
+                  onClick={(e) => handleGroupClick(g, e.shiftKey)}
                 >
                   <button
                     className="w-3.5 h-3.5 rounded-sm shrink-0 ring-1 ring-black/20 hover:ring-2 hover:ring-primary"

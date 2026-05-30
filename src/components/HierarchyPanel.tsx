@@ -87,6 +87,7 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     showElement, showElements,
     isolateElement: isolateElement_, isolateElements: isolateElements_,
     showAll: showAll_, setBasket,
+    isolateEntries, addIsolateKeys,
   } = useModelStore(useShallow((s) => ({
     updateModel: s.updateModel,
     hideElement: s.hideElement,
@@ -97,6 +98,8 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     isolateElements: s.isolateElements,
     showAll: s.showAll,
     setBasket: s.setBasket,
+    isolateEntries: s.isolateEntries,
+    addIsolateKeys: s.addIsolateKeys,
   })));
 
   const hideElement = onHideOverride ?? hideElement_;
@@ -411,6 +414,14 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
             onItemClick={handleItemClick}
             hiddenElements={hiddenElements}
             isolatedElements={isolatedElements}
+            showAll={showAll}
+            onIsolateKeys={(keys, additive) => {
+              if (additive) addIsolateKeys(keys);
+              else isolateEntries(keys.map((k) => {
+                const [modelId, eidStr] = k.split(":");
+                return { modelId, expressId: Number(eidStr) };
+              }));
+            }}
           />
         )}
         {view !== "visible" && view !== "smartspatial" && arr.map((model) => {
@@ -934,93 +945,91 @@ function filterSmartNodes(nodes: SmartSpatialNode[], q: string): SmartSpatialNod
     .filter((n): n is SmartSpatialNode => n !== null);
 }
 
+function collectAllElementKeys(node: SmartSpatialNode): string[] {
+  const keys: string[] = [...node.elementKeys];
+  for (const c of node.children) keys.push(...collectAllElementKeys(c));
+  return keys;
+}
+
 const SmartSpatialTreeNode = memo(function SmartSpatialTreeNode({
-  node, depth, expanded, onToggle, onItemClick, multiSelected, activeKey,
+  node, depth, expanded, onToggle, onIsolate, onItemClick, multiSelected, activeKey,
   hiddenElements, isolatedElements,
 }: {
   node: SmartSpatialNode;
   depth: number;
   expanded: Set<string>;
   onToggle: (key: string) => void;
+  onIsolate: (keys: string[], additive: boolean) => void;
   onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
   multiSelected: Set<string>;
   activeKey: string | null;
   hiddenElements: Set<string>;
   isolatedElements: Set<string> | null;
 }) {
-  const isLeaf = node.children.length === 0;
   const isOpen = expanded.has(node.key);
-  const totalElements = node.elementKeys.length + node.children.reduce((s, c) => s + c.elementKeys.length, 0);
+  const allKeys = useMemo(() => collectAllElementKeys(node), [node]);
+  const totalElements = allKeys.length;
+  const isGroupIsolated = isolatedElements !== null && allKeys.length > 0 && allKeys.every(k => isolatedElements.has(k));
 
-  if (isLeaf) {
-    return (
-      <div>
-        <div
-          className="flex items-center gap-1 py-[3px] pr-2 cursor-pointer hover:bg-muted/40 select-none"
-          style={{ paddingLeft: `${depth * 12 + 4}px` }}
-          onClick={(e) => {
-            onItemClick("", 0, e, node.elementKeys);
-          }}
-        >
-          <span className="shrink-0 text-muted-foreground w-3.5"><ChevronRight size={11} className="opacity-30" /></span>
-          <span className="flex-1 truncate text-foreground/80">{node.label}</span>
-          <span className="text-[9px] text-muted-foreground border border-border px-1.5 rounded-[4px] shrink-0">{node.elementKeys.length}</span>
-        </div>
-        {node.elementKeys.map((k) => {
-          const sep = k.indexOf(":");
-          const modelId = k.slice(0, sep);
-          const expressId = parseInt(k.slice(sep + 1));
-          const isSelected = multiSelected.has(k) || k === activeKey;
-          const isHidden = hiddenElements.has(k);
-          const isDimmedByIsolation = isolatedElements !== null && !isolatedElements.has(k);
-          return (
-            <div
-              key={k}
-              data-mid={modelId}
-              data-eid={expressId}
-              className={cn(
-                "flex items-center gap-1.5 pr-2 py-[3px] cursor-pointer group select-none hover:bg-muted/40 hierarchy-item",
-                isSelected && "bg-primary/15 border-l-2 border-l-primary",
-                (isHidden || isDimmedByIsolation) && "opacity-40"
-              )}
-              style={{ paddingLeft: `${(depth + 1) * 12 + 4}px` }}
-              onClick={(e) => onItemClick(modelId, expressId, e)}
-            >
-              <span className="flex-1 truncate text-foreground/80 text-[11px]">{node.elementNames.get(k) || `#${expressId}`}</span>
-              <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0">#{expressId}</span>
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
+  const handleGroupClick = (e: React.MouseEvent) => {
+    onToggle(node.key);
+    onIsolate(allKeys, e.shiftKey);
+  };
 
   return (
     <div>
       <div
-        className="flex items-center gap-1 py-[3px] pr-2 cursor-pointer hover:bg-muted/40 select-none"
+        className={cn(
+          "flex items-center gap-1 py-[3px] pr-2 cursor-pointer hover:bg-muted/40 select-none",
+          isGroupIsolated && "bg-primary/10 border-l-2 border-l-primary"
+        )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
-        onClick={(e) => {
-          onToggle(node.key);
-          onItemClick("", 0, e, node.elementKeys);
-        }}
+        onClick={handleGroupClick}
       >
         <span className="shrink-0 text-muted-foreground w-3.5">
           {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         </span>
-        <span className="flex-1 truncate text-foreground font-medium">{node.label}</span>
+        <span className={cn("flex-1 truncate", node.children.length === 0 ? "text-foreground/80" : "text-foreground font-medium")}>{node.label}</span>
         <span className="text-[9px] text-muted-foreground border border-border px-1.5 rounded-[4px] shrink-0">{totalElements}</span>
       </div>
-      {isOpen && node.children.map((child) => (
-        <SmartSpatialTreeNode
-          key={child.key}
-          node={child} depth={depth + 1}
-          expanded={expanded} onToggle={onToggle}
-          onItemClick={onItemClick}
-          multiSelected={multiSelected} activeKey={activeKey}
-          hiddenElements={hiddenElements} isolatedElements={isolatedElements}
-        />
-      ))}
+      {isOpen && (
+        <>
+          {node.children.map((child) => (
+            <SmartSpatialTreeNode
+              key={child.key}
+              node={child} depth={depth + 1}
+              expanded={expanded} onToggle={onToggle}
+              onIsolate={onIsolate}
+              onItemClick={onItemClick}
+              multiSelected={multiSelected} activeKey={activeKey}
+              hiddenElements={hiddenElements} isolatedElements={isolatedElements}
+            />
+          ))}
+          {node.elementKeys.map((k) => {
+            const sep = k.indexOf(":");
+            const modelId = k.slice(0, sep);
+            const expressId = parseInt(k.slice(sep + 1));
+            const isSelected = multiSelected.has(k) || k === activeKey;
+            const isHidden = hiddenElements.has(k);
+            const isDimmed = isolatedElements !== null && !isolatedElements.has(k);
+            return (
+              <div
+                key={k}
+                className={cn(
+                  "flex items-center gap-1.5 pr-2 py-[3px] cursor-pointer select-none hover:bg-muted/40 hierarchy-item",
+                  isSelected && "bg-primary/15 border-l-2 border-l-primary",
+                  (isHidden || isDimmed) && "opacity-40"
+                )}
+                style={{ paddingLeft: `${(depth + 1) * 12 + 4}px` }}
+                onClick={(e) => onItemClick(modelId, expressId, e)}
+              >
+                <span className="flex-1 truncate text-foreground/80 text-[11px]">{node.elementNames.get(k) || `#${expressId}`}</span>
+                <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0">#{expressId}</span>
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 });
@@ -1028,6 +1037,7 @@ const SmartSpatialTreeNode = memo(function SmartSpatialTreeNode({
 function SmartSpatialView({
   models, config, onConfigChange, loadedProperties, loadedPropKeys,
   search, multiSelected, activeKey, onItemClick, hiddenElements, isolatedElements,
+  onIsolateKeys, showAll,
 }: {
   models: IFCModelEntry[];
   config: SmartSpatialConfig;
@@ -1040,6 +1050,8 @@ function SmartSpatialView({
   onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
   hiddenElements: Set<string>;
   isolatedElements: Set<string> | null;
+  onIsolateKeys: (keys: string[], additive: boolean) => void;
+  showAll: () => void;
 }) {
   const [showConfig, setShowConfig] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -1140,6 +1152,7 @@ function SmartSpatialView({
             key={node.key}
             node={node} depth={0}
             expanded={expanded} onToggle={toggleExpand}
+            onIsolate={onIsolateKeys}
             onItemClick={onItemClick}
             multiSelected={multiSelected} activeKey={activeKey}
             hiddenElements={hiddenElements} isolatedElements={isolatedElements}

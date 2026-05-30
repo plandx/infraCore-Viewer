@@ -63,6 +63,7 @@ interface ModelStore {
   isolateElement: (modelId: string, expressId: number) => void;
   isolateElements: (modelId: string, expressIds: number[]) => void;
   isolateEntries: (entries: Array<{ modelId: string; expressId: number }>) => void;
+  addIsolateKeys: (keys: string[]) => void;
   showAll: () => void;
   addMeasurement: (m: Measurement) => void;
   clearMeasurements: () => void;
@@ -304,6 +305,13 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   isolateEntries: (entries) =>
     set({ isolatedElements: new Set(entries.map(({ modelId, expressId }) => `${modelId}:${expressId}`)) }),
+
+  addIsolateKeys: (keys) =>
+    set((state) => {
+      const existing = state.isolatedElements ? new Set(state.isolatedElements) : new Set<string>();
+      keys.forEach((k) => existing.add(k));
+      return { isolatedElements: existing };
+    }),
 
   showAll: () => set({ hiddenElements: new Set(), isolatedElements: null }),
 
