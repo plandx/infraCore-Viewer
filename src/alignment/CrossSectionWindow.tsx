@@ -336,9 +336,20 @@ export function CrossSectionWindow() {
   // ── Equal-scale zoom / pan ────────────────────────────────────────────────
   const [zoomFactor, setZoomFactor] = useState(1.0);
   const [viewCenter, setViewCenter] = useState<[number, number] | null>(null);
+  // When true the view is pinned to 100×100 m centred at (0,0); user zoom disables it.
+  const [facePinned, setFacePinned] = useState(false);
 
-  useEffect(() => { setZoomFactor(1.0); setViewCenter(null); },
-    [domain.xMin, domain.xMax, domain.yMin, domain.yMax]);
+  useEffect(() => {
+    if (state?.isFaceSection) {
+      setViewCenter([0, 0]);
+      setFacePinned(true);
+    } else {
+      setZoomFactor(1.0);
+      setViewCenter(null);
+      setFacePinned(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [domain.xMin, domain.xMax, domain.yMin, domain.yMax]);
 
   const chartW = Math.max(1, size.w - M.left - M.right);
   const chartH = Math.max(1, size.h - M.top - M.bottom);
@@ -347,7 +358,9 @@ export function CrossSectionWindow() {
     chartW / ((domain.xMax - domain.xMin) || 1),
     chartH / ((domain.yMax - domain.yMin) || 1),
   );
-  const scale = baseScale * zoomFactor;
+  // Face section pinned view: show 100×100 m regardless of baseScale.
+  const pinnedScale = Math.min(chartW, chartH) / 100;
+  const scale = facePinned ? pinnedScale : baseScale * zoomFactor;
 
   const cx = viewCenter ? viewCenter[0] : (domain.xMin + domain.xMax) / 2;
   const cy = viewCenter ? viewCenter[1] : (domain.yMin + domain.yMax) / 2;
@@ -368,12 +381,16 @@ export function CrossSectionWindow() {
   linesRef.current = lines;
 
   // ── Wheel zoom ────────────────────────────────────────────────────────────
-  const zoomRef   = useRef(1.0);
-  const centerRef = useRef<[number, number] | null>(null);
-  const domainRef = useRef(domain);
-  useEffect(() => { zoomRef.current   = zoomFactor; }, [zoomFactor]);
-  useEffect(() => { centerRef.current = viewCenter; }, [viewCenter]);
-  useEffect(() => { domainRef.current = domain; },     [domain]);
+  const zoomRef       = useRef(1.0);
+  const centerRef     = useRef<[number, number] | null>(null);
+  const domainRef     = useRef(domain);
+  const facePinnedRef = useRef(false);
+  const pinnedScaleRef = useRef(1);
+  useEffect(() => { zoomRef.current      = zoomFactor; }, [zoomFactor]);
+  useEffect(() => { centerRef.current    = viewCenter; }, [viewCenter]);
+  useEffect(() => { domainRef.current    = domain; },     [domain]);
+  useEffect(() => { facePinnedRef.current = facePinned; }, [facePinned]);
+  useEffect(() => { pinnedScaleRef.current = pinnedScale; }, [pinnedScale]);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -385,8 +402,9 @@ export function CrossSectionWindow() {
       const cw    = rect.width  - M.left - M.right;
       const ch    = rect.height - M.top  - M.bottom;
       const bs    = Math.min(cw / ((dom.xMax - dom.xMin) || 1), ch / ((dom.yMax - dom.yMin) || 1));
-      const curZ  = zoomRef.current;
-      const sc    = bs * curZ;
+      // Use pinned scale if active, then unpin so user takes over.
+      const sc    = facePinnedRef.current ? pinnedScaleRef.current : bs * zoomRef.current;
+      const curZ  = sc / bs; // effective zoom relative to baseScale
       const curCx = centerRef.current ? centerRef.current[0] : (dom.xMin + dom.xMax) / 2;
       const curCy = centerRef.current ? centerRef.current[1] : (dom.yMin + dom.yMax) / 2;
       const curVW = cw / sc, curVH = ch / sc;
@@ -399,6 +417,7 @@ export function CrossSectionWindow() {
       const newSc = bs * newZ;
       const newVW = cw / newSc, newVH = ch / newSc;
       svgRectRef.current = null;
+      if (facePinnedRef.current) setFacePinned(false);
       setZoomFactor(newZ);
       setViewCenter([mxD - mx / newSc + newVW / 2, myD + my / newSc - newVH / 2]);
     };
@@ -515,7 +534,7 @@ export function CrossSectionWindow() {
     ).join("") + "Z",
   })), [polygons, vxMin, vyMin, visW, visH, chartW, chartH]);
 
-  const isZoomed = zoomFactor !== 1.0 || viewCenter !== null;
+  const isZoomed = (state?.isFaceSection ? !facePinned : (zoomFactor !== 1.0 || viewCenter !== null));
   const effW = (snapActive && snapDisplay) ? snapDisplay.pt : mouseWorld;
 
   // ── Object labels ─────────────────────────────────────────────────────────
@@ -633,6 +652,7 @@ export function CrossSectionWindow() {
     }
     const { measActive: ma, ptLabelMode: pt, dimActive: da } = activeToolRef.current;
     if (ma || pt || da || e.button !== 0) return;
+    if (facePinned) { setFacePinned(false); setZoomFactor(scale / baseScale); }
     dragRef.current = { mx: e.clientX, my: e.clientY, cx, cy, sc: scale };
     setPanning(true);
   };
@@ -711,6 +731,7 @@ export function CrossSectionWindow() {
           const newScale = Math.min(cw / wWidth, ch / wHeight);
           const newZoom  = Math.min(200, newScale / bs);
           const wxMin = vp.vxMin + (Math.min(svgX1, endSvgX) - M.left) / vp.chartW * vp.visW;
+          setFacePinned(false);
           setViewCenter([(wxMin + wxMin + wWidth) / 2, (wyMin + wyMax) / 2]);
           setZoomFactor(newZoom);
         }
@@ -810,7 +831,10 @@ export function CrossSectionWindow() {
         )}
         {isZoomed && (
           <button
-            onClick={() => { setZoomFactor(1.0); setViewCenter(null); }}
+            onClick={() => {
+              if (state?.isFaceSection) { setViewCenter([0, 0]); setFacePinned(true); }
+              else { setZoomFactor(1.0); setViewCenter(null); }
+            }}
             className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground hover:text-foreground transition-colors"
             title="Zoom zurücksetzen"
           >
