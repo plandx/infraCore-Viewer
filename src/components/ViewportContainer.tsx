@@ -1562,19 +1562,24 @@ export function ViewportContainer({ onElementClick }: Props) {
       const pos = toThreePos(vp.position);
       const dir = toThreeDir(vp.direction);
 
-      // Compute scene center to place a meaningful orbit target along the view ray
+      // Orbit target = where the look ray hits the scene bounding box.
+      // This preserves natural orbit feel after the jump.
       const sceneBox = new THREE.Box3();
       useModelStore.getState().models.forEach((m) => {
         if (m.visible && !m.boundingBox.isEmpty()) sceneBox.union(m.boundingBox);
       });
-      const sceneCenter = sceneBox.isEmpty()
-        ? pos.clone().addScaledVector(dir, 10)
-        : sceneBox.getCenter(new THREE.Vector3());
-
-      // Orbit target = projection of scene center onto the look ray from pos
-      const toCenterLen = new THREE.Vector3().subVectors(sceneCenter, pos).dot(dir);
-      const orbitDist = Math.max(1, toCenterLen);
-      controls.target.copy(pos).addScaledVector(dir, orbitDist);
+      const ray = new THREE.Ray(pos, dir);
+      const hitPoint = new THREE.Vector3();
+      const hasHit = !sceneBox.isEmpty() && ray.intersectBox(sceneBox, hitPoint) !== null;
+      if (!hasHit) {
+        // Fallback: clamp to a sensible depth toward scene center
+        const toCenter = sceneBox.isEmpty()
+          ? 10
+          : Math.max(1, new THREE.Vector3().subVectors(sceneBox.getCenter(hitPoint), pos).dot(dir));
+        hitPoint.copy(pos).addScaledVector(dir, toCenter);
+      }
+      const orbitDist = pos.distanceTo(hitPoint);
+      controls.target.copy(hitPoint);
 
       camera.position.copy(pos);
       camera.up.set(0, 1, 0);
