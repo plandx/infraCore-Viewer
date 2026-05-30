@@ -31,6 +31,7 @@ export interface ProjectData {
   bcfDocument: BcfDocument;
   bcfClashRules: BcfClashRule[];
   idsDocuments: IdsDocument[];
+  propertyOverrides?: Record<string, Record<string, Record<string, unknown>>>;
 }
 
 /** Save all project data + IFC files to a .icproj ZIP blob. */

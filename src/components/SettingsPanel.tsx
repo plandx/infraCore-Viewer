@@ -186,6 +186,27 @@ export function SettingsPanel() {
                 </div>
               ))}
             </div>
+
+            {/* Fixed / chord shortcuts (read-only) */}
+            <div className="mt-4">
+              <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Fest verdrahtete Kürzel</h4>
+              <div className="flex flex-col gap-1">
+                {([
+                  ["H → H",           "Ausgewähltes Element ausblenden (H-Chord)"],
+                  ["H → I",           "Ausgewähltes Element isolieren (H-Chord)"],
+                  ["H → R",           "Ausblenden / Isolierung zurücksetzen (H-Chord)"],
+                  ["Esc",             "Werkzeug abbrechen / Auswahl aufheben"],
+                  ["Delete / Backspace", "Ausgewähltes Element ausblenden"],
+                  ["Doppelklick",     "Zoom auf Element"],
+                  ["Shift + Klick",   "Mehrfachauswahl"],
+                ] as [string, string][]).map(([key, label]) => (
+                  <div key={key} className="flex items-center justify-between gap-3 px-2 py-1.5 rounded bg-muted/20">
+                    <span className="text-xs text-muted-foreground">{label}</span>
+                    <span className="w-32 text-center text-xs px-2 py-1 bg-muted/50 border border-border/50 rounded-[4px] font-mono text-muted-foreground shrink-0">{key}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </section>
         </div>
       </div>

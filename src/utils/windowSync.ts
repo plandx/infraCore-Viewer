@@ -13,7 +13,8 @@ export type SyncAction =
   | { k: "applySmartView";     id: string }
   | { k: "deactivateSmartView" }
   | { k: "settings";           patch: Partial<ViewerSettings> }
-  | { k: "fitAll" };
+  | { k: "fitAll" }
+  | { k: "idsAutoFix"; fixes: Array<{ modelId: string; expressId: number; pset: string; prop: string; value: string }> };
 
 export type SyncMsg =
   | { t: "state"; s: SyncState }  // main → secondaries: full state push

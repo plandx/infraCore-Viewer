@@ -277,7 +277,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   }, []);
 
   const handleResetApp = useCallback(() => {
-    if (!window.confirm("App vollständig zurücksetzen?\n\nAlle Modelle, Messungen, SmartViews, QTO-Listen, Eigenschafts-Overrides und 5D-Abrechnungsdaten werden gelöscht.\n\nViewer-Einstellungen und Tastenkürzel bleiben erhalten.")) return;
+    if (!window.confirm("App vollständig zurücksetzen?\n\nAlle Modelle, Messungen, SmartViews, QTO-Listen, Eigenschafts-Overrides, BCF-Themen, IDS-Dokumente und 5D-Abrechnungsdaten werden gelöscht.\n\nViewer-Einstellungen und Tastenkürzel bleiben erhalten.")) return;
     useModelStore.getState().resetAll();
     useBillingStore.getState().clearAll();
     const al = useAlignmentStore.getState();
@@ -287,6 +287,11 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
     al.setShowSectionSurface(false);
     al.clearAllAnnotations();
     useAlignmentStore.setState({ stationToolActive: false, labelToolActive: false, offsetToolActive: false });
+    useBcfStore.setState({ document: { topics: [], projectName: "infraCore Project", projectId: "" }, activeTopicId: null, clashRules: [] });
+    useIdsStore.setState({ documents: [], activeDocumentId: null, activeSpecificationId: null, idsPanelOpen: false });
+    try { localStorage.removeItem("infracore-smartviews"); } catch {}
+    try { localStorage.removeItem("infracore-qto-lists"); } catch {}
+    try { localStorage.removeItem("infracore-collision-rules"); } catch {}
     window.dispatchEvent(new Event("viewer:fitAll"));
   }, []);
 

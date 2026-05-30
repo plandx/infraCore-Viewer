@@ -141,6 +141,15 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
           case "deactivateSmartView": store.deactivateSmartView(); break;
           case "settings":   store.updateSettings(a.patch); break;
           case "fitAll":     window.dispatchEvent(new Event("viewer:fitAll")); break;
+          case "idsAutoFix":
+            store.applyPropertyEdits(a.fixes.map(fix => ({
+              modelId: fix.modelId,
+              expressId: fix.expressId,
+              key: fix.pset ? `${fix.pset}.${fix.prop}` : fix.prop,
+              value: fix.value,
+              ifcType: "",
+            })));
+            break;
         }
       }
     };
@@ -806,6 +815,7 @@ function MainApp() {
       bcfDocument: bcfSt.document,
       bcfClashRules: bcfSt.clashRules,
       idsDocuments: idsSt.documents,
+      propertyOverrides: Object.fromEntries(Array.from(st.propertyOverrides.entries()).map(([mid, m]) => [mid, Object.fromEntries(Array.from(m.entries()).map(([eid, v]) => [String(eid), v]))])),
     }, ifcFiles, bcfSt.document.projectName);
 
     const date = new Date().toISOString().slice(0, 10);
@@ -842,15 +852,18 @@ function MainApp() {
 
       // Restore BCF
       if (data.bcfDocument) {
-        bs.document.topics.forEach(t => bs.deleteTopic(t.id));
-        data.bcfDocument.topics.forEach(t => {
-          ms.addModel; // ensure access — actually call bcfStore directly
-          useBcfStore.setState(s => ({
-            document: { ...data.bcfDocument, topics: data.bcfDocument.topics },
-            clashRules: data.bcfClashRules ?? s.clashRules,
-          }));
-        });
         useBcfStore.setState({ document: data.bcfDocument, clashRules: data.bcfClashRules ?? [] });
+      }
+
+      // Restore property overrides
+      if (data.propertyOverrides) {
+        for (const [modelId, elements] of Object.entries(data.propertyOverrides)) {
+          for (const [eidStr, overrides] of Object.entries(elements)) {
+            ms.applyPropertyEdits(Object.entries(overrides as Record<string, unknown>).map(([key, val]) => ({
+              modelId, expressId: Number(eidStr), key, value: String(val ?? ""),
+            })));
+          }
+        }
       }
 
       // Restore IDS documents

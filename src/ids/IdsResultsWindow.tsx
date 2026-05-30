@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   ChevronDown, ChevronRight, AlertTriangle, Check, Download,
-  Eye, EyeOff, X, FileCheck2,
+  Eye, EyeOff, X, FileCheck2, Wrench,
 } from "lucide-react";
 import { SYNC_CHANNEL, IDS_RESULTS_CHANNEL } from "../utils/windowSync";
 import type { IdsResultsMsg } from "../utils/windowSync";
@@ -305,12 +305,30 @@ export function IdsResultsWindow() {
               onToggle={() => toggleExpand(group.key)}
               onSelect={(modelId, expressId) => sendAction({ k: "select", modelId, expressId })}
               onIsolate={(modelId, expressId) => sendAction({ k: "isolate", modelId, expressId })}
+              onFix={(fixes) => sendAction({ k: "idsAutoFix", fixes })}
             />
           ))
         )}
       </div>
     </div>
   );
+}
+
+// ── Fix helpers ────────────────────────────────────────────────────────────────
+
+function parseMissingFixes(entry: FailEntry): Array<{ pset: string; prop: string }> {
+  return entry.failures
+    .filter(f => f.includes("fehlt") || f.includes("leer"))
+    .map(f => {
+      const withPset = f.match(/^"([^."]+)\.([^"]+)"\s+fehlt/);
+      if (withPset) return { pset: withPset[1], prop: withPset[2] };
+      const plain = f.match(/^"([^"]+)"\s+fehlt/);
+      if (plain) return { pset: "", prop: plain[1] };
+      const attr = f.match(/Attribut "([^"]+)"/);
+      if (attr) return { pset: "", prop: attr[1] };
+      return null;
+    })
+    .filter((x): x is { pset: string; prop: string } => x !== null);
 }
 
 // ── GroupRow ───────────────────────────────────────────────────────────────────
@@ -322,61 +340,57 @@ interface GroupRowProps {
   onToggle: () => void;
   onSelect: (modelId: string, expressId: number) => void;
   onIsolate: (modelId: string, expressId: number) => void;
+  onFix: (fixes: Array<{ modelId: string; expressId: number; pset: string; prop: string; value: string }>) => void;
 }
 
 const ENTRY_LIMIT = 300;
 
-function GroupRow({ group, isExpanded, showSpec, onToggle, onSelect, onIsolate }: GroupRowProps) {
+function GroupRow({ group, isExpanded, showSpec, onToggle, onSelect, onIsolate, onFix }: GroupRowProps) {
   const hasFail = group.failCount > 0;
+
+  const allGroupFixes = group.entries.flatMap(entry =>
+    parseMissingFixes(entry).map(f => ({ modelId: entry.modelId, expressId: entry.expressId, pset: f.pset, prop: f.prop, value: "" }))
+  );
 
   return (
     <div className="border-b border-border">
       {/* Group header */}
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-3 px-4 text-foreground bg-card hover:bg-muted/40 transition-colors text-left"
-        style={{ minHeight: 40, fontSize: 13 }}
+      <div
+        className="flex items-center gap-2 px-4 bg-card hover:bg-muted/30 transition-colors border-l-4"
+        style={{ minHeight: 44, borderLeftColor: hasFail ? "rgb(239 68 68 / 0.7)" : "transparent" }}
       >
-        <span className="text-muted-foreground shrink-0">
-          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </span>
-        <span className="flex-1 font-medium" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {group.label}
-        </span>
-        <span className="shrink-0 flex items-center gap-3" style={{ fontSize: 12 }}>
+        <button onClick={onToggle} className="flex items-center gap-2 flex-1 min-w-0 text-left py-2">
+          <span className="text-muted-foreground shrink-0">
+            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </span>
+          <span className="flex-1 font-semibold text-[13px] truncate">{group.label}</span>
+        </button>
+        <div className="shrink-0 flex items-center gap-2 text-[12px]">
           {group.passCount > 0 && (
-            <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+            <span className="flex items-center gap-1 text-green-600 dark:text-green-400 bg-green-500/10 rounded-[4px] px-2 py-0.5">
               <Check size={11} /> {group.passCount}
             </span>
           )}
           {hasFail && (
-            <span className="font-semibold text-[12px] px-2 py-0.5 rounded-[4px] border border-red-500/40 text-red-500">
-              {group.failCount} ✗
+            <span className="font-semibold px-2 py-0.5 rounded-[4px] bg-red-500/10 border border-red-500/30 text-red-500">
+              {group.failCount} Fehler
             </span>
           )}
-        </span>
-      </button>
+          {allGroupFixes.length > 0 && (
+            <button
+              className="flex items-center gap-1 px-2 py-0.5 rounded-[4px] bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 text-[11px] transition-colors"
+              title={`${allGroupFixes.length} fehlende Properties automatisch ergänzen`}
+              onClick={e => { e.stopPropagation(); onFix(allGroupFixes); }}
+            >
+              <Wrench size={11} /> Alle ergänzen ({allGroupFixes.length})
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Entries */}
       {isExpanded && (
         <div className="bg-background">
-          {/* Column headers */}
-          <div
-            className="grid border-b border-border bg-muted/20 text-muted-foreground"
-            style={{
-              gridTemplateColumns: "1fr 140px 80px 28px",
-              fontSize: 11,
-              padding: "4px 16px 4px 40px",
-              gap: 8,
-            }}
-          >
-            <span>Name / Element</span>
-            {showSpec && <span>Prüfregel</span>}
-            <span style={{ gridColumn: showSpec ? undefined : "2" }}>Typ</span>
-            <span style={{ textAlign: "right" }}>ID</span>
-            <span />
-          </div>
-
           {group.entries.slice(0, ENTRY_LIMIT).map((entry, i) => (
             <EntryRow
               key={`${entry.modelId}:${entry.expressId}:${i}`}
@@ -384,14 +398,12 @@ function GroupRow({ group, isExpanded, showSpec, onToggle, onSelect, onIsolate }
               showSpec={showSpec}
               onSelect={() => onSelect(entry.modelId, entry.expressId)}
               onIsolate={() => onIsolate(entry.modelId, entry.expressId)}
+              onFix={onFix}
             />
           ))}
 
           {group.entries.length > ENTRY_LIMIT && (
-            <div
-              className="px-4 py-2 text-muted-foreground border-t border-border"
-              style={{ fontSize: 11, paddingLeft: 40 }}
-            >
+            <div className="px-10 py-2 text-muted-foreground border-t border-border text-[11px]">
               … {(group.entries.length - ENTRY_LIMIT).toLocaleString()} weitere Einträge – CSV-Export für vollständige Liste
             </div>
           )}
@@ -408,91 +420,67 @@ interface EntryRowProps {
   showSpec: boolean;
   onSelect: () => void;
   onIsolate: () => void;
+  onFix: (fixes: Array<{ modelId: string; expressId: number; pset: string; prop: string; value: string }>) => void;
 }
 
-function EntryRow({ entry, showSpec, onSelect, onIsolate }: EntryRowProps) {
-  const [open, setOpen] = useState(false);
+function EntryRow({ entry, showSpec, onSelect, onIsolate, onFix }: EntryRowProps) {
+  const fixes = parseMissingFixes(entry);
 
   return (
     <div
-      className="border-b border-border/50 hover:bg-muted/20 transition-colors"
-      style={{ cursor: "pointer" }}
-      onClick={() => { onSelect(); setOpen((v) => !v); }}
+      className="border-b border-border/40 hover:bg-muted/20 transition-colors cursor-pointer"
+      onClick={onSelect}
     >
-      {/* Main row */}
-      <div
-        className="grid items-center text-foreground"
-        style={{
-          gridTemplateColumns: showSpec ? "1fr 140px 80px 60px 28px" : "1fr 80px 60px 28px",
-          fontSize: 12,
-          padding: "6px 16px 6px 40px",
-          gap: 8,
-          minHeight: 36,
-        }}
-      >
-        {/* Name */}
-        <span
-          className="flex items-center gap-2 font-medium"
-          style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          <AlertTriangle size={11} className="text-red-500 shrink-0" />
-          {entry.name || `#${entry.expressId}`}
-        </span>
-
-        {/* Spec (optional) */}
-        {showSpec && (
-          <span
-            className="text-muted-foreground"
-            style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-            title={entry.specName}
-          >
-            {entry.specName}
-          </span>
-        )}
-
-        {/* Type */}
-        <span
-          className="text-muted-foreground"
-          style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          {entry.type?.replace(/^IFC/i, "") ?? "–"}
-        </span>
-
-        {/* Express ID */}
-        <span className="text-muted-foreground" style={{ fontSize: 11, textAlign: "right" }}>
-          #{entry.expressId}
-        </span>
-
-        {/* Isolate button */}
-        <button
-          className="flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-          style={{ width: 24, height: 24 }}
-          title="Isolieren & Zoomen"
-          onClick={(e) => { e.stopPropagation(); onIsolate(); }}
-        >
-          <EyeOff size={12} />
-        </button>
-      </div>
-
-      {/* Failure messages — shown inline below row */}
-      {entry.failures.length > 0 && (
-        <div
-          className="text-red-500"
-          style={{
-            fontSize: 11,
-            padding: "0 16px 6px 64px",
-            lineHeight: 1.5,
-            display: open ? undefined : "-webkit-box",
-            WebkitLineClamp: open ? undefined : 1,
-            WebkitBoxOrient: open ? undefined : "vertical" as const,
-            overflow: open ? undefined : "hidden",
-          }}
-        >
-          {entry.failures.map((f, fi) => (
-            <div key={fi}>{f}</div>
-          ))}
+      {/* Main info row */}
+      <div className="flex items-start gap-3 px-4 py-2.5 pl-10">
+        <AlertTriangle size={12} className="text-red-500 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1.5">
+            <span className="font-medium text-[12px] text-foreground">{entry.name || `#${entry.expressId}`}</span>
+            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0 rounded-[3px] border border-border font-mono">
+              {entry.type?.replace(/^IFC/i, "") ?? "–"}
+            </span>
+            <span className="text-[10px] text-muted-foreground/60 font-mono">#{entry.expressId}</span>
+            {showSpec && (
+              <span className="text-[10px] text-muted-foreground italic truncate max-w-[200px]" title={entry.specName}>{entry.specName}</span>
+            )}
+          </div>
+          {/* Failure badges */}
+          <div className="flex flex-wrap gap-1.5">
+            {entry.failures.map((f, fi) => (
+              <span
+                key={fi}
+                className="inline-flex items-center bg-red-500/8 text-red-500 dark:text-red-400 border border-red-500/20 rounded-[4px] px-2 py-0.5 text-[10px] leading-snug"
+                title={f}
+              >
+                {f}
+              </span>
+            ))}
+          </div>
         </div>
-      )}
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          {fixes.length > 0 && (
+            <button
+              className="flex items-center gap-1 px-2 py-1 rounded-[4px] bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 text-[10px] transition-colors"
+              title="Fehlende Properties ergänzen"
+              onClick={e => {
+                e.stopPropagation();
+                onFix(fixes.map(f => ({ modelId: entry.modelId, expressId: entry.expressId, pset: f.pset, prop: f.prop, value: "" })));
+              }}
+            >
+              <Wrench size={10} /> Ergänzen
+            </button>
+          )}
+          <button
+            className="flex items-center justify-center w-7 h-7 rounded-[4px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+            title="Isolieren & Zoomen"
+            onClick={e => { e.stopPropagation(); onIsolate(); }}
+          >
+            <EyeOff size={12} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

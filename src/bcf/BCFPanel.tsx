@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   AlertTriangle, Zap, Shield, MessageSquare, FileDown, Plus, Trash2,
   ChevronRight, Clock, User, Tag, Upload, X, Send, Camera, MapPin,
-  Calendar, Eye, Navigation, Bot, ShoppingBasket, Search,
+  Calendar, Eye, Navigation, Bot, ShoppingBasket, Search, RefreshCw,
 } from "lucide-react";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { useBcfStore } from "./bcfStore";
@@ -375,22 +375,44 @@ export function BCFPanel() {
                   <Panel defaultSize={45} minSize={20}>
                     <div className="h-full overflow-y-auto">
                       {/* Snapshot + Viewpoint */}
-                      {(activeTopic.snapshot || activeTopic.viewpoint) && (
-                        <div className="px-4 py-3 border-b border-border/50 flex gap-3">
-                          {activeTopic.snapshot && (
+                      <div className="px-4 py-3 border-b border-border/50 flex gap-3">
+                          {activeTopic.snapshot ? (
+                            <div className="relative shrink-0 group">
+                              <button
+                                onClick={() => setSnapshotOpen(true)}
+                                className="relative"
+                                title="Screenshot vergrößern"
+                              >
+                                <img
+                                  src={activeTopic.snapshot}
+                                  alt="Snapshot"
+                                  className="h-24 w-36 object-cover rounded-[4px] border border-border group-hover:opacity-90 transition-opacity"
+                                />
+                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Eye size={18} className="text-white drop-shadow" />
+                                </div>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const dataUrl = window.document.querySelector('canvas')?.toDataURL('image/jpeg', 0.85);
+                                  if (dataUrl) updateTopic(activeTopic.id, { snapshot: dataUrl });
+                                }}
+                                className="absolute top-1 right-1 flex items-center gap-0.5 px-1.5 py-0.5 bg-black/60 hover:bg-black/80 text-white rounded-[3px] text-[10px] transition-colors"
+                                title="Screenshot erneuern"
+                              >
+                                <RefreshCw size={9} /> Neu
+                              </button>
+                            </div>
+                          ) : (
                             <button
-                              onClick={() => setSnapshotOpen(true)}
-                              className="relative shrink-0 group"
-                              title="Screenshot vergrößern"
+                              onClick={() => {
+                                const dataUrl = window.document.querySelector('canvas')?.toDataURL('image/jpeg', 0.85);
+                                if (dataUrl) updateTopic(activeTopic.id, { snapshot: dataUrl });
+                              }}
+                              className="flex items-center gap-1 px-3 py-2 rounded-[4px] border border-border bg-muted/30 hover:bg-muted/60 text-muted-foreground hover:text-foreground text-[11px] transition-colors shrink-0"
+                              title="Screenshot des Viewports aufnehmen"
                             >
-                              <img
-                                src={activeTopic.snapshot}
-                                alt="Snapshot"
-                                className="h-24 w-36 object-cover rounded-[4px] border border-border group-hover:opacity-90 transition-opacity"
-                              />
-                              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Eye size={18} className="text-white drop-shadow" />
-                              </div>
+                              <RefreshCw size={12} /> Screenshot
                             </button>
                           )}
                           {activeTopic.viewpoint && (
@@ -437,7 +459,6 @@ export function BCFPanel() {
                             </div>
                           )}
                         </div>
-                      )}
 
                       {/* Description */}
                       <div className="px-4 py-3 border-b border-border/50">
