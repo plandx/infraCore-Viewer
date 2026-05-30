@@ -60,6 +60,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   const showSpaces        = useModelStore((s) => s.settings.showSpaces);
   const grid              = useModelStore((s) => s.settings.grid);
   const edges             = useModelStore((s) => s.settings.edges);
+  const viewCube          = useModelStore((s) => s.settings.viewCube ?? true);
   const activeTool        = useModelStore((s) => s.activeTool);
   const updateSettings    = useModelStore((s) => s.updateSettings);
   const setActiveTool     = useModelStore((s) => s.setActiveTool);
@@ -577,6 +578,9 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                 <RibbonSmBtn icon={<Box size={14} />} label="Kanten"
                   onClick={() => updateSettings({ edges: !edges })} active={edges}
                   title="Kanten ein-/ausblenden" className="self-center" />
+                <RibbonSmBtn icon={<Rotate3D size={14} />} label="ViewCube"
+                  onClick={() => updateSettings({ viewCube: !viewCube })} active={viewCube}
+                  title="ViewCube ein-/ausblenden (CUBE)" className="self-center" />
               </RibbonGroup>
             </>
           )}

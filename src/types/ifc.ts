@@ -216,6 +216,7 @@ export interface ViewerSettings {
   showSpaces: boolean;
   orthographic: boolean;
   fontSize: "sm" | "md" | "lg";
+  viewCube: boolean;
 }
 
 export interface KeyBindings {

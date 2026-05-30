@@ -17,6 +17,7 @@ import { computeQuantities } from "../billing/quantityUtils";
 import { extractQuantitiesFromPsets } from "../billing/IfcQuantityExtractor";
 import { loadIFCProperties } from "../utils/ifcLoader";
 import { FaceEdgePicker } from "../geometry-inspector/FaceEdgePicker";
+import { ViewCube } from "./ViewCube";
 import { GeometryInspectorPanel } from "../geometry-inspector/GeometryInspectorPanel";
 import type { PickMode, InspFace, InspFaceBoundary, InspEdge, InspectionSession } from "../geometry-inspector/types";
 import { useAlignmentStore } from "../alignment/alignmentStore";
@@ -116,6 +117,7 @@ export function ViewportContainer({ onElementClick }: Props) {
   const flyEulerRef     = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
   const flySpeedIdxRef  = useRef(2); // index into FLY_SPEEDS
   const [flySpeedIdx, setFlySpeedIdx] = useState(2);
+  const [cubeQuat, setCubeQuat] = useState(() => new THREE.Quaternion());
 
 
   // Measurement state
@@ -468,6 +470,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     // Trigger a render whenever the camera moves; throttle inspector label updates via RAF
     controls.addEventListener("change", () => {
       needsRenderRef.current = true;
+      setCubeQuat(camera.quaternion.clone());
       // Reduce resolution while moving — frames are cheaper so orbit stays smooth
       if (renderer.getPixelRatio() !== 1.0) renderer.setPixelRatio(1.0);
       if (dprRestoreTimer !== null) clearTimeout(dprRestoreTimer);
@@ -1464,21 +1467,35 @@ export function ViewportContainer({ onElementClick }: Props) {
     allBox.getSize(size);
     const d = Math.max(size.x, size.y, size.z) * 1.5;
 
+    const iso = (x: number, y: number, z: number) =>
+      new THREE.Vector3(x, y, z).normalize().multiplyScalar(d);
+
     const dirs: Record<string, THREE.Vector3> = {
-      top:   new THREE.Vector3(0, d, 0),
-      bottom:new THREE.Vector3(0, -d, 0),
-      front: new THREE.Vector3(0, 0, d),
-      back:  new THREE.Vector3(0, 0, -d),
-      left:  new THREE.Vector3(-d, 0, 0),
-      right: new THREE.Vector3(d, 0, 0),
+      top:        new THREE.Vector3(0, d, 0),
+      bottom:     new THREE.Vector3(0, -d, 0),
+      front:      new THREE.Vector3(0, 0, d),
+      back:       new THREE.Vector3(0, 0, -d),
+      left:       new THREE.Vector3(-d, 0, 0),
+      right:      new THREE.Vector3(d, 0, 0),
+      // Isometric corner presets (f/b = front/back, t/b = top/bottom, r/l = right/left)
+      "iso-ftr":  iso(+1, +1, +1),
+      "iso-ftl":  iso(-1, +1, +1),
+      "iso-fbr":  iso(+1, -1, +1),
+      "iso-fbl":  iso(-1, -1, +1),
+      "iso-btr":  iso(+1, +1, -1),
+      "iso-btl":  iso(-1, +1, -1),
+      "iso-bbr":  iso(+1, -1, -1),
+      "iso-bbl":  iso(-1, -1, -1),
+      "iso":      iso(+1, +1, +1),
     };
 
     const dir = dirs[preset];
     if (!dir) return;
     camera.position.copy(center).add(dir);
     controls.target.copy(center);
-    camera.up.set(0, preset === "top" || preset === "bottom" ? 0 : 1,
-                      preset === "top" ? -1 : preset === "bottom" ? 1 : 0);
+    const isIso = preset.startsWith("iso");
+    camera.up.set(0, isIso || (preset !== "top" && preset !== "bottom") ? 1 : 0,
+                     preset === "top" ? -1 : preset === "bottom" ? 1 : 0);
     camera.lookAt(center);
     camera.updateProjectionMatrix();
     controls.update();
@@ -3278,6 +3295,13 @@ export function ViewportContainer({ onElementClick }: Props) {
         onMouseUp={handleMouseUp}
         style={{ cursor }}
         data-viewport="main"
+      />
+
+      {/* ViewCube — top-right corner orientation indicator */}
+      <ViewCube
+        cameraQuat={cubeQuat}
+        visible={settings.viewCube ?? true}
+        onPreset={setPresetView}
       />
 
       {/* Fly mode crosshair */}

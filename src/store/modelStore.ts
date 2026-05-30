@@ -194,6 +194,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     showSpaces: false,
     orthographic: false,
     fontSize: "md",
+    viewCube: true,
   },
   keyBindings: (() => {
     try {
