@@ -13,6 +13,7 @@ import type {
   Severity, PropCondition, ComponentFilter, CheckType,
 } from "../utils/windowSync";
 import type { SmartView } from "../types/ifc";
+import type { BcfClashRule, ClashMetaField } from "../bcf/bcfTypes";
 
 type ViewMode = "results" | "editor";
 type GroupBy  = "none" | "rule" | "severity" | "typePair" | "status";
@@ -253,19 +254,68 @@ export function CollisionWindow() {
         {/* ── Left: Rules sidebar ── */}
         <div className="w-60 shrink-0 flex flex-col border-r border-border bg-muted/10 overflow-hidden">
 
-          <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Regeln ({localRules.length})
-            </span>
-            <button onClick={() => openEditor(newEmptyRule())}
-              title="Neue Regel"
-              className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors">
-              <Plus size={13} />
+          <div className="flex items-center border-b border-border shrink-0">
+            <button
+              onClick={() => setSidebarTab("rules")}
+              className={cn("flex-1 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors",
+                sidebarTab === "rules" ? "text-foreground border-b-2 border-primary -mb-px" : "text-muted-foreground hover:text-foreground")}>
+              Kollision ({localRules.length})
+            </button>
+            <button
+              onClick={() => setSidebarTab("bcf")}
+              className={cn("flex-1 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors",
+                sidebarTab === "bcf" ? "text-foreground border-b-2 border-primary -mb-px" : "text-muted-foreground hover:text-foreground")}>
+              BCF-Regeln ({clashRules.length})
             </button>
           </div>
 
+          {/* BCF rules tab */}
+          {sidebarTab === "bcf" && (
+            <div className="flex-1 overflow-y-auto">
+              <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+                <span className="text-[9px] text-muted-foreground">Projektspezifische BCF-Regeln</span>
+                <button
+                  onClick={() => { useBcfStore.getState().addClashRule(); }}
+                  className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+                  title="Neue BCF-Regel">
+                  <Plus size={12} />
+                </button>
+              </div>
+              {clashRules.length === 0 && (
+                <div className="flex flex-col items-center py-8 px-4 text-center">
+                  <p className="text-[10px] text-muted-foreground">Keine BCF-Regeln</p>
+                  <button onClick={() => useBcfStore.getState().addClashRule()}
+                    className="text-[10px] text-primary mt-2 hover:underline">
+                    Erste Regel anlegen
+                  </button>
+                </div>
+              )}
+              {clashRules.map(rule => (
+                <BcfClashRuleRow
+                  key={rule.id}
+                  rule={rule}
+                  clashRuleNames={localRules.map(r => ({ id: r.id, name: r.name }))}
+                  results={state.results}
+                  onEdit={() => setEditingBcfRule(editingBcfRule === rule.id ? null : rule.id)}
+                  isEditing={editingBcfRule === rule.id}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Collision rules add button */}
+          {sidebarTab === "rules" && (
+            <div className="flex items-center justify-end px-3 py-1 border-b border-border/50 shrink-0">
+              <button onClick={() => openEditor(newEmptyRule())}
+                title="Neue Regel"
+                className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors">
+                <Plus size={12} />
+              </button>
+            </div>
+          )}
+
           {/* Rule list */}
-          <div className="flex-1 overflow-y-auto">
+          <div className={cn("flex-1 overflow-y-auto", sidebarTab !== "rules" && "hidden")}>
             {localRules.length === 0 && (
               <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
                 <p className="text-[10px] text-muted-foreground">Keine Regeln definiert</p>
@@ -527,13 +577,31 @@ export function CollisionWindow() {
                                       </button>
                                     ))}
                                   </div>
-                                  <button
-                                    onClick={() => useBcfStore.getState().createFromClashResult([r])}
-                                    className="text-[9px] px-2 py-0.5 rounded border border-amber-400/40 text-amber-400 hover:bg-amber-400/10 transition-colors"
-                                    title="Als BCF-Thema exportieren"
-                                  >
-                                    Als BCF
-                                  </button>
+                                  {clashRules.length > 0 ? (
+                                    <div className="relative">
+                                      <select
+                                        className="text-[9px] px-2 py-0.5 rounded border border-amber-400/40 text-amber-400 bg-transparent hover:bg-amber-400/10 transition-colors"
+                                        defaultValue=""
+                                        onChange={e => {
+                                          if (e.target.value) {
+                                            useBcfStore.getState().applyClashRule(e.target.value, [r]);
+                                            e.target.value = "";
+                                          }
+                                        }}
+                                      >
+                                        <option value="">Als BCF (Regel)…</option>
+                                        {clashRules.map(cr => (
+                                          <option key={cr.id} value={cr.id}>{cr.name}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => useBcfStore.getState().createFromClashResult([r])}
+                                      className="text-[9px] px-2 py-0.5 rounded border border-amber-400/40 text-amber-400 hover:bg-amber-400/10 transition-colors">
+                                      Als BCF
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             )}
@@ -980,6 +1048,169 @@ function ConditionRow({ condition, loadedPropKeys, valueOptions, onUpdate, onRem
         className="text-muted-foreground hover:text-red-400 shrink-0 p-0.5 transition-colors">
         <X size={10} />
       </button>
+    </div>
+  );
+}
+
+// ── BcfClashRuleRow ───────────────────────────────────────────────────────────
+
+const ALL_CLASH_META_FIELDS: ClashMetaField[] = ["severity","ruleName","checkType","overlap","typeA","nameA","typeB","nameB"];
+const CLASH_META_LABELS: Record<ClashMetaField, string> = {
+  severity: "Schwere", ruleName: "Regel", checkType: "Prüftyp", overlap: "Wert",
+  typeA: "Typ A", nameA: "Element A", typeB: "Typ B", nameB: "Element B",
+};
+const BCF_STATUSES = ["Open","In Progress","Resolved","Closed","ReOpened"] as const;
+const BCF_TYPES    = ["Issue","Request","Clash","IDS","Remark","Error"] as const;
+const BCF_PRIORITIES = ["Critical","Major","Normal","Minor"] as const;
+
+function BcfClashRuleRow({ rule, clashRuleNames, results, onEdit, isEditing }: {
+  rule: BcfClashRule;
+  clashRuleNames: { id: string; name: string }[];
+  results: ClashResult[];
+  onEdit(): void;
+  isEditing: boolean;
+}) {
+  const [applied, setApplied] = useState<number | null>(null);
+  const [draft, setDraft] = useState<BcfClashRule>(rule);
+
+  function handleApply() {
+    const count = useBcfStore.getState().applyClashRule(rule.id, results);
+    setApplied(count);
+    setTimeout(() => setApplied(null), 3000);
+  }
+
+  function handleSave() {
+    useBcfStore.getState().updateClashRule(rule.id, draft);
+    onEdit();
+  }
+
+  const toggleField = (f: ClashMetaField) => {
+    setDraft(prev => ({
+      ...prev,
+      includeFields: prev.includeFields.includes(f)
+        ? prev.includeFields.filter(x => x !== f)
+        : [...prev.includeFields, f],
+    }));
+  };
+
+  return (
+    <div className={cn("border-b border-border/40", isEditing && "bg-primary/5")}>
+      <div className="flex items-center gap-2 px-3 py-2.5 group">
+        <button className="flex-1 min-w-0 text-left" onClick={onEdit}>
+          <p className="text-[11px] font-medium truncate">{rule.name}</p>
+          <p className="text-[9px] text-muted-foreground mt-0.5">{rule.bcfType} · {rule.bcfPriority}</p>
+        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={handleApply}
+            disabled={results.length === 0}
+            title="Regel auf aktuelle Ergebnisse anwenden"
+            className="text-[9px] px-1.5 py-0.5 rounded border border-amber-400/40 text-amber-400 hover:bg-amber-400/10 transition-colors disabled:opacity-35">
+            {applied !== null ? `+${applied}` : <Play size={9} />}
+          </button>
+          <button
+            onClick={() => useBcfStore.getState().deleteClashRule(rule.id)}
+            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 p-0.5 rounded transition-all">
+            <Trash2 size={10} />
+          </button>
+        </div>
+      </div>
+
+      {isEditing && (
+        <div className="px-3 pb-3 flex flex-col gap-2 border-t border-border/30 pt-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Name</label>
+            <input value={draft.name} onChange={e => setDraft(p => ({ ...p, name: e.target.value }))}
+              className="px-2 py-1 text-[11px] bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary/40" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Filter Schwere</label>
+              <select value={draft.filterSeverity} onChange={e => setDraft(p => ({ ...p, filterSeverity: e.target.value as BcfClashRule["filterSeverity"] }))}
+                className="px-2 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none">
+                <option value="all">Alle</option>
+                <option value="error">Fehler</option>
+                <option value="warning">Warnung</option>
+                <option value="info">Info</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Filter Status</label>
+              <select value={draft.filterStatus} onChange={e => setDraft(p => ({ ...p, filterStatus: e.target.value as BcfClashRule["filterStatus"] }))}
+                className="px-2 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none">
+                <option value="all">Alle</option>
+                <option value="new">Offen</option>
+                <option value="approved">Akzeptiert</option>
+                <option value="resolved">Gelöst</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Filter Kollisionsregel</label>
+            <select value={draft.filterClashRuleId} onChange={e => setDraft(p => ({ ...p, filterClashRuleId: e.target.value }))}
+              className="px-2 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none">
+              <option value="">Alle Regeln</option>
+              {clashRuleNames.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Titel-Template</label>
+            <input value={draft.titleTemplate} onChange={e => setDraft(p => ({ ...p, titleTemplate: e.target.value }))}
+              className="px-2 py-1 text-[10px] font-mono bg-background border border-border rounded-[4px] focus:outline-none focus:ring-1 focus:ring-primary/40" />
+            <p className="text-[8px] text-muted-foreground">Platzhalter: {"{nameA}"} {"{nameB}"} {"{typeA}"} {"{typeB}"} {"{ruleName}"}</p>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Felder in Beschreibung</label>
+            <div className="flex flex-wrap gap-1">
+              {ALL_CLASH_META_FIELDS.map(f => (
+                <label key={f} className="flex items-center gap-1 text-[9px] cursor-pointer">
+                  <input type="checkbox" checked={draft.includeFields.includes(f)} onChange={() => toggleField(f)} className="h-3 w-3" />
+                  {CLASH_META_LABELS[f]}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">BCF Typ</label>
+              <select value={draft.bcfType} onChange={e => setDraft(p => ({ ...p, bcfType: e.target.value as BcfClashRule["bcfType"] }))}
+                className="px-2 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none">
+                {BCF_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Priorität</label>
+              <select value={draft.bcfPriority} onChange={e => setDraft(p => ({ ...p, bcfPriority: e.target.value as BcfClashRule["bcfPriority"] }))}
+                className="px-2 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none">
+                {BCF_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Status</label>
+              <select value={draft.bcfStatus} onChange={e => setDraft(p => ({ ...p, bcfStatus: e.target.value as BcfClashRule["bcfStatus"] }))}
+                className="px-2 py-1 text-[10px] bg-background border border-border rounded-[4px] focus:outline-none">
+                {BCF_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={onEdit}
+              className="px-3 py-1 text-[10px] text-muted-foreground hover:text-foreground bg-muted rounded-[4px] transition-colors">
+              Abbrechen
+            </button>
+            <button onClick={handleSave}
+              className="flex items-center gap-1 px-3 py-1 text-[10px] bg-primary text-primary-foreground rounded-[4px] hover:opacity-90 transition-opacity">
+              <Check size={10} /> Speichern
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
