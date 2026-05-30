@@ -578,22 +578,23 @@ function MainApp() {
   const toggleAlignmentPanel = useAlignmentStore(s => s.togglePanel);
 
   const idsPanelOpen = useIdsStore(s => s.idsPanelOpen);
+  const setIdsPanelOpen = useIdsStore(s => s.setIdsPanelOpen);
   const bcfPanelOpen = useBcfStore(s => s.bcfPanelOpen);
+  const setBcfPanelOpen = useBcfStore(s => s.setBcfPanelOpen);
 
   const leftPanelRef  = useRef<PanelImperativeHandle | null>(null);
   const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
   const [leftCollapsed, setLeftCollapsed]   = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
 
-  useEffect(() => {
-    if (bcfPanelOpen || idsPanelOpen) {
-      leftPanelRef.current?.collapse();
-      rightPanelRef.current?.resize(75);
-    } else {
-      leftPanelRef.current?.expand();
-      rightPanelRef.current?.resize(22);
-    }
-  }, [bcfPanelOpen, idsPanelOpen]);
+  // Derive active right tab from store flags; always one of the three
+  const rightTab: "properties" | "ids" | "bcf" =
+    bcfPanelOpen ? "bcf" : idsPanelOpen ? "ids" : "properties";
+
+  const setRightTab = useCallback((tab: "properties" | "ids" | "bcf") => {
+    setIdsPanelOpen(tab === "ids");
+    setBcfPanelOpen(tab === "bcf");
+  }, [setIdsPanelOpen, setBcfPanelOpen]);
 
   const activeLoads = loadStates.size;
   const hasModels = models.size > 0;
@@ -1102,26 +1103,41 @@ function MainApp() {
           <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
           <Panel
-            defaultSize={22} minSize={14} collapsible={!bcfPanelOpen && !idsPanelOpen}
+            defaultSize={22} minSize={14} collapsible
             panelRef={rightPanelRef}
             onResize={(s) => setRightCollapsed(s.asPercentage === 0)}
           >
             <div className="h-full overflow-hidden border-l border-border panel-container flex flex-col">
-              {bcfPanelOpen ? (
+              {/* Right panel tab bar */}
+              <div className="shrink-0 flex items-center border-b border-border bg-muted/10">
+                {(["properties", "ids", "bcf"] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setRightTab(tab)}
+                    className={`px-3 py-1.5 text-[11px] font-medium border-b-2 transition-colors ${
+                      rightTab === tab
+                        ? "border-primary text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {tab === "properties" ? "Eigenschaften" : tab === "ids" ? "IDS" : "BCF"}
+                  </button>
+                ))}
+                <button
+                  onClick={() => rightPanelRef.current?.collapse()}
+                  className="ml-auto mr-1 text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors"
+                  title="Leiste ausblenden"
+                >
+                  <ChevronRight size={11} />
+                </button>
+              </div>
+
+              {rightTab === "bcf" ? (
                 <BCFPanel />
-              ) : idsPanelOpen ? (
+              ) : rightTab === "ids" ? (
                 <IDSPanel />
               ) : (
                 <>
-                  <div className="shrink-0 flex items-center justify-end px-2 py-0.5 border-b border-border/30 bg-muted/10">
-                    <button
-                      onClick={() => rightPanelRef.current?.collapse()}
-                      className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors"
-                      title="Leiste ausblenden"
-                    >
-                      <ChevronRight size={11} />
-                    </button>
-                  </div>
                   <ModelInfoPanel />
                   <div className="flex-1 min-h-0 overflow-hidden">
                     <PropertiesPanel />

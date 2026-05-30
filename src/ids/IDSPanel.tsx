@@ -775,7 +775,7 @@ function ValidationResultPanel({ results }: { results: IdsSpecResult[] }) {
 export function IDSPanel() {
   const {
     documents, activeDocumentId, activeSpecificationId,
-    validationReport, idsPanelOpen,
+    validationReport,
     createDocument, loadDocument, removeDocument, setActiveDocument, updateDocumentInfo,
     addSpecification, removeSpecification, updateSpecification, setActiveSpecification,
     addApplicabilityFacet, removeApplicabilityFacet, updateApplicabilityFacet,
@@ -790,8 +790,6 @@ export function IDSPanel() {
 
   const idsInputRef = useRef<HTMLInputElement>(null);
   const [specSearch, setSpecSearch] = useState("");
-
-  if (!idsPanelOpen) return null;
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId) ?? null;
   const activeSpec = activeDoc?.specifications.find((s) => s.id === activeSpecificationId) ?? null;
