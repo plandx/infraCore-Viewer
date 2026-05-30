@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
 import { AlignmentPanel } from "./alignment/AlignmentPanel";
 import { v4 as uuidv4 } from "uuid";
 import * as THREE from "three";
@@ -40,7 +40,7 @@ import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { useIdsStore } from "./ids/idsStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache, LABEL_TO_IFC } from "./utils/ifcLoader";
-import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, IDS_RESULTS_CHANNEL, BCF_LIGHT_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow } from "./utils/windowSync";
+import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, IDS_RESULTS_CHANNEL, BCF_LIGHT_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow, openIdsResultsWindow, openBcfLightWindow } from "./utils/windowSync";
 import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel, IdsResultsMsg, BcfLightMsg } from "./utils/windowSync";
 import { BcfLightWindow } from "./bcf/BcfLightWindow";
 import { runServerClash } from "./utils/serverClash";
@@ -58,6 +58,22 @@ const IS_BASKET = _params.has("basket");
 const IS_ABWICKLUNG = _params.has("abwicklung");
 const IS_IDS_RESULTS = _params.has("ids-results");
 const IS_BCF_LIGHT = _params.has("bcf-light");
+
+function PanelBar({ label, onPopout, onClose }: { label: string; onPopout?: () => void; onClose: () => void }) {
+  return (
+    <div className="shrink-0 flex items-center gap-2 px-3 py-1 border-b border-border bg-muted/10">
+      <span className="text-[11px] font-medium text-muted-foreground flex-1">{label}</span>
+      {onPopout && (
+        <button onClick={onPopout} className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors" title="In eigenem Fenster öffnen">
+          <ExternalLink size={11} />
+        </button>
+      )}
+      <button onClick={onClose} className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors" title="Schließen">
+        <X size={11} />
+      </button>
+    </div>
+  );
+}
 
 // ── root export (secondary windows skip the full app) ─────────────────────────
 
@@ -967,6 +983,7 @@ function MainApp() {
                         onRemove={handleRemove}
                         onSelectElement={handleElementClick}
                         onToggleCollapse={() => leftPanelRef.current?.collapse()}
+                        onPopout={() => openSecondaryWindow("hierarchy")}
                       />
                     </div>
                   </Panel>
@@ -1001,6 +1018,7 @@ function MainApp() {
                   onRemove={handleRemove}
                   onSelectElement={handleElementClick}
                   onToggleCollapse={() => leftPanelRef.current?.collapse()}
+                  onPopout={() => openSecondaryWindow("hierarchy")}
                 />
               )}
             </div>
@@ -1072,29 +1090,33 @@ function MainApp() {
 
               {/* Längenschnitt-Viewer (bottom of viewport column) */}
               {profilePanelOpen && (
-                <div className="h-56 shrink-0 border-t border-border">
-                  <ProfileViewer />
+                <div className="h-56 shrink-0 border-t border-border flex flex-col">
+                  <PanelBar label="Längenschnitt" onClose={() => setProfilePanelOpen(false)} />
+                  <div className="flex-1 min-h-0"><ProfileViewer /></div>
                 </div>
               )}
 
               {/* SQL Panel (bottom of viewport column) */}
               {sqlPanelOpen && (
-                <div className="h-64 shrink-0 border-t border-border">
-                  <SQLPanel />
+                <div className="h-64 shrink-0 border-t border-border flex flex-col">
+                  <PanelBar label="SQL-Abfrage" onPopout={() => openSecondaryWindow("sql")} onClose={() => setSqlPanelOpen(false)} />
+                  <div className="flex-1 min-h-0"><SQLPanel /></div>
                 </div>
               )}
 
               {/* QTO / Quantity Take-Off Panel (bottom of viewport column) */}
               {qtoPanelOpen && (
-                <div className="h-96 shrink-0 border-t border-border">
-                  <QuantityListPanel />
+                <div className="h-96 shrink-0 border-t border-border flex flex-col">
+                  <PanelBar label="Mengenermittlung" onPopout={() => openSecondaryWindow("qto")} onClose={() => setQTOPanelOpen(false)} />
+                  <div className="flex-1 min-h-0"><QuantityListPanel /></div>
                 </div>
               )}
 
               {/* Python / IfcOpenShell Panel (bottom of viewport column) */}
               {pythonPanelOpen && (
-                <div className="h-96 shrink-0 border-t border-border">
-                  <PythonPanel />
+                <div className="h-96 shrink-0 border-t border-border flex flex-col">
+                  <PanelBar label="Python / IfcOpenShell" onClose={() => setPythonPanelOpen(false)} />
+                  <div className="flex-1 min-h-0"><PythonPanel /></div>
                 </div>
               )}
             </div>
@@ -1123,13 +1145,26 @@ function MainApp() {
                     {tab === "properties" ? "Eigenschaften" : tab === "ids" ? "IDS" : "BCF"}
                   </button>
                 ))}
-                <button
-                  onClick={() => rightPanelRef.current?.collapse()}
-                  className="ml-auto mr-1 text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors"
-                  title="Leiste ausblenden"
-                >
-                  <ChevronRight size={11} />
-                </button>
+                <div className="ml-auto flex items-center gap-0.5 mr-1">
+                  <button
+                    onClick={
+                      rightTab === "properties" ? () => openSecondaryWindow("properties")
+                      : rightTab === "ids" ? () => openIdsResultsWindow()
+                      : () => openBcfLightWindow()
+                    }
+                    className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors"
+                    title="In eigenem Fenster öffnen"
+                  >
+                    <ExternalLink size={11} />
+                  </button>
+                  <button
+                    onClick={() => rightPanelRef.current?.collapse()}
+                    className="text-muted-foreground/50 hover:text-foreground p-0.5 rounded transition-colors"
+                    title="Leiste ausblenden"
+                  >
+                    <ChevronRight size={11} />
+                  </button>
+                </div>
               </div>
 
               {rightTab === "bcf" ? (
