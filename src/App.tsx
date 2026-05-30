@@ -39,7 +39,7 @@ import { SecondaryWindow } from "./components/SecondaryWindow";
 import { useModelStore } from "./store/modelStore";
 import { useIdsStore } from "./ids/idsStore";
 import { loadIFCFile, loadIFCProperties, evictPropModelCache, LABEL_TO_IFC } from "./utils/ifcLoader";
-import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, IDS_RESULTS_CHANNEL, BCF_LIGHT_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow, openIdsResultsWindow, openBcfLightWindow } from "./utils/windowSync";
+import { SYNC_CHANNEL, CROSS_SECTION_CHANNEL, COLLISION_CHANNEL, LS_CHANNEL, ABWICKLUNG_CHANNEL, IDS_RESULTS_CHANNEL, BCF_LIGHT_CHANNEL, DEFAULT_CLASH_RULES, serializeState, openSecondaryWindow, openCollisionWindow, openBasketWindow, openIdsResultsWindow, openBcfLightWindow, openPythonWindow } from "./utils/windowSync";
 import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSyncState, ClashRule, ClashResult, XSSyncObjectLabel, IdsResultsMsg, BcfLightMsg } from "./utils/windowSync";
 import { BcfLightWindow } from "./bcf/BcfLightWindow";
 import { runServerClash } from "./utils/serverClash";
@@ -59,6 +59,7 @@ const IS_BASKET = _params.has("basket");
 const IS_ABWICKLUNG = _params.has("abwicklung");
 const IS_IDS_RESULTS = _params.has("ids-results");
 const IS_BCF_LIGHT = _params.has("bcf-light");
+const IS_PYTHON = _params.has("python");
 
 function PanelBar({ label, onPopout, onClose }: { label: string; onPopout?: () => void; onClose: () => void }) {
   return (
@@ -84,6 +85,7 @@ export default function App() {
     document.documentElement.classList.toggle("dark", settings.theme === "dark");
     document.documentElement.setAttribute("data-font-size", settings.fontSize ?? "md");
   }, []);
+  if (IS_PYTHON) return <div className="w-screen h-screen flex flex-col"><PythonPanel standalone /></div>;
   if (IS_COLLISION) return <CollisionWindow />;
   if (IS_IDS_RESULTS) return <IdsResultsWindow />;
   if (IS_BCF_LIGHT) return <BcfLightWindow />;
@@ -1214,7 +1216,7 @@ function MainApp() {
               {/* Python / IfcOpenShell Panel (bottom of viewport column) */}
               {pythonPanelOpen && (
                 <div className="h-96 shrink-0 border-t border-border flex flex-col">
-                  <PanelBar label="Python / IfcOpenShell" onClose={() => setPythonPanelOpen(false)} />
+                  <PanelBar label="Python / IfcOpenShell" onPopout={() => { openPythonWindow(); setPythonPanelOpen(false); }} onClose={() => setPythonPanelOpen(false)} />
                   <div className="flex-1 min-h-0"><PythonPanel /></div>
                 </div>
               )}

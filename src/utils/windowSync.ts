@@ -345,3 +345,10 @@ export function openBcfLightWindow() {
   const base = location.href.split("?")[0];
   window.open(`${base}?bcf-light`, "infracore-bcf-light", "width=480,height=720,resizable=yes,menubar=no,toolbar=no");
 }
+
+// ── Python console pop-out window ─────────────────────────────────────────────
+
+export function openPythonWindow() {
+  const base = location.href.split("?")[0];
+  window.open(`${base}?python`, "infracore-python", "width=900,height=700,resizable=yes,menubar=no,toolbar=no");
+}

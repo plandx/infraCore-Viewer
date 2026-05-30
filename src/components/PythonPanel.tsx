@@ -84,12 +84,14 @@ async function downloadModel(serverName: string): Promise<ArrayBuffer> {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export function PythonPanel() {
+export function PythonPanel({ standalone = false }: { standalone?: boolean }) {
   const models             = useModelStore((s) => s.models);
   const worldOrigin        = useModelStore((s) => s.worldOrigin);
   const updateModel        = useModelStore((s) => s.updateModel);
   const settings           = useModelStore((s) => s.settings);
   const setPythonPanelOpen = useModelStore((s) => s.setPythonPanelOpen);
+
+  const handleClose = standalone ? () => window.close() : () => setPythonPanelOpen(false);
 
   const isDark = settings.theme === "dark";
 
@@ -290,7 +292,7 @@ export function PythonPanel() {
           <Trash2 size={11} />
         </button>
 
-        <button title="Panel schließen" onClick={() => setPythonPanelOpen(false)}
+        <button title={standalone ? "Fenster schließen" : "Panel schließen"} onClick={handleClose}
           className="p-1 rounded-[4px] hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A] text-muted-foreground">
           <X size={13} />
         </button>
