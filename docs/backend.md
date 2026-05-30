@@ -26,43 +26,73 @@ Vollständiges Laden einer IFC-Datei:
 
 Fortschritts-Phasen: Initialisieren → Geometrie laden → Struktur lesen → Abschließen
 
+### Property-Auflösung — gemeinsame Architektur
+
+Alle drei Property-Lader teilen **eine** autoritative Auflösungs-Logik. Statt
+des unzuverlässigen inversen `GetLine(inverse=true)`-Lookups (versagt bei tief
+vererbten IFC4.x-Typen wie `IfcPile`, `IfcBuildingElementPart`) wird das Modell
+**einmal vorwärts gescannt**.
+
+**`buildPropertyIndices(cached)` *(intern, einmal pro offenem Modell, gecacht)***
+
+Scannt jede Beziehungs-Zeile genau einmal und baut drei Vorwärts-Indizes:
+
+| Index | Quelle | Inhalt |
+|---|---|---|
+| `byInstance` | alle `IfcRelDefinesByProperties` | `expressId → psetId[]` (direkt) |
+| `byType` | alle `IfcRelDefinesByType` → `TypeObject.HasPropertySets` | `expressId → psetId[]` (über Typ) |
+| `parent` | alle `IfcRelAggregates` + `IfcRelNests` | `child → parent` (Dekompositions-Kette) |
+
+Vorwärts-Scannen ist vollständig und schema-unabhängig — es gibt keine
+Beziehung, die der inverse Lookup finden würde, die der Scan verpasst.
+
+**`resolvePsetIds(indices, expressId)` *(intern)***
+
+Liefert alle Pset-IDs, die auf ein Element zutreffen, in Anzeige-Reihenfolge
+(wie BIMcollab): Element selbst → komplette Dekompositions-Kette nach oben
+(`PileSegment → IfcPile → Assembly → …`). An jeder Ebene werden `byInstance`-
+und `byType`-Psets gesammelt; Duplikate über Ebenen erscheinen einmal.
+
+> Vererbung läuft **bedingungslos** die ganze Kette hoch — nicht nur als
+> Fallback, wenn das Element keine eigenen Psets hat. Ein Teil zeigt damit
+> seine eigenen *plus* alle geerbten Eigenschaften, exakt wie BIMcollab.
+
+**`refValue` / `refValues` *(intern)*** normalisieren beide Formen, die web-ifc
+für Handle-Attribute zurückgibt: ein einzelnes Handle-Objekt **oder** ein Array
+(inkl. IFC4 `IfcPropertySetDefinitionSet` in `RelatingPropertyDefinition`).
+
 ### `loadIFCProperties(file, expressId)`
 
-Lädt Eigenschaften **eines** Elements für das Properties-Panel. Nutzt `getOrOpenPropModel()` (gecachtes Modell-Handle).
-
-Traversierungs-Reihenfolge:
-1. **Direkte Attribute** via `getItemProperties()` — `{value, type}`-Objekte bleiben gewrappt, damit `isIfcRef()` im UI Handle-Referenzen (type=5) korrekt ausblendet
-2. **Instanz-Psets** via `IsDefinedBy` → `IfcRelDefinesByProperties.RelatingPropertyDefinition`
-3. **Typ-Psets** via `IsTypedBy` (IFC4/4.3) bzw. `IsDefinedBy` (IFC2X3) → `IfcRelDefinesByType.RelatingType`:
-   - Standard-Pfad: `TypeObject.HasPropertySets`
-   - Nicht-standard: Psets direkt am Typ-Objekt via `IfcRelDefinesByProperties` (manche Exporter)
-4. **Vererbte Psets** via `IsDeclaredBy` → `IfcRelDefinesByObject.RelatingObject.IsDefinedBy` (IFC4/4.3)
-5. **Aggregations-Fallback** (nur wenn keine Psets gefunden): `Decomposes` → `IfcRelAggregates.RelatingObject.IsDefinedBy` — deckt den Infrastruktur-Muster ab, wo Sub-Komponenten (z. B. `IfcBuildingElementProxy`) als Kinder eines Träger-Elements (z. B. `IfcFlowSegment`) modelliert werden, das alle Psets hält
-
-`GetLine(inverse=true)` wird **einmal** pro Element aufgerufen und gecacht — beide Traversierungsschritte (Hauptlauf + Fallback) nutzen dasselbe Ergebnis.
+Lädt Eigenschaften **eines** Elements für das Properties-Panel. Nutzt
+`getOrOpenPropModel()` (gecachtes Modell-Handle):
+1. **Direkte Attribute** via `getItemProperties()` — `{value, type}`-Objekte
+   bleiben gewrappt, damit `isIfcRef()` im UI Handle-Referenzen (type=5)
+   korrekt ausblendet
+2. **Psets** via `resolvePsetIds()` → `loadAndParsePset()`
 
 Gibt `{ properties: Record<string,unknown>, psets: PropertySet[] }` zurück.
 
 ### `loadBasketProperties(file, expressIds)`
 
-Batch-Laden für Auswahlkorb-Elemente (einmal Datei öffnen). Dieselbe Traversierungslogik wie `loadIFCProperties` inkl. Aggregations-Fallback.
+Batch-Laden für Auswahlkorb-Elemente (einmal Datei öffnen). Pro Element
+dieselbe `resolvePsetIds()`-Logik wie `loadIFCProperties`.
 
 - Gibt `Map<number, { properties: Record<string,unknown>; psets: PropertySet[] }>` zurück
 - `properties` und `psets` bleiben getrennt (wird vom `BasketEditor` benötigt)
 
 ### `loadAllElementProperties(file, expressIds, onProgress)`
 
-Batch-Laden für alle Elemente — optimierter O(R + P)-Algorithmus statt O(N × R).
+Batch-Laden für alle Elemente. Nutzt **dieselbe** `resolvePsetIds()`-Auflösung
+wie der Einzel-Pfad — Batch-Ansicht und Inspector stimmen also immer überein.
 
 **Vorgehen:**
-1. Alle Element-Zeilen auf einmal via `GetLines()` (batch, kein inverser Aufruf)
-2. Alle `IfcRelDefinesByProperties` einmal einlesen → `psetId → Set<expressId>` Index aufbauen
-3. Jeden Pset genau einmal laden und auf alle zugehörigen Elemente verteilen
-4. Analog für `IfcRelDefinesByType` → `TypeObject.HasPropertySets`
+1. Alle Element-Zeilen auf einmal via `GetLines()` (batch)
+2. `buildPropertyIndices()` einmal aufbauen
+3. Pro Element `resolvePsetIds()` → invertieren zu `psetId → Set<expressId>`
+4. Jeden Pset genau einmal laden und auf alle zugehörigen Elemente verteilen
 
-Gibt `Map<number, FlatElementProps>` zurück. Keys: direkte Attribute + `"PsetName.PropName"`-Namespace. Kurz-Alias: erster Pset gewinnt bei Kollision.
-
-> Der Aggregations-Fallback (Decomposes) ist hier **nicht** implementiert — dieser Batch-Pfad läuft beim SQL-Export, wo die Parent-Element-Daten bereits als eigene Zeilen vorhanden sind.
+Gibt `Map<number, FlatElementProps>` zurück. Keys: direkte Attribute +
+`"PsetName.PropName"`-Namespace. Kurz-Alias: erster Pset gewinnt bei Kollision.
 
 ### `getIfcApi()` *(exportiert)*
 
@@ -74,14 +104,17 @@ Singleton-`IfcAPI`-Instanz. Wird auch von `ifcWriter.ts` genutzt.
 
 ### Pset-Traversierungs-Übersicht
 
-| Pfad | Beziehung | Schemas |
+Alle Pfade werden per **Vorwärts-Scan** in `buildPropertyIndices()` erfasst
+(kein inverser Lookup), dann von `resolvePsetIds()` zusammengeführt:
+
+| Index | Beziehung (vorwärts gescannt) | Schemas |
 |---|---|---|
-| Instanz | `IsDefinedBy` → `IfcRelDefinesByProperties` | 2x3, 4, 4.3 |
-| Typ (standard) | `IsTypedBy` → `IfcRelDefinesByType` → `HasPropertySets` | 4, 4.3 |
-| Typ (standard) | `IsDefinedBy` → `IfcRelDefinesByType` → `HasPropertySets` | 2x3 |
-| Typ (nicht-standard) | wie oben → `TypeObj.IsDefinedBy` → `IfcRelDefinesByProperties` | 4, 4.3 |
-| Vererbt | `IsDeclaredBy` → `IfcRelDefinesByObject` → `IsDefinedBy` | 4, 4.3 |
-| Aggregations-Fallback | `Decomposes` → `IfcRelAggregates` → Parent-`IsDefinedBy` | alle |
+| `byInstance` | `IfcRelDefinesByProperties.RelatingPropertyDefinition` (einzeln **oder** `IfcPropertySetDefinitionSet`) | 2x3, 4, 4.3 |
+| `byType` | `IfcRelDefinesByType.RelatingType` → `TypeObject.HasPropertySets` | 2x3, 4, 4.3 |
+| `parent` | `IfcRelAggregates` + `IfcRelNests` (`RelatingObject` → `RelatedObjects`) | alle |
+
+Vererbung: `resolvePsetIds()` läuft die `parent`-Kette komplett hoch und sammelt
+auf jeder Ebene `byInstance` + `byType` — bedingungslos, dedupliziert.
 
 ### `parsePsetLine(pset)` *(intern)*
 
