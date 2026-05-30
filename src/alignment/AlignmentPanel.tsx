@@ -210,6 +210,8 @@ function FileGroup({ fileId, fileName, alignments, colors, visibleIds, selectedI
   );
 }
 
+export { ProfileChart };
+
 // ── Main panel ────────────────────────────────────────────────────────────────
 export function AlignmentPanel({ onClose }: { onClose?: () => void }) {
   const files          = useAlignmentStore(s => s.files);

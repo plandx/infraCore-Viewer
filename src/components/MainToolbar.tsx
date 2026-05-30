@@ -26,6 +26,8 @@ import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { useBillingStore } from "../billing/billingStore";
 import { useAlignmentStore } from "../alignment/alignmentStore";
+import { ProfileChart } from "../alignment/AlignmentPanel";
+import { AlignmentAnnotations } from "../alignment/AlignmentAnnotations";
 import * as XLSX from "xlsx";
 import type { ActiveTool } from "../types/ifc";
 
@@ -47,8 +49,9 @@ export type RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras" 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onToggleLeftPanel, onToggleRightPanel, leftPanelVisible, rightPanelVisible, onSaveProject, onLoadProject }: Props) {
-  const inputRef    = useRef<HTMLInputElement>(null);
-  const addInputRef = useRef<HTMLInputElement>(null);
+  const inputRef        = useRef<HTMLInputElement>(null);
+  const addInputRef     = useRef<HTMLInputElement>(null);
+  const landXmlInputRef = useRef<HTMLInputElement>(null);
 
   const loadedProperties          = useModelStore((s) => s.loadedProperties);
   const loadingPropertiesProgress = useModelStore((s) => s.loadingPropertiesProgress);
@@ -91,13 +94,21 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   const billing5DPanelOpen   = useModelStore((s) => s.billing5DPanelOpen);
   const setBilling5DPanelOpen = useModelStore((s) => s.setBilling5DPanelOpen);
 
-  // Alignment state
-  const alignmentPanelOpen   = useAlignmentStore((s) => s.panelOpen);
-  const alignmentFileCount   = useAlignmentStore((s) => s.files.length);
-  const alignmentVisibleIds  = useAlignmentStore((s) => s.visibleIds);
-  const toggleAlignmentPanel = useAlignmentStore((s) => s.togglePanel);
-  const alignmentFiles       = useAlignmentStore((s) => s.files);
-  const toggleVisible        = useAlignmentStore((s) => s.toggleVisible);
+  // Alignment state (sidebar panel no longer used — all inline in Achsen ribbon tab)
+  const alignmentFileCount    = useAlignmentStore((s) => s.files.length);
+  const alignmentVisibleIds   = useAlignmentStore((s) => s.visibleIds);
+  const alignmentFiles        = useAlignmentStore((s) => s.files);
+  const alignmentColors       = useAlignmentStore((s) => s.colors);
+  const alignmentSelectedId   = useAlignmentStore((s) => s.selectedId);
+  const toggleVisible         = useAlignmentStore((s) => s.toggleVisible);
+  const selectAlignment       = useAlignmentStore((s) => s.selectAlignment);
+  const loadAlignmentFile     = useAlignmentStore((s) => s.loadFile);
+  const removeAlignmentFile   = useAlignmentStore((s) => s.removeFile);
+  const sampleInterval        = useAlignmentStore((s) => s.sampleInterval);
+  const stationToolActive     = useAlignmentStore((s) => s.stationToolActive);
+  const hoveredStation        = useAlignmentStore((s) => s.hoveredStation);
+  const setSampleInterval     = useAlignmentStore((s) => s.setSampleInterval);
+  const toggleStationTool     = useAlignmentStore((s) => s.toggleStationTool);
   const stationLabelVisible   = useAlignmentStore((s) => s.stationLabelVisible);
   const stationLabelInterval  = useAlignmentStore((s) => s.stationLabelInterval);
   const offsetToolActive      = useAlignmentStore((s) => s.offsetToolActive);
@@ -142,6 +153,24 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   const [infoOpen, setInfoOpen]             = useState(false);
   const [windowOpen, setWindowOpen]         = useState(false);
   const [labelIntervalOpen, setLabelIntervalOpen] = useState(false);
+  const [alignmentDragOver, setAlignmentDragOver] = useState(false);
+
+  const handleLandXmlFiles = useCallback((fileList: FileList | null) => {
+    if (!fileList) return;
+    for (const f of Array.from(fileList)) {
+      const lower = f.name.toLowerCase();
+      if (lower.endsWith(".xml") || lower.endsWith(".landxml")) void loadAlignmentFile(f);
+    }
+  }, [loadAlignmentFile]);
+
+  function formatStation(sta: number): string {
+    const km = Math.floor(sta / 1000);
+    const m  = sta - km * 1000;
+    return `${km}+${m.toFixed(3).padStart(7, "0")}`;
+  }
+  function formatLength(len: number): string {
+    return len.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " m";
+  }
 
   // ── IFC export ────────────────────────────────────────────────────────────
   const handleIFCExport = useCallback(async () => {
@@ -303,8 +332,10 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
   return (
     <>
-      <input ref={inputRef}    type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
-      <input ref={addInputRef} type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
+      <input ref={inputRef}        type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
+      <input ref={addInputRef}     type="file" accept=".ifc" multiple className="hidden" onChange={handleFiles} />
+      <input ref={landXmlInputRef} type="file" accept=".xml,.landxml" multiple className="hidden"
+        onChange={e => { handleLandXmlFiles(e.target.files); e.target.value = ""; }} />
 
       <div
         className="flex flex-col shrink-0 select-none relative z-[100]"
@@ -662,19 +693,21 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
           {activeTab === "achsen" && (
             <>
-              {/* ACHSEN */}
-              <RibbonGroup label="Achsen">
+              {/* LADEN */}
+              <RibbonGroup label="Laden">
                 <RibbonLargeBtn
-                  icon={<Navigation2 size={18} />}
-                  label={alignmentFileCount > 0 ? `Achsen (${alignmentFileCount})` : "Achsen"}
-                  onClick={toggleAlignmentPanel} active={alignmentPanelOpen}
-                  title="Trassen-Panel (LandXML)" />
+                  icon={<Upload size={18} />}
+                  label="LandXML"
+                  onClick={() => landXmlInputRef.current?.click()}
+                  title="LandXML-Datei laden (.xml / .landxml)"
+                  primary={alignmentFileCount === 0}
+                />
                 {alignmentFileCount > 0 && (
                   <RibbonLargeBtn
                     icon={allAlignmentsVisible ? <Eye size={18} /> : <EyeOff size={18} />}
                     label={allAlignmentsVisible ? "Sichtbar" : "Ausgeblendet"}
                     onClick={toggleAllAlignments} active={allAlignmentsVisible}
-                    title={allAlignmentsVisible ? "Achsen ausblenden" : "Achsen einblenden"} />
+                    title={allAlignmentsVisible ? "Alle Achsen ausblenden" : "Alle Achsen einblenden"} />
                 )}
               </RibbonGroup>
 
@@ -718,16 +751,45 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
               {alignmentFileCount > 0 && (
                 <RibbonGroup label="Messen">
+                  <RibbonLargeBtn icon={<Ruler size={18} />} label={stationToolActive ? "Messen AN" : "Stationierung"}
+                    onClick={toggleStationTool} active={stationToolActive}
+                    title="Stationierung auf Achse messen" />
                   <RibbonLargeBtn icon={<Crosshair size={18} />} label="Absetzmass"
                     onClick={toggleOffsetTool} active={offsetToolActive}
                     title="Absetzmass messen" />
                 </RibbonGroup>
               )}
 
+              {alignmentFileCount > 0 && (
+                <RibbonGroup label="Darstellung">
+                  <div className="flex flex-col gap-0.5 justify-center px-1">
+                    <span className="text-[9px] text-muted-foreground">Auflösung</span>
+                    <select
+                      value={sampleInterval}
+                      onChange={e => setSampleInterval(Number(e.target.value))}
+                      className="bg-background border border-border text-foreground text-[11px] rounded-[3px] px-1 py-0.5 outline-none w-16"
+                    >
+                      {[1, 2, 5, 10, 25, 50].map(v => (
+                        <option key={v} value={v}>{v} m</option>
+                      ))}
+                    </select>
+                  </div>
+                </RibbonGroup>
+              )}
+
               {alignmentFileCount === 0 && (
-                <div className="flex items-center px-6 text-muted-foreground text-xs gap-2">
-                  <Navigation2 size={15} className="opacity-40" />
-                  <span className="opacity-60">Keine LandXML-Achsen geladen — Achsen-Panel öffnen um Dateien zu laden</span>
+                <div
+                  className={cn(
+                    "flex items-center gap-3 px-4 mx-2 my-1.5 rounded-[6px] border-2 border-dashed cursor-pointer transition-colors text-xs text-muted-foreground",
+                    alignmentDragOver ? "border-primary bg-primary/5 text-primary" : "border-border hover:border-muted-foreground hover:bg-muted/20"
+                  )}
+                  onClick={() => landXmlInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); setAlignmentDragOver(true); }}
+                  onDragLeave={() => setAlignmentDragOver(false)}
+                  onDrop={e => { e.preventDefault(); setAlignmentDragOver(false); handleLandXmlFiles(e.dataTransfer.files); }}
+                >
+                  <Navigation2 size={16} className="opacity-50 shrink-0" />
+                  <span>LandXML / .xml hier ablegen oder klicken zum Laden</span>
                 </div>
               )}
             </>
@@ -950,6 +1012,99 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
           )}
 
         </div>
+
+        {/* ── Row 3: Achsen file list (shown only when achsen tab active and files loaded) ── */}
+        {activeTab === "achsen" && alignmentFileCount > 0 && (() => {
+          const allAlignments = alignmentFiles.flatMap(f => f.alignments);
+          const selectedAlign = alignmentSelectedId !== null ? allAlignments.find(a => a.id === alignmentSelectedId) : null;
+          const segmentCounts = selectedAlign ? {
+            lines:   selectedAlign.segments.filter(s => s.type === "Line").length,
+            curves:  selectedAlign.segments.filter(s => s.type === "Curve").length,
+            spirals: selectedAlign.segments.filter(s => s.type === "Transition").length,
+          } : null;
+          return (
+            <div className="border-t border-border/40 bg-card flex flex-col max-h-[220px]">
+              <div className="flex min-h-0">
+                {/* File + alignment list */}
+                <div className="flex-1 overflow-y-auto min-w-0 py-1 border-r border-border/40">
+                  {alignmentFiles.map(f => (
+                    <div key={f.id} className="mb-0.5">
+                      <div className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-muted-foreground select-none">
+                        <span className="flex-1 truncate font-medium text-foreground">{f.fileName}</span>
+                        <button className="text-muted-foreground hover:text-red-400" onClick={() => removeAlignmentFile(f.id)} title="Datei entfernen">
+                          <X size={11} />
+                        </button>
+                      </div>
+                      {f.alignments.map(align => (
+                        <div
+                          key={align.id}
+                          className={cn(
+                            "flex items-center gap-1.5 px-3 py-[3px] cursor-pointer text-[11px] select-none border-b border-border/10",
+                            alignmentSelectedId === align.id ? "bg-muted" : "hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A]"
+                          )}
+                          onClick={() => selectAlignment(alignmentSelectedId === align.id ? null : align.id)}
+                        >
+                          <button
+                            className="shrink-0 text-muted-foreground hover:text-foreground"
+                            onClick={e => { e.stopPropagation(); toggleVisible(align.id); }}
+                          >
+                            {alignmentVisibleIds.has(align.id) ? <Eye size={11} /> : <EyeOff size={11} />}
+                          </button>
+                          <span className="shrink-0 w-2 h-2 rounded-[2px] border border-border" style={{ backgroundColor: alignmentColors[align.id] ?? "#888" }} />
+                          <span className="flex-1 truncate">{align.displayName}</span>
+                          <span className="text-muted-foreground shrink-0">{formatLength(align.length)}</span>
+                          {align.zSource === "profile"   && <span className="text-sky-400 text-[9px] font-mono shrink-0">Z</span>}
+                          {align.zSource === "coordgeom" && <span className="text-yellow-400 text-[9px] font-mono shrink-0">Z?</span>}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Selected alignment details */}
+                {selectedAlign && segmentCounts && (
+                  <div className="flex gap-3 px-3 py-2 border-r border-border/40 shrink-0 text-[11px]">
+                    <div className="flex flex-col gap-0.5 min-w-[120px]">
+                      <div className="font-semibold truncate">{selectedAlign.displayName}</div>
+                      <div className="text-muted-foreground">{formatStation(selectedAlign.staStart)} – {formatStation(selectedAlign.staEnd)}</div>
+                      <div className="text-muted-foreground">Länge: {formatLength(selectedAlign.length)}</div>
+                      <div className="flex gap-2 text-muted-foreground flex-wrap mt-0.5">
+                        {segmentCounts.lines   > 0 && <span>{segmentCounts.lines} Gerade{segmentCounts.lines   !== 1 ? "n" : ""}</span>}
+                        {segmentCounts.curves  > 0 && <span>{segmentCounts.curves} Bogen{segmentCounts.curves  !== 1 ? "" : ""}</span>}
+                        {segmentCounts.spirals > 0 && <span>{segmentCounts.spirals} Spirale{segmentCounts.spirals !== 1 ? "n" : ""}</span>}
+                      </div>
+                      {selectedAlign.zStatus && <div className="text-muted-foreground truncate mt-0.5">{selectedAlign.zStatus}</div>}
+                    </div>
+                    {selectedAlign.profileGeom.vertices.length > 0 && (
+                      <div className="w-[200px] shrink-0">
+                        <ProfileChart alignment={selectedAlign} color={alignmentColors[selectedAlign.id] ?? "#42a5f5"} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Station tool status + annotation controls */}
+                <div className="flex flex-col gap-1 px-3 py-2 shrink-0 min-w-[160px] border-r border-border/40">
+                  {stationToolActive && hoveredStation && (
+                    <div className="bg-muted/30 border border-border rounded-[4px] px-2 py-1 text-[11px]">
+                      <span className="text-muted-foreground">{hoveredStation.name}: </span>
+                      <span className="text-sky-400 font-mono">{formatStation(hoveredStation.station)}</span>
+                    </div>
+                  )}
+                  {stationToolActive && !hoveredStation && (
+                    <p className="text-[11px] text-muted-foreground italic">Maus über Achse bewegen…</p>
+                  )}
+                  <AlignmentAnnotations />
+                </div>
+              </div>
+              {alignmentFileCount > 0 && (
+                <div className="px-3 py-1 text-[9px] text-yellow-500 border-t border-border/20">
+                  ⚠ Übergangskurven werden linear angenähert. Bögen und Geraden sind exakt.
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {infoOpen && <HelpPanel onClose={() => setInfoOpen(false)} />}

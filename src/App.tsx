@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
-import { AlignmentPanel } from "./alignment/AlignmentPanel";
 import { v4 as uuidv4 } from "uuid";
 import * as THREE from "three";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle, type PanelImperativeHandle } from "react-resizable-panels";
@@ -595,8 +594,6 @@ function MainApp() {
     keyBindings,
   } = useModelStore();
 
-  const alignmentPanelOpen = useAlignmentStore(s => s.panelOpen);
-  const toggleAlignmentPanel = useAlignmentStore(s => s.togglePanel);
 
   const idsPanelOpen = useIdsStore(s => s.idsPanelOpen);
   const setIdsPanelOpen = useIdsStore(s => s.setIdsPanelOpen);
@@ -1063,9 +1060,7 @@ function MainApp() {
             onResize={(s) => setLeftCollapsed(s.asPercentage === 0)}
           >
             <div className="h-full overflow-hidden border-r border-border">
-              {alignmentPanelOpen ? (
-                <AlignmentPanel onClose={toggleAlignmentPanel} />
-              ) : (listPanelOpen || smartViewsPanelOpen) ? (
+              {(listPanelOpen || smartViewsPanelOpen) ? (
                 <PanelGroup orientation="vertical" className="h-full">
                   <Panel defaultSize={50} minSize={15}>
                     <div className="h-full overflow-hidden">
