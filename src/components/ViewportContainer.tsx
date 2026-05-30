@@ -1499,6 +1499,55 @@ export function ViewportContainer({ onElementClick }: Props) {
       const preset = (e as CustomEvent<string>).detail;
       setPresetView(preset);
     };
+    const onBcfViewpoint = (e: Event) => {
+      const vp = (e as CustomEvent<{
+        position: { x: number; y: number; z: number };
+        direction: { x: number; y: number; z: number };
+        up: { x: number; y: number; z: number };
+        fov?: number;
+      }>).detail;
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return;
+
+      // Get the originOffset of the first loaded model for coordinate back-conversion.
+      // BCF uses IFC Z-up world coordinates: (Easting, Northing, Elevation)
+      // Three.js scene uses Y-up with offset applied: (E-ox, Elev-oy, -North-oz)
+      const firstModel = useModelStore.getState().models.values().next().value as
+        import("../types/ifc").IFCModelEntry | undefined;
+      const offset = firstModel?.originOffset ?? new THREE.Vector3();
+
+      const toThreePos = (p: { x: number; y: number; z: number }) =>
+        new THREE.Vector3(p.x - offset.x, p.z - offset.y, -p.y - offset.z);
+      const toThreeDir = (d: { x: number; y: number; z: number }) =>
+        new THREE.Vector3(d.x, d.z, -d.y).normalize();
+
+      const pos = toThreePos(vp.position);
+      const dir = toThreeDir(vp.direction);
+
+      // Place camera at BCF position; set orbit target 10 m forward along direction
+      camera.position.copy(pos);
+      controls.target.copy(pos).addScaledVector(dir, 10);
+
+      // Apply up vector if provided
+      if (vp.up) {
+        camera.up.copy(toThreeDir(vp.up));
+      }
+
+      if (vp.fov && vp.fov > 0) {
+        camera.fov = vp.fov;
+        camera.updateProjectionMatrix();
+      }
+
+      // Adjust near/far planes for the new position
+      const dist = Math.max(1, pos.length());
+      camera.near = Math.max(0.01, dist * 0.0001);
+      camera.far  = dist * 500;
+      camera.updateProjectionMatrix();
+
+      controls.update();
+      needsRenderRef.current = true;
+    };
     const onExportGLTF = () => exportGLTF();
     const onScreenshot = () => takeScreenshot();
     const onClearMeasure = () => clearMeasure();
@@ -1507,6 +1556,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     window.addEventListener("viewer:fitTo", onFitTo);
     window.addEventListener("viewer:zoomToElement", onZoomToElement);
     window.addEventListener("viewer:preset", onPreset);
+    window.addEventListener("viewer:bcfViewpoint", onBcfViewpoint);
     window.addEventListener("viewer:exportGLTF", onExportGLTF);
     window.addEventListener("viewer:screenshot", onScreenshot);
     window.addEventListener("viewer:clearMeasure", onClearMeasure);
@@ -1515,6 +1565,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       window.removeEventListener("viewer:fitTo", onFitTo);
       window.removeEventListener("viewer:zoomToElement", onZoomToElement);
       window.removeEventListener("viewer:preset", onPreset);
+      window.removeEventListener("viewer:bcfViewpoint", onBcfViewpoint);
       window.removeEventListener("viewer:exportGLTF", onExportGLTF);
       window.removeEventListener("viewer:screenshot", onScreenshot);
       window.removeEventListener("viewer:clearMeasure", onClearMeasure);

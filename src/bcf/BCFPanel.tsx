@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   AlertTriangle, Zap, Shield, MessageSquare, FileDown, Plus, Trash2,
   ChevronRight, Clock, User, Tag, Upload, X, Send, Camera, MapPin,
-  Calendar, Eye,
+  Calendar, Eye, Navigation,
 } from "lucide-react";
 import { useBcfStore } from "./bcfStore";
 import { exportBcf } from "./bcfWriter";
@@ -89,6 +89,18 @@ export function BCFPanel() {
       alert(`BCF Import Fehler: ${err}`);
     }
     e.target.value = "";
+  }
+
+  function jumpToViewpoint(topic: typeof activeTopic) {
+    if (!topic?.viewpoint?.cameraPosition || !topic.viewpoint.cameraDirection) return;
+    window.dispatchEvent(new CustomEvent("viewer:bcfViewpoint", {
+      detail: {
+        position:  topic.viewpoint.cameraPosition,
+        direction: topic.viewpoint.cameraDirection,
+        up:        topic.viewpoint.cameraUpVector,
+        fov:       topic.viewpoint.fieldOfView,
+      },
+    }));
   }
 
   function handleAddComment() {
@@ -335,9 +347,20 @@ export function BCFPanel() {
                     )}
                     {activeTopic.viewpoint && (
                       <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-                        <span className="font-semibold text-foreground text-[12px] flex items-center gap-1">
-                          <MapPin size={11} /> Viewpoint
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-foreground text-[12px] flex items-center gap-1">
+                            <MapPin size={11} /> Viewpoint
+                          </span>
+                          {activeTopic.viewpoint.cameraPosition && (
+                            <button
+                              onClick={() => jumpToViewpoint(activeTopic)}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-[4px] bg-primary text-primary-foreground text-[11px] hover:bg-primary/90 transition-colors"
+                              title="Im Modell auf diesen Blickwinkel springen"
+                            >
+                              <Navigation size={11} /> Im Modell zeigen
+                            </button>
+                          )}
+                        </div>
                         {activeTopic.viewpoint.cameraPosition && (
                           <span className="font-mono text-[10px]">
                             Pos: {activeTopic.viewpoint.cameraPosition.x.toFixed(2)},
