@@ -273,7 +273,7 @@ function buildRelDefIndex(cached: CachedModel): void {
       if (!rel) continue;
       const psetId = (rel.RelatingPropertyDefinition as { value?: number } | null)?.value;
       if (!psetId) continue;
-      const objs = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
+      const objs = toRefArray(rel.RelatedObjects);
       for (const o of objs) {
         const eid = o?.value;
         if (!eid) continue;
@@ -295,7 +295,7 @@ function buildRelDefIndex(cached: CachedModel): void {
       const typePsets = Array.isArray(typeObj?.HasPropertySets) ? typeObj!.HasPropertySets as { value?: number }[] : [];
       const psetIds = typePsets.map(p => p?.value).filter((v): v is number => !!v);
       if (psetIds.length === 0) continue;
-      const objs = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
+      const objs = toRefArray(rel.RelatedObjects);
       for (const o of objs) {
         const eid = o?.value;
         if (!eid) continue;
@@ -319,7 +319,7 @@ function buildRelDefIndex(cached: CachedModel): void {
         if (!rel) continue;
         const parentId = (rel.RelatingObject as { value?: number } | null)?.value;
         if (!parentId) continue;
-        const children = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
+        const children = toRefArray(rel.RelatedObjects);
         for (const c of children) {
           const childId = c?.value;
           if (childId) parentIndex.set(childId, parentId);
@@ -702,7 +702,7 @@ export async function loadAllElementProperties(
       if (rel) {
         const psetId = (rel.RelatingPropertyDefinition as { value?: number } | null)?.value;
         if (psetId) {
-          const related = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
+          const related = toRefArray(rel.RelatedObjects);
           for (const obj of related) {
             const eid = obj?.value;
             if (eid && eidSet.has(eid)) {
@@ -738,7 +738,7 @@ export async function loadAllElementProperties(
         const typeId = (rel.RelatingType as { value?: number } | null)?.value;
         if (typeId) {
           const eids = new Set<number>();
-          const related = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects as { value?: number }[] : [];
+          const related = toRefArray(rel.RelatedObjects);
           for (const obj of related) {
             const eid = obj?.value;
             if (eid && eidSet.has(eid)) eids.add(eid);
