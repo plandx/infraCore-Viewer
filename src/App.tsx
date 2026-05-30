@@ -509,7 +509,8 @@ function useCollisionSync() {
           { modelId: msg.modelIdA, expressId: msg.expressIdA },
           { modelId: msg.modelIdB, expressId: msg.expressIdB },
         ]);
-        window.dispatchEvent(new Event("viewer:fitAll"));
+        // Small delay so the visibility effect runs before we compute the bbox
+        requestAnimationFrame(() => window.dispatchEvent(new Event("viewer:fitIsolated")));
       }
     };
 

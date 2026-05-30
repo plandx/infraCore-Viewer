@@ -1479,9 +1479,12 @@ export function ViewportContainer({ onElementClick }: Props) {
     const iso = (x: number, y: number, z: number) =>
       new THREE.Vector3(x, y, z).normalize().multiplyScalar(d);
 
+    // Top/bottom use a tiny epsilon offset so camera.up stays (0,1,0) and
+    // OrbitControls doesn't get into gimbal lock after the view is set.
+    const eps = d * 0.0001;
     const dirs: Record<string, THREE.Vector3> = {
-      top:        new THREE.Vector3(0, d, 0),
-      bottom:     new THREE.Vector3(0, -d, 0),
+      top:        new THREE.Vector3(eps, d, 0),
+      bottom:     new THREE.Vector3(eps, -d, 0),
       front:      new THREE.Vector3(0, 0, d),
       back:       new THREE.Vector3(0, 0, -d),
       left:       new THREE.Vector3(-d, 0, 0),
@@ -1502,9 +1505,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     if (!dir) return;
     camera.position.copy(center).add(dir);
     controls.target.copy(center);
-    const isIso = preset.startsWith("iso");
-    camera.up.set(0, isIso || (preset !== "top" && preset !== "bottom") ? 1 : 0,
-                     preset === "top" ? -1 : preset === "bottom" ? 1 : 0);
+    camera.up.set(0, 1, 0);
     camera.lookAt(center);
     camera.updateProjectionMatrix();
     controls.update();
@@ -1520,6 +1521,16 @@ export function ViewportContainer({ onElementClick }: Props) {
     const onZoomToElement = (e: Event) => {
       const { modelId, expressIds } = (e as CustomEvent<{ modelId: string; expressIds: number[] }>).detail;
       ctxZoomTo(modelId, expressIds);
+    };
+    const onFitIsolated = () => {
+      const iso = useModelStore.getState().isolatedElements;
+      if (!iso || iso.size === 0) { fitAllLoaded(); return; }
+      const box = new THREE.Box3();
+      for (const key of iso) {
+        const meshes = meshIndexRef.current.get(key);
+        if (meshes) for (const obj of meshes) box.expandByObject(obj);
+      }
+      if (!box.isEmpty()) fitCameraToBox(box);
     };
     const onPreset = (e: Event) => {
       const preset = (e as CustomEvent<string>).detail;
@@ -1551,22 +1562,30 @@ export function ViewportContainer({ onElementClick }: Props) {
       const pos = toThreePos(vp.position);
       const dir = toThreeDir(vp.direction);
 
-      // Place camera at BCF position; set orbit target 10 m forward along direction
-      camera.position.copy(pos);
-      controls.target.copy(pos).addScaledVector(dir, 10);
+      // Compute scene center to place a meaningful orbit target along the view ray
+      const sceneBox = new THREE.Box3();
+      useModelStore.getState().models.forEach((m) => {
+        if (m.visible && !m.boundingBox.isEmpty()) sceneBox.union(m.boundingBox);
+      });
+      const sceneCenter = sceneBox.isEmpty()
+        ? pos.clone().addScaledVector(dir, 10)
+        : sceneBox.getCenter(new THREE.Vector3());
 
-      // Apply up vector if provided
-      if (vp.up) {
-        camera.up.copy(toThreeDir(vp.up));
-      }
+      // Orbit target = projection of scene center onto the look ray from pos
+      const toCenterLen = new THREE.Vector3().subVectors(sceneCenter, pos).dot(dir);
+      const orbitDist = Math.max(1, toCenterLen);
+      controls.target.copy(pos).addScaledVector(dir, orbitDist);
+
+      camera.position.copy(pos);
+      camera.up.set(0, 1, 0);
+      if (vp.up) camera.up.copy(toThreeDir(vp.up));
 
       if (vp.fov && vp.fov > 0) {
         camera.fov = vp.fov;
-        camera.updateProjectionMatrix();
       }
 
       // Adjust near/far planes for the new position
-      const dist = Math.max(1, pos.length());
+      const dist = Math.max(1, orbitDist);
       camera.near = Math.max(0.01, dist * 0.0001);
       camera.far  = dist * 500;
       camera.updateProjectionMatrix();
@@ -1581,6 +1600,7 @@ export function ViewportContainer({ onElementClick }: Props) {
     window.addEventListener("viewer:fitAll", onFitAll);
     window.addEventListener("viewer:fitTo", onFitTo);
     window.addEventListener("viewer:zoomToElement", onZoomToElement);
+    window.addEventListener("viewer:fitIsolated", onFitIsolated);
     window.addEventListener("viewer:preset", onPreset);
     window.addEventListener("viewer:bcfViewpoint", onBcfViewpoint);
     window.addEventListener("viewer:exportGLTF", onExportGLTF);
@@ -1590,6 +1610,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       window.removeEventListener("viewer:fitAll", onFitAll);
       window.removeEventListener("viewer:fitTo", onFitTo);
       window.removeEventListener("viewer:zoomToElement", onZoomToElement);
+      window.removeEventListener("viewer:fitIsolated", onFitIsolated);
       window.removeEventListener("viewer:preset", onPreset);
       window.removeEventListener("viewer:bcfViewpoint", onBcfViewpoint);
       window.removeEventListener("viewer:exportGLTF", onExportGLTF);
