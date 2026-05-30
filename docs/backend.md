@@ -19,7 +19,7 @@ Vollständiges Laden einer IFC-Datei:
 2. Öffnet Datei (`OpenModel`)
 3. Streamt alle Meshes via `StreamAllMeshes` → baut `THREE.Group`
 4. Wendet World-Origin-Offset an (verhindert Floating-Point-Fehler bei großen Koordinaten)
-5. Liest räumliche Struktur (`getSpatialStructure`) → `SpatialNode`-Baum
+5. Liest räumliche Struktur (`getSpatialStructure`) → `SpatialNode`-Baum; löst anschließend `IfcRelAggregates`-Beziehungen auf, sodass `IfcElementAssembly`-Kinder korrekt als Unterknoten erscheinen
 6. Sammelt alle Elemente nach IFC-Typ (`GetLineIDsWithType`) → `elementsByType`
 7. Berechnet `BoundingBox`
 8. Gibt `{ entry: IFCModelEntry, newWorldOrigin }` zurück
