@@ -1218,53 +1218,59 @@ async function extractStructure(
 
     spatialTree = convert(raw as { expressID: number; type: string; children?: unknown[] });
 
-    // web-ifc's getSpatialStructure only follows IfcRelContainedInSpatialStructure,
-    // so IfcElementAssembly children (linked via IfcRelAggregates) appear flat.
-    // Walk the tree and resolve aggregation relationships for assembly nodes.
-    const IFCRELAGGREGATES = WebIFC.IFCRELAGGREGATES;
-    const aggIds = api.GetLineIDsWithType(modelId, IFCRELAGGREGATES);
-    // Build map: relating expressId → [related expressIds]
+    // web-ifc's getSpatialStructure misses two cases:
+    // 1. IfcElementAssembly children (linked via IfcRelAggregates but not spatial containers)
+    // 2. Spatial containers (storeys, buildings) that getSpatialStructure skips in some files
+    // Fix: read all IfcRelAggregates, build a map, then attach any missing children to tree nodes.
+    // Use flatten=false so RelatingObject / RelatedObjects stay as {value: number} references.
+    const aggIds = api.GetLineIDsWithType(modelId, WebIFC.IFCRELAGGREGATES);
     const aggMap = new Map<number, number[]>();
     for (let i = 0; i < aggIds.size(); i++) {
       try {
-        const rel = api.GetLine(modelId, aggIds.get(i), true) as Record<string, unknown> | null;
+        const rel = api.GetLine(modelId, aggIds.get(i), false, false) as Record<string, unknown> | null;
         if (!rel) continue;
-        const relating = (rel.RelatingObject as { value?: number } | undefined)?.value;
-        const related = rel.RelatedObjects as Array<{ value?: number }> | undefined;
-        if (!relating || !related) continue;
-        const childIds = related.map(r => r.value).filter((v): v is number => v !== undefined);
+        const relatingRaw = rel.RelatingObject;
+        const relating = typeof relatingRaw === "object" && relatingRaw !== null
+          ? (relatingRaw as { value?: number }).value
+          : typeof relatingRaw === "number" ? relatingRaw : undefined;
+        const relatedRaw = rel.RelatedObjects;
+        const related = Array.isArray(relatedRaw) ? relatedRaw as Array<unknown> : [];
+        if (!relating) continue;
+        const childIds = related.map(r =>
+          typeof r === "object" && r !== null ? (r as { value?: number }).value
+          : typeof r === "number" ? r : undefined
+        ).filter((v): v is number => v !== undefined);
         if (childIds.length) aggMap.set(relating, childIds);
       } catch { /* skip */ }
     }
-    // Collect all expressIds already in tree to detect which are sub-elements of assemblies
+
+    // Helper to make a node from an expressId
+    const makeNode = (cid: number): SpatialNode => {
+      const cLine = api.GetLine(modelId, cid, false) as Record<string, unknown> | null;
+      const cType = api.GetNameFromTypeCode(api.GetLineType(modelId, cid)) || "IfcElement";
+      return { expressId: cid, type: cType, name: getLabel(cLine) || cType, children: [] };
+    };
+
+    // Collect all expressIds currently in tree
     const inTree = new Set<number>();
     function markTree(n: SpatialNode) { inTree.add(n.expressId); n.children.forEach(markTree); }
     markTree(spatialTree);
 
-    // For every assembly node in the tree, attach its aggregated children if not already present
-    function resolveAssemblies(n: SpatialNode) {
+    // Walk the tree and attach any aggregated children not yet present
+    function resolveAgg(n: SpatialNode) {
       const childIds = aggMap.get(n.expressId);
       if (childIds) {
         for (const cid of childIds) {
-          if (inTree.has(cid)) continue; // already placed elsewhere
-          const cLine = api.GetLine(modelId, cid) as Record<string, unknown> | null;
-          const cTypeId = api.GetLineType(modelId, cid);
-          const cTypeName = api.GetNameFromTypeCode(cTypeId);
-          const cType = cTypeName || "IfcElement";
-          const child: SpatialNode = {
-            expressId: cid,
-            type: cType,
-            name: getLabel(cLine) || cType,
-            children: [],
-          };
+          if (inTree.has(cid)) continue;
+          const child = makeNode(cid);
           inTree.add(cid);
           n.children.push(child);
-          resolveAssemblies(child);
+          resolveAgg(child);
         }
       }
-      n.children.forEach(resolveAssemblies);
+      n.children.forEach(resolveAgg);
     }
-    resolveAssemblies(spatialTree);
+    resolveAgg(spatialTree);
   } catch (e) {
     console.warn("[IFC] Spatial structure extraction failed:", e);
   }
