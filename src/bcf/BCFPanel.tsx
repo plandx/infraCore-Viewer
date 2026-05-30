@@ -11,7 +11,6 @@ import { importBcf } from "./bcfParser";
 import type { BcfTopicStatus, BcfTopicType, BcfVersion, BcfPriority } from "./bcfTypes";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
-import { openBcfLightWindow } from "../utils/windowSync";
 
 const STATUS_COLOR: Record<BcfTopicStatus, string> = {
   Open: "bg-transparent text-blue-600 border-blue-500/50 dark:text-blue-400",
@@ -116,7 +115,6 @@ export function BCFPanel() {
 
   function jumpToViewpoint(topic: typeof activeTopic) {
     if (!topic?.viewpoint?.cameraPosition || !topic.viewpoint.cameraDirection) return;
-    openBcfLightWindow();
     window.dispatchEvent(new CustomEvent("viewer:bcfViewpoint", {
       detail: {
         position:  topic.viewpoint.cameraPosition,

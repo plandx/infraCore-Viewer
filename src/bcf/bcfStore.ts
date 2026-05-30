@@ -14,7 +14,6 @@ interface BcfStore {
   updateTopic: (id: string, partial: Partial<BcfTopic>) => void;
   deleteTopic: (id: string) => void;
   addComment: (topicId: string, text: string, author: string) => void;
-  updateComment: (topicId: string, commentId: string, text: string) => void;
   deleteComment: (topicId: string, commentId: string) => void;
   setActiveTopicId: (id: string | null) => void;
   setBcfPanelOpen: (open: boolean) => void;
@@ -90,25 +89,6 @@ export const useBcfStore = create<BcfStore>((set, get) => ({
         topics: s.document.topics.map(t =>
           t.id === topicId
             ? { ...t, comments: [...t.comments, comment], modifiedDate: now() }
-            : t
-        ),
-      },
-    }));
-  },
-
-  updateComment: (topicId, commentId, text) => {
-    set(s => ({
-      document: {
-        ...s.document,
-        topics: s.document.topics.map(t =>
-          t.id === topicId
-            ? {
-                ...t,
-                modifiedDate: now(),
-                comments: t.comments.map(c =>
-                  c.id === commentId ? { ...c, text, modifiedDate: now() } : c
-                ),
-              }
             : t
         ),
       },
