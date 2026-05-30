@@ -26,8 +26,6 @@ import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { useBillingStore } from "../billing/billingStore";
 import { useAlignmentStore } from "../alignment/alignmentStore";
-import { ProfileChart } from "../alignment/AlignmentPanel";
-import { AlignmentAnnotations } from "../alignment/AlignmentAnnotations";
 import * as XLSX from "xlsx";
 import type { ActiveTool } from "../types/ifc";
 
@@ -106,7 +104,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   const removeAlignmentFile   = useAlignmentStore((s) => s.removeFile);
   const sampleInterval        = useAlignmentStore((s) => s.sampleInterval);
   const stationToolActive     = useAlignmentStore((s) => s.stationToolActive);
-  const hoveredStation        = useAlignmentStore((s) => s.hoveredStation);
   const setSampleInterval     = useAlignmentStore((s) => s.setSampleInterval);
   const toggleStationTool     = useAlignmentStore((s) => s.toggleStationTool);
   const stationLabelVisible   = useAlignmentStore((s) => s.stationLabelVisible);
@@ -154,6 +151,7 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
   const [windowOpen, setWindowOpen]         = useState(false);
   const [labelIntervalOpen, setLabelIntervalOpen] = useState(false);
   const [alignmentDragOver, setAlignmentDragOver] = useState(false);
+  const [alignmentListOpen, setAlignmentListOpen] = useState(false);
 
   const handleLandXmlFiles = useCallback((fileList: FileList | null) => {
     if (!fileList) return;
@@ -702,12 +700,67 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                   title="LandXML-Datei laden (.xml / .landxml)"
                   primary={alignmentFileCount === 0}
                 />
+                {/* Achsen-Dropdown */}
                 {alignmentFileCount > 0 && (
-                  <RibbonLargeBtn
-                    icon={allAlignmentsVisible ? <Eye size={18} /> : <EyeOff size={18} />}
-                    label={allAlignmentsVisible ? "Sichtbar" : "Ausgeblendet"}
-                    onClick={toggleAllAlignments} active={allAlignmentsVisible}
-                    title={allAlignmentsVisible ? "Alle Achsen ausblenden" : "Alle Achsen einblenden"} />
+                  <div className="relative flex flex-col justify-center">
+                    <button
+                      onClick={() => setAlignmentListOpen(v => !v)}
+                      className={cn(
+                        "flex items-center gap-1 px-2 py-1 rounded-[4px] text-[11px] font-medium transition-colors border",
+                        alignmentListOpen
+                          ? "bg-primary/10 border-primary/40 text-primary"
+                          : "border-border text-foreground hover:bg-muted/40"
+                      )}
+                      title="Achsen-Liste"
+                    >
+                      <Navigation2 size={12} />
+                      <span>Achsen ({alignmentFileCount > 0 ? alignmentFiles.flatMap(f => f.alignments).length : 0})</span>
+                      <ChevronDown size={10} className={cn("transition-transform", alignmentListOpen && "rotate-180")} />
+                    </button>
+                    {alignmentListOpen && (
+                      <DropdownMenu onClose={() => setAlignmentListOpen(false)} minWidth={280} maxHeight={320}>
+                        {alignmentFiles.map(f => (
+                          <div key={f.id}>
+                            <div className="flex items-center gap-1.5 px-2 py-1 border-b border-border/30">
+                              <span className="flex-1 truncate text-[10px] font-semibold text-foreground">{f.fileName}</span>
+                              <button className="text-muted-foreground hover:text-red-400 p-0.5" onClick={() => removeAlignmentFile(f.id)} title="Datei entfernen">
+                                <X size={11} />
+                              </button>
+                            </div>
+                            {f.alignments.map(align => (
+                              <DropdownItem
+                                key={align.id}
+                                onClick={() => selectAlignment(alignmentSelectedId === align.id ? null : align.id)}
+                              >
+                                <div className={cn("flex items-center gap-2 w-full", alignmentSelectedId === align.id && "text-primary")}>
+                                  <button
+                                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                                    onClick={e => { e.stopPropagation(); toggleVisible(align.id); }}
+                                  >
+                                    {alignmentVisibleIds.has(align.id) ? <Eye size={11} /> : <EyeOff size={11} />}
+                                  </button>
+                                  <span className="shrink-0 w-2.5 h-2.5 rounded-[2px] border border-border/60" style={{ backgroundColor: alignmentColors[align.id] ?? "#888" }} />
+                                  <span className="flex-1 truncate text-[11px]">{align.displayName}</span>
+                                  <span className="text-[10px] text-muted-foreground shrink-0">{formatLength(align.length)}</span>
+                                  {align.zSource === "profile"   && <span className="text-sky-400 text-[9px] font-mono shrink-0">Z</span>}
+                                  {align.zSource === "coordgeom" && <span className="text-yellow-400 text-[9px] font-mono shrink-0">Z?</span>}
+                                </div>
+                              </DropdownItem>
+                            ))}
+                          </div>
+                        ))}
+                        <div className="border-t border-border/30 px-2 py-1.5 flex items-center gap-2">
+                          <button
+                            onClick={() => { toggleAllAlignments(); }}
+                            className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            {allAlignmentsVisible ? <EyeOff size={11} /> : <Eye size={11} />}
+                            {allAlignmentsVisible ? "Alle ausblenden" : "Alle einblenden"}
+                          </button>
+                        </div>
+                      </DropdownMenu>
+                    )}
+                  </div>
                 )}
               </RibbonGroup>
 
@@ -1013,98 +1066,6 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
 
         </div>
 
-        {/* ── Row 3: Achsen file list (shown only when achsen tab active and files loaded) ── */}
-        {activeTab === "achsen" && alignmentFileCount > 0 && (() => {
-          const allAlignments = alignmentFiles.flatMap(f => f.alignments);
-          const selectedAlign = alignmentSelectedId !== null ? allAlignments.find(a => a.id === alignmentSelectedId) : null;
-          const segmentCounts = selectedAlign ? {
-            lines:   selectedAlign.segments.filter(s => s.type === "Line").length,
-            curves:  selectedAlign.segments.filter(s => s.type === "Curve").length,
-            spirals: selectedAlign.segments.filter(s => s.type === "Transition").length,
-          } : null;
-          return (
-            <div className="border-t border-border/40 bg-card flex flex-col max-h-[220px]">
-              <div className="flex min-h-0">
-                {/* File + alignment list */}
-                <div className="flex-1 overflow-y-auto min-w-0 py-1 border-r border-border/40">
-                  {alignmentFiles.map(f => (
-                    <div key={f.id} className="mb-0.5">
-                      <div className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-muted-foreground select-none">
-                        <span className="flex-1 truncate font-medium text-foreground">{f.fileName}</span>
-                        <button className="text-muted-foreground hover:text-red-400" onClick={() => removeAlignmentFile(f.id)} title="Datei entfernen">
-                          <X size={11} />
-                        </button>
-                      </div>
-                      {f.alignments.map(align => (
-                        <div
-                          key={align.id}
-                          className={cn(
-                            "flex items-center gap-1.5 px-3 py-[3px] cursor-pointer text-[11px] select-none border-b border-border/10",
-                            alignmentSelectedId === align.id ? "bg-muted" : "hover:bg-[#E5E5E5] dark:hover:bg-[#3A3A3A]"
-                          )}
-                          onClick={() => selectAlignment(alignmentSelectedId === align.id ? null : align.id)}
-                        >
-                          <button
-                            className="shrink-0 text-muted-foreground hover:text-foreground"
-                            onClick={e => { e.stopPropagation(); toggleVisible(align.id); }}
-                          >
-                            {alignmentVisibleIds.has(align.id) ? <Eye size={11} /> : <EyeOff size={11} />}
-                          </button>
-                          <span className="shrink-0 w-2 h-2 rounded-[2px] border border-border" style={{ backgroundColor: alignmentColors[align.id] ?? "#888" }} />
-                          <span className="flex-1 truncate">{align.displayName}</span>
-                          <span className="text-muted-foreground shrink-0">{formatLength(align.length)}</span>
-                          {align.zSource === "profile"   && <span className="text-sky-400 text-[9px] font-mono shrink-0">Z</span>}
-                          {align.zSource === "coordgeom" && <span className="text-yellow-400 text-[9px] font-mono shrink-0">Z?</span>}
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Selected alignment details */}
-                {selectedAlign && segmentCounts && (
-                  <div className="flex gap-3 px-3 py-2 border-r border-border/40 shrink-0 text-[11px]">
-                    <div className="flex flex-col gap-0.5 min-w-[120px]">
-                      <div className="font-semibold truncate">{selectedAlign.displayName}</div>
-                      <div className="text-muted-foreground">{formatStation(selectedAlign.staStart)} – {formatStation(selectedAlign.staEnd)}</div>
-                      <div className="text-muted-foreground">Länge: {formatLength(selectedAlign.length)}</div>
-                      <div className="flex gap-2 text-muted-foreground flex-wrap mt-0.5">
-                        {segmentCounts.lines   > 0 && <span>{segmentCounts.lines} Gerade{segmentCounts.lines   !== 1 ? "n" : ""}</span>}
-                        {segmentCounts.curves  > 0 && <span>{segmentCounts.curves} Bogen{segmentCounts.curves  !== 1 ? "" : ""}</span>}
-                        {segmentCounts.spirals > 0 && <span>{segmentCounts.spirals} Spirale{segmentCounts.spirals !== 1 ? "n" : ""}</span>}
-                      </div>
-                      {selectedAlign.zStatus && <div className="text-muted-foreground truncate mt-0.5">{selectedAlign.zStatus}</div>}
-                    </div>
-                    {selectedAlign.profileGeom.vertices.length > 0 && (
-                      <div className="w-[200px] shrink-0">
-                        <ProfileChart alignment={selectedAlign} color={alignmentColors[selectedAlign.id] ?? "#42a5f5"} />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Station tool status + annotation controls */}
-                <div className="flex flex-col gap-1 px-3 py-2 shrink-0 min-w-[160px] border-r border-border/40">
-                  {stationToolActive && hoveredStation && (
-                    <div className="bg-muted/30 border border-border rounded-[4px] px-2 py-1 text-[11px]">
-                      <span className="text-muted-foreground">{hoveredStation.name}: </span>
-                      <span className="text-sky-400 font-mono">{formatStation(hoveredStation.station)}</span>
-                    </div>
-                  )}
-                  {stationToolActive && !hoveredStation && (
-                    <p className="text-[11px] text-muted-foreground italic">Maus über Achse bewegen…</p>
-                  )}
-                  <AlignmentAnnotations />
-                </div>
-              </div>
-              {alignmentFileCount > 0 && (
-                <div className="px-3 py-1 text-[9px] text-yellow-500 border-t border-border/20">
-                  ⚠ Übergangskurven werden linear angenähert. Bögen und Geraden sind exakt.
-                </div>
-              )}
-            </div>
-          );
-        })()}
       </div>
 
       {infoOpen && <HelpPanel onClose={() => setInfoOpen(false)} />}
@@ -1216,16 +1177,20 @@ function UtilBtn({
 
 // ── Dropdown helpers ──────────────────────────────────────────────────────────
 
-function DropdownMenu({ children, onClose, align = "left" }: {
+function DropdownMenu({ children, onClose, align = "left", minWidth, maxHeight }: {
   children: React.ReactNode; onClose: () => void; align?: "left" | "right";
+  minWidth?: number; maxHeight?: number;
 }) {
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className={cn(
-        "absolute top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-md min-w-[180px] py-1",
-        align === "right" ? "right-0" : "left-0"
-      )}>
+      <div
+        className={cn(
+          "absolute top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-md min-w-[180px] py-1 overflow-y-auto",
+          align === "right" ? "right-0" : "left-0"
+        )}
+        style={{ minWidth, maxHeight }}
+      >
         {children}
       </div>
     </>
