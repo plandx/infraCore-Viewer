@@ -3068,7 +3068,7 @@ export function ViewportContainer({ onElementClick }: Props) {
         return;
       }
     }
-    if (stagedSmartViewId) { applySmartView(stagedSmartViewId); return; }
+    if (stagedSmartViewId) { applySmartView(stagedSmartViewId); }
     const hit = raycastPoint(e);
     if (hit) ctxZoomTo(hit.modelId, [hit.expressId]);
   }, [stagedSmartViewId, applySmartView, raycastPoint, ctxZoomTo]);
