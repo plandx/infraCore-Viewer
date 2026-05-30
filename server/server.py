@@ -935,9 +935,12 @@ class PatchPropertiesRequest(BaseModel):
 
 @app.post("/patch-properties")
 def patch_properties(req: PatchPropertiesRequest):
-    """Ergänzt fehlende Properties / PSets in einem Modell via IfcOpenShell."""
+    """Ergänzt fehlende Properties / PSets in einem Modell via IfcOpenShell API."""
     if req.name not in _models:
         raise HTTPException(status_code=404, detail=f"Modell '{req.name}' nicht geladen")
+
+    import ifcopenshell.api
+    import ifcopenshell.api.pset
 
     model = _models[req.name]
     patched = 0
@@ -951,7 +954,6 @@ def patch_properties(req: PatchPropertiesRequest):
                 continue
 
             if not fix.pset:
-                # Direct IFC attribute
                 if hasattr(elem, fix.prop):
                     setattr(elem, fix.prop, fix.value or None)
                     patched += 1
@@ -959,72 +961,152 @@ def patch_properties(req: PatchPropertiesRequest):
                     errors.append(f"#{fix.express_id}: Attribut '{fix.prop}' existiert nicht an {elem.is_a()}")
                 continue
 
-            # Find or create the PSet
-            psets = ifcopenshell.util.element.get_psets(elem, psets_only=True)
-            if fix.pset in psets:
-                # PSet exists — find and update the property, or add it
-                pset_entity = None
-                for rel in model.get_inverse(elem):
-                    if rel.is_a("IfcRelDefinesByProperties"):
-                        pd = rel.RelatingPropertyDefinition
-                        if pd.is_a("IfcPropertySet") and pd.Name == fix.pset:
-                            pset_entity = pd
-                            break
-                if pset_entity is None:
-                    errors.append(f"#{fix.express_id}: PSet '{fix.pset}' gefunden aber Entität nicht lokalisierbar")
-                    continue
+            existing_psets = ifcopenshell.util.element.get_psets(elem, psets_only=True)
+            if fix.prop in existing_psets.get(fix.pset, {}):
+                continue
 
-                # Check if property already exists in the pset
-                existing_prop = None
-                for p in (pset_entity.HasProperties or []):
-                    if p.Name == fix.prop:
-                        existing_prop = p
-                        break
-
-                if existing_prop is not None:
-                    if existing_prop.is_a("IfcPropertySingleValue"):
-                        existing_prop.NominalValue = model.createIfcLabel(fix.value)
-                    patched += 1
-                else:
-                    new_prop = model.createIfcPropertySingleValue(
-                        fix.prop,
-                        None,
-                        model.createIfcLabel(fix.value),
-                        None,
-                    )
-                    props = list(pset_entity.HasProperties or [])
-                    props.append(new_prop)
-                    pset_entity.HasProperties = props
-                    patched += 1
-            else:
-                # PSet doesn't exist — create it and relate it to the element
-                new_prop = model.createIfcPropertySingleValue(
-                    fix.prop,
-                    None,
-                    model.createIfcLabel(fix.value),
-                    None,
-                )
-                new_pset = model.createIfcPropertySet(
-                    ifcopenshell.guid.new(),
-                    model.by_type("IfcOwnerHistory")[0] if model.by_type("IfcOwnerHistory") else None,
-                    fix.pset,
-                    None,
-                    [new_prop],
-                )
-                model.createIfcRelDefinesByProperties(
-                    ifcopenshell.guid.new(),
-                    model.by_type("IfcOwnerHistory")[0] if model.by_type("IfcOwnerHistory") else None,
-                    None,
-                    None,
-                    [elem],
-                    new_pset,
-                )
-                patched += 1
+            pset = ifcopenshell.api.pset.add_pset(model, product=elem, name=fix.pset)
+            ifcopenshell.api.pset.edit_pset(model, pset=pset, properties={fix.prop: fix.value or ""})
+            patched += 1
         except Exception as exc:
             errors.append(f"#{fix.express_id} {fix.pset}.{fix.prop}: {exc}")
 
     print(f"[patch-properties] '{req.name}': {patched} Properties angelegt, {len(errors)} Fehler", flush=True)
     return {"patched": patched, "errors": errors}
+
+
+# ── IDS Validation ────────────────────────────────────────────────────────────
+
+class ValidateIdsRequest(BaseModel):
+    name: str        # model name as stored in _models
+    ids_xml: str     # IDS document as XML string
+
+
+def _ids_facet_type(req_type: str) -> str:
+    mapping = {
+        "entity": "entity",
+        "attribute": "attribute",
+        "property": "property",
+        "classification": "classification",
+        "material": "material",
+        "partof": "partOf",
+    }
+    return mapping.get(req_type.lower(), req_type.lower())
+
+
+def _format_failure(req) -> str:
+    """Produce a German failure message matching parseMissingFixes() patterns."""
+    req_type = type(req).__name__.lower()
+    if "property" in req_type:
+        pset = getattr(req, "property_set", None) or getattr(req, "pset_name", "")
+        prop = getattr(req, "base_name", None) or getattr(req, "name", "")
+        if pset:
+            return f'"{pset}.{prop}" fehlt'
+        return f'"{prop}" fehlt'
+    if "attribute" in req_type:
+        name = getattr(req, "name", "")
+        return f'Attribut "{name}" fehlt oder leer'
+    if "entity" in req_type:
+        name = getattr(req, "name", "")
+        return f'Entität "{name}" nicht erfüllt'
+    if "classification" in req_type:
+        return "Klassifikation fehlt oder stimmt nicht überein"
+    if "material" in req_type:
+        return "Material fehlt oder stimmt nicht überein"
+    return str(req)
+
+
+@app.post("/validate-ids")
+def validate_ids(req: ValidateIdsRequest):
+    """Validiert ein geladenes IFC-Modell gegen ein IDS-Dokument via ifctester."""
+    if req.name not in _models:
+        raise HTTPException(status_code=404, detail=f"Modell '{req.name}' nicht geladen")
+
+    try:
+        import ifctester
+        import ifctester.ids
+        import ifctester.reporter
+    except ImportError:
+        raise HTTPException(status_code=500, detail="ifctester nicht installiert")
+
+    model = _models[req.name]
+
+    try:
+        ids_doc = ifctester.ids.open(content=req.ids_xml)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"IDS-Parsing fehlgeschlagen: {exc}")
+
+    try:
+        ids_doc.validate(model)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Validierung fehlgeschlagen: {exc}")
+
+    import datetime
+    results = []
+
+    for spec in ids_doc.specifications:
+        applicable = getattr(spec, "applicable_entities", None) or []
+        passed_entities = [e for e in applicable if getattr(e, "compliance", False)]
+        failed_entities = [e for e in applicable if not getattr(e, "compliance", False)]
+
+        pass_count = len(passed_entities)
+        fail_count = len(failed_entities)
+        applicable_count = len(applicable)
+
+        if applicable_count == 0:
+            status = "skipped"
+        elif fail_count == 0:
+            status = "passed"
+        else:
+            status = "failed"
+
+        elements = []
+        for entity in applicable:
+            ifc_elem = entity.element if hasattr(entity, "element") else entity
+            express_id = ifc_elem.id() if hasattr(ifc_elem, "id") else 0
+            name = getattr(ifc_elem, "Name", None) or None
+            ifc_type = ifc_elem.is_a() if hasattr(ifc_elem, "is_a") else ""
+            is_passing = getattr(entity, "compliance", False)
+
+            failures = []
+            for req in (getattr(spec, "requirements", None) or []):
+                req_entities = getattr(req, "failed_entities", None) or []
+                req_failed_ids = {(e.element if hasattr(e, "element") else e).id() for e in req_entities if hasattr((e.element if hasattr(e, "element") else e), "id")}
+                if express_id in req_failed_ids:
+                    failures.append({
+                        "facetType": _ids_facet_type(type(req).__name__),
+                        "message": _format_failure(req),
+                    })
+
+            elements.append({
+                "modelId": req.name,
+                "expressId": express_id,
+                "name": name,
+                "type": ifc_type,
+                "status": "passed" if is_passing else "failed",
+                "failures": failures,
+            })
+
+        necessity_raw = getattr(spec, "minOccurs", 1)
+        necessity = "required" if necessity_raw != 0 else "optional"
+
+        results.append({
+            "specificationId": getattr(spec, "name", "") or f"spec-{len(results)}",
+            "specificationName": getattr(spec, "name", "") or f"Anforderung {len(results) + 1}",
+            "necessity": necessity,
+            "status": status,
+            "applicableCount": applicable_count,
+            "passCount": pass_count,
+            "failCount": fail_count,
+            "elements": elements,
+        })
+
+    return {
+        "documentId": getattr(ids_doc, "guid", "") or "",
+        "documentTitle": getattr(ids_doc, "title", req.name) or req.name,
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "results": results,
+    }
 
 
 # ── Script execution ────────────────────────────────────────────────────────────

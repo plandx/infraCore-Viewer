@@ -790,6 +790,7 @@ export function IDSPanel() {
 
   const idsInputRef = useRef<HTMLInputElement>(null);
   const [specSearch, setSpecSearch] = useState("");
+  const [validating, setValidating] = useState(false);
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId) ?? null;
   const activeSpec = activeDoc?.specifications.find((s) => s.id === activeSpecificationId) ?? null;
@@ -818,10 +819,51 @@ export function IDSPanel() {
     URL.revokeObjectURL(a.href);
   };
 
-  const handleValidate = () => {
+  const handleValidate = async () => {
     if (!activeDoc) return;
-    const report = validateIdsDocument(activeDoc, models, loadedProperties);
-    setValidationReport(report);
+    setValidating(true);
+    try {
+      const serverUrl = "http://127.0.0.1:8765";
+      let serverOnline = false;
+      try {
+        const ping = await fetch(`${serverUrl}/health`, { signal: AbortSignal.timeout(1500) });
+        serverOnline = ping.ok;
+      } catch { /* offline */ }
+
+      if (serverOnline && models.length > 0) {
+        const idsXml = serializeIdsToXml(activeDoc);
+        const allResults = await Promise.all(
+          models.map(async (m) => {
+            try {
+              const r = await fetch(`${serverUrl}/validate-ids`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: m.name, ids_xml: idsXml }),
+                signal: AbortSignal.timeout(60_000),
+              });
+              if (!r.ok) return null;
+              return await r.json();
+            } catch { return null; }
+          })
+        );
+        const valid = allResults.filter((r): r is NonNullable<typeof r> => r !== null);
+        if (valid.length > 0) {
+          const merged = {
+            documentId: activeDoc.id,
+            documentTitle: activeDoc.info.title,
+            timestamp: new Date().toISOString(),
+            results: valid.flatMap((r) => r.results ?? []),
+          };
+          setValidationReport(merged);
+          return;
+        }
+      }
+
+      const report = validateIdsDocument(activeDoc, models, loadedProperties);
+      setValidationReport(report);
+    } finally {
+      setValidating(false);
+    }
   };
 
   // Filtered specs for search
@@ -996,10 +1038,10 @@ export function IDSPanel() {
                     : "bg-muted/40 border border-border text-muted-foreground cursor-not-allowed opacity-50"
                 )}
                 onClick={handleValidate}
-                disabled={models.size === 0}
+                disabled={models.size === 0 || validating}
                 title={models.size === 0 ? "Kein IFC-Modell geladen" : "Prüfung ausführen"}
               >
-                <Play size={11} /> Prüfung ausführen
+                <Play size={11} /> {validating ? "Prüft …" : "Prüfung ausführen"}
               </button>
             </div>
           )}
