@@ -5,6 +5,7 @@ import type {
   IFCModelEntry, SelectedElement, ViewerSettings, ActiveTool, Measurement,
   ColorGroup, ColorGroupEntry, SmartView, SmartTier, FlatElementProps, SyncState, BasketMode, PropOverride, QTOList, SectionPlane, KeyBindings,
 } from "../types/ifc";
+import type { ClashRule } from "../utils/windowSync";
 import { DEFAULT_KEYBINDINGS } from "../types/ifc";
 import { evaluateTier, PALETTE } from "../utils/smartViewUtils";
 import { loadAllElementProperties } from "../utils/ifcLoader";
@@ -122,6 +123,10 @@ interface ModelStore {
   removeSectionPlane: (id: string) => void;
   clearSectionPlanes: () => void;
 
+  // Collision check rules (persisted so project save can include them)
+  collisionRules: ClashRule[];
+  setCollisionRules: (rules: ClashRule[]) => void;
+
   // Keyboard shortcut customization
   keyBindings: KeyBindings;
   setKeyBindings: (kb: KeyBindings) => void;
@@ -182,6 +187,12 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   basketAutoAdd: false,
   propertyOverrides: new Map(),
   sectionPlanes: [],
+  collisionRules: (() => {
+    try {
+      const raw = localStorage.getItem("infracore-collision-rules");
+      return raw ? (JSON.parse(raw) as ClashRule[]) : [];
+    } catch { return []; }
+  })(),
   settings: {
     background: "#0d1117",
     grid: true,
@@ -731,6 +742,11 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     set((state) => ({ sectionPlanes: state.sectionPlanes.filter((p) => p.id !== id) })),
 
   clearSectionPlanes: () => set({ sectionPlanes: [] }),
+
+  setCollisionRules: (rules) => {
+    localStorage.setItem("infracore-collision-rules", JSON.stringify(rules));
+    set({ collisionRules: rules });
+  },
 
   setKeyBindings: (kb) => {
     try { localStorage.setItem("infracore-keybindings", JSON.stringify(kb)); } catch {}

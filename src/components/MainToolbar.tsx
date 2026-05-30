@@ -8,6 +8,7 @@ import {
   Target, Layers, RotateCcw, Navigation2, TrendingUp, Tag, Crosshair,
   Settings, AlertTriangle, PanelLeftClose, PanelLeftOpen, Grid3x3, BoxSelect, Terminal,
   FileCheck2, FilePlus, Play, Upload, Shield, MessageSquare,
+  Save, FolderInput,
 } from "lucide-react";
 import { openSecondaryWindow, openBillingWindow, openCollisionWindow, openIdsResultsWindow, PANEL_META } from "../utils/windowSync";
 import { useIdsStore } from "../ids/idsStore";
@@ -37,13 +38,15 @@ interface Props {
   onToggleRightPanel: () => void;
   leftPanelVisible: boolean;
   rightPanelVisible: boolean;
+  onSaveProject?: () => void;
+  onLoadProject?: () => void;
 }
 
 export type RibbonTab = "start" | "analyse" | "achsen" | "billing5d" | "extras" | "ids" | "bcf";
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onToggleLeftPanel, onToggleRightPanel, leftPanelVisible, rightPanelVisible }: Props) {
+export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onToggleLeftPanel, onToggleRightPanel, leftPanelVisible, rightPanelVisible, onSaveProject, onLoadProject }: Props) {
   const inputRef    = useRef<HTMLInputElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
 
@@ -482,6 +485,24 @@ export function MainToolbar({ onOpenFiles, onFitAll, loading, onOpenBatch, onTog
                   <RibbonSmBtn icon={<Sliders size={14} />} label="Batch"
                     onClick={onOpenBatch} title="Batch-Änderungen" />
                 </div>
+              </RibbonGroup>
+
+              {/* PROJEKT */}
+              <RibbonGroup label="Projekt">
+                <RibbonLargeBtn
+                  icon={<Save size={18} />}
+                  label="Speichern"
+                  onClick={onSaveProject}
+                  disabled={!onSaveProject}
+                  title="Projekt als .icproj speichern (Modelle + Einstellungen)"
+                />
+                <RibbonLargeBtn
+                  icon={<FolderInput size={18} />}
+                  label="Laden"
+                  onClick={onLoadProject}
+                  disabled={!onLoadProject}
+                  title=".icproj Projektdatei öffnen"
+                />
               </RibbonGroup>
 
               {/* KAMERA */}

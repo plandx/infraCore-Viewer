@@ -635,3 +635,39 @@ Jede Seite (Applicability/Requirements) hat `add`, `remove`, `update` nach Index
 |---|---|
 | `setValidationReport(report)` | Setzt Prüfergebnis |
 | `setIdsPanelOpen(open)` | Steuert Panel-Sichtbarkeit |
+
+---
+
+## Projektspeicherfunktion (`src/utils/projectFile.ts`)
+
+### Format
+
+Projektdatei `.icproj` = ZIP-Archiv mit:
+- `project.json` — alle Konfigurationsdaten (s.u.)
+- `models/<dateiname>.ifc` — alle geladenen IFC-Modelle eingebettet
+
+### `ProjectData`-Struktur
+
+| Feld | Typ | Inhalt |
+|---|---|---|
+| `meta` | `ProjectMeta` | Version, Speicherdatum, Projektname |
+| `models` | `ModelMeta[]` | id, name, farbe, opacity, visibility, zipEntry |
+| `smartViews` | `SmartView[]` | Alle SmartViews (ohne `__quick_filter__`) |
+| `colorGroups` | `ColorGroup[] \| null` | Aktive Farb-Gruppen |
+| `qtoLists` | `QTOList[]` | Mengenermittlungs-Listen |
+| `sectionPlanes` | `SectionPlane[]` | Schnittebenen |
+| `collisionRules` | `ClashRule[]` | Kollisionsprüfungs-Regeln (jetzt in modelStore) |
+| `bcfDocument` | `BcfDocument` | Alle BCF-Themen mit Kommentaren |
+| `bcfClashRules` | `BcfClashRule[]` | BCF-Auswertungsregeln |
+| `idsDocuments` | `IdsDocument[]` | IDS-Dokumente |
+
+### API
+
+- `saveProject(data, ifcFiles, projectName)` → `Promise<Blob>`
+- `loadProject(blob)` → `Promise<{ data, ifcFiles }>`
+- `downloadBlob(blob, fileName)` — Browser-Download auslösen
+
+### Neues Store-Feld
+
+`modelStore.collisionRules: ClashRule[]` — localStorage-persistiert unter `infracore-collision-rules`.
+`setCollisionRules(rules)` — aktualisiert Store + localStorage.

@@ -45,6 +45,8 @@ import type { SyncMsg, XSMsg, CollisionMsg, LSMsg, AbwicklungMsg, AbwicklungSync
 import { BcfLightWindow } from "./bcf/BcfLightWindow";
 import { runServerClash } from "./utils/serverClash";
 import type { IFCModelEntry } from "./types/ifc";
+import { saveProject, loadProject, downloadBlob } from "./utils/projectFile";
+import type { ModelMeta } from "./utils/projectFile";
 
 // ── detect secondary / cross-section windows ─────────────────────────────────
 
@@ -496,7 +498,9 @@ function useCollisionSync() {
       ch.postMessage({ t: "state", s: { rules, results, running, progress, allTypes: getAllTypes(st), loadedPropKeys: st.loadedPropKeys, propValues: st.loadedPropValues ?? {}, smartViews: st.smartViews.filter((v) => v.id !== "__quick_filter__"), theme: st.settings.theme } } satisfies CollisionMsg);
     };
 
-    let currentRules: ClashRule[] = DEFAULT_CLASH_RULES;
+    let currentRules: ClashRule[] = useModelStore.getState().collisionRules.length
+      ? useModelStore.getState().collisionRules
+      : DEFAULT_CLASH_RULES;
     let currentResults: ClashResult[] = [];
 
     ch.onmessage = async (e: MessageEvent<CollisionMsg>) => {
@@ -505,6 +509,7 @@ function useCollisionSync() {
         broadcast(currentRules, currentResults, false, 0);
       } else if (msg.t === "run") {
         currentRules = msg.rules;
+        useModelStore.getState().setCollisionRules(currentRules);
         broadcast(currentRules, currentResults, true, 0);
         try {
           currentResults = await runServerClash(
@@ -780,6 +785,89 @@ function MainApp() {
     removeModel(id);
   }, [removeModel]);
 
+  // ── Project save / load ───────────────────────────────────────────────────
+  const handleSaveProject = useCallback(async () => {
+    const st = useModelStore.getState();
+    const bcfSt = useBcfStore.getState();
+    const idsSt = useIdsStore.getState();
+
+    const modelMetas: ModelMeta[] = [];
+    const ifcFiles = new Map<string, File>();
+    for (const [, m] of st.models) {
+      const safeName = m.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      modelMetas.push({ id: m.id, name: m.name, color: m.color, opacity: m.opacity, visible: m.visible, zipEntry: safeName });
+      ifcFiles.set(m.id, m.file);
+    }
+
+    const blob = await saveProject({
+      models: modelMetas,
+      smartViews: st.smartViews.filter(v => v.id !== "__quick_filter__"),
+      colorGroups: st.colorGroups,
+      qtoLists: st.qtoLists,
+      sectionPlanes: st.sectionPlanes,
+      collisionRules: st.collisionRules,
+      bcfDocument: bcfSt.document,
+      bcfClashRules: bcfSt.clashRules,
+      idsDocuments: idsSt.documents,
+    }, ifcFiles, bcfSt.document.projectName);
+
+    const date = new Date().toISOString().slice(0, 10);
+    downloadBlob(blob, `${bcfSt.document.projectName.replace(/\s+/g, "_")}_${date}.icproj`);
+  }, []);
+
+  const projectFileInputRef = useRef<HTMLInputElement>(null);
+  const handleLoadProjectFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    try {
+      const { data, ifcFiles } = await loadProject(file);
+      const ms = useModelStore.getState();
+      const bs = useBcfStore.getState();
+      const is = useIdsStore.getState();
+
+      // Clear existing state
+      for (const [id] of ms.models) { ms.removeModel(id); }
+      ms.setCollisionRules(data.collisionRules ?? []);
+      if (data.colorGroups !== undefined) ms.setColorGroups(data.colorGroups);
+      data.sectionPlanes?.forEach(p => ms.addSectionPlane(p));
+
+      // Restore SmartViews (replace existing)
+      const existingIds = ms.smartViews.map(v => v.id);
+      existingIds.forEach(id => ms.removeSmartView(id));
+      data.smartViews?.forEach(v => ms.addSmartView(v));
+
+      // Restore QTO lists
+      const existingQto = ms.qtoLists.map(q => q.id);
+      existingQto.forEach(id => ms.removeQTOList(id));
+      data.qtoLists?.forEach(q => ms.addQTOList(q));
+
+      // Restore BCF
+      if (data.bcfDocument) {
+        bs.document.topics.forEach(t => bs.deleteTopic(t.id));
+        data.bcfDocument.topics.forEach(t => {
+          ms.addModel; // ensure access — actually call bcfStore directly
+          useBcfStore.setState(s => ({
+            document: { ...data.bcfDocument, topics: data.bcfDocument.topics },
+            clashRules: data.bcfClashRules ?? s.clashRules,
+          }));
+        });
+        useBcfStore.setState({ document: data.bcfDocument, clashRules: data.bcfClashRules ?? [] });
+      }
+
+      // Restore IDS documents
+      is.documents.forEach(d => is.removeDocument(d.id));
+      data.idsDocuments?.forEach(d => is.loadDocument(d));
+
+      // Reload IFC files
+      await handleFiles(Array.from(ifcFiles.values()));
+    } catch (err) {
+      console.error("[Project] Laden fehlgeschlagen:", err);
+      alert(`Projektdatei konnte nicht geladen werden: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [handleFiles]);
+
   const handleFitTo = useCallback((id: string) => {
     const model = useModelStore.getState().models.get(id);
     if (!model) return;
@@ -936,6 +1024,7 @@ function MainApp() {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground">
       {/* Toolbar */}
+      <input ref={projectFileInputRef} type="file" accept=".icproj" className="hidden" onChange={handleLoadProjectFile} />
       <MainToolbar
         onOpenFiles={handleFiles}
         onFitAll={() => window.dispatchEvent(new Event("viewer:fitAll"))}
@@ -945,6 +1034,8 @@ function MainApp() {
         onToggleRightPanel={() => rightCollapsed ? rightPanelRef.current?.expand() : rightPanelRef.current?.collapse()}
         leftPanelVisible={!leftCollapsed}
         rightPanelVisible={!rightCollapsed}
+        onSaveProject={handleSaveProject}
+        onLoadProject={() => projectFileInputRef.current?.click()}
       />
 
       {/* Loading bars */}
