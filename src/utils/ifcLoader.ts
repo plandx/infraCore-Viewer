@@ -1271,6 +1271,77 @@ async function extractStructure(
       n.children.forEach(resolveAgg);
     }
     resolveAgg(spatialTree);
+
+    const nestsIds = api.GetLineIDsWithType(modelId, WebIFC.IFCRELNESTS);
+    const nestsMap = new Map<number, number[]>();
+    for (let i = 0; i < nestsIds.size(); i++) {
+      try {
+        const rel = api.GetLine(modelId, nestsIds.get(i), false, false) as Record<string, unknown> | null;
+        if (!rel) continue;
+        const relatingRaw = rel.RelatingObject;
+        const relating = typeof relatingRaw === "object" && relatingRaw !== null
+          ? (relatingRaw as { value?: number }).value
+          : typeof relatingRaw === "number" ? relatingRaw : undefined;
+        const relatedRaw = rel.RelatedObjects;
+        const related = Array.isArray(relatedRaw) ? relatedRaw as Array<unknown> : [];
+        if (!relating) continue;
+        const childIds = related.map(r =>
+          typeof r === "object" && r !== null ? (r as { value?: number }).value
+          : typeof r === "number" ? r : undefined
+        ).filter((v): v is number => v !== undefined);
+        if (childIds.length) nestsMap.set(relating, childIds);
+      } catch { /* skip */ }
+    }
+
+    function resolveNests(n: SpatialNode) {
+      const childIds = nestsMap.get(n.expressId);
+      if (childIds) {
+        for (const cid of childIds) {
+          if (inTree.has(cid)) continue;
+          const child = makeNode(cid);
+          inTree.add(cid);
+          n.children.push(child);
+          resolveNests(child);
+        }
+      }
+      n.children.forEach(resolveNests);
+    }
+    resolveNests(spatialTree);
+
+    const containedIds = api.GetLineIDsWithType(modelId, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE);
+    const containerMap = new Map<number, ElementNode[]>();
+    for (let i = 0; i < containedIds.size(); i++) {
+      try {
+        const rel = api.GetLine(modelId, containedIds.get(i), false, false) as Record<string, unknown> | null;
+        if (!rel) continue;
+        const structRaw = rel.RelatingStructure;
+        const structId = typeof structRaw === "object" && structRaw !== null
+          ? (structRaw as { value?: number }).value
+          : typeof structRaw === "number" ? structRaw : undefined;
+        if (!structId) continue;
+        const relatedRaw = rel.RelatedElements;
+        const related = Array.isArray(relatedRaw) ? relatedRaw as Array<unknown> : [];
+        const elements: ElementNode[] = [];
+        for (const r of related) {
+          const cid = typeof r === "object" && r !== null ? (r as { value?: number }).value
+            : typeof r === "number" ? r : undefined;
+          if (!cid) continue;
+          const cLine = api.GetLine(modelId, cid, false) as Record<string, unknown> | null;
+          const cType = api.GetNameFromTypeCode(api.GetLineType(modelId, cid)) || "IfcElement";
+          elements.push({ expressId: cid, type: cType, name: getLabel(cLine) || `${cType} #${cid}` });
+        }
+        if (elements.length > 0) containerMap.set(structId, elements);
+      } catch { /* skip */ }
+    }
+
+    function applyContained(n: SpatialNode) {
+      if (containerMap.has(n.expressId)) {
+        n.elements = containerMap.get(n.expressId)!;
+      }
+      n.children.forEach(applyContained);
+    }
+    applyContained(spatialTree);
+
   } catch (e) {
     console.warn("[IFC] Spatial structure extraction failed:", e);
   }

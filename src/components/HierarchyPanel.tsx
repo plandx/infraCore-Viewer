@@ -44,15 +44,17 @@ function useSimpleVirtualizer(
 import {
   ChevronRight, ChevronDown, ChevronLeft, Eye, EyeOff,
   Trash2, Focus, Layers, LayoutList, Search, X,
-  ScanEye, ScanLine, RefreshCw, ExternalLink,
+  ScanEye, ScanLine, RefreshCw, ExternalLink, Settings2, Sparkles,
+  ArrowUp, ArrowDown,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useModelStore } from "../store/modelStore";
 import { useShallow } from "zustand/react/shallow";
 import { formatBytes } from "../utils/coordinateUtils";
-import type { IFCModelEntry, SpatialNode, ElementNode } from "../types/ifc";
+import type { IFCModelEntry, SpatialNode, ElementNode, SmartSpatialConfig, SmartSpatialLevel, FlatElementProps } from "../types/ifc";
+import { v4 as uuidv4 } from "uuid";
 
-type View = "spatial" | "type" | "visible";
+type View = "spatial" | "type" | "visible" | "smartspatial";
 
 interface VisibleEntry {
   modelId: string; modelName: string; modelColor: string;
@@ -75,6 +77,8 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
   const hiddenElements = useModelStore((s) => s.hiddenElements);
   const isolatedElements = useModelStore((s) => s.isolatedElements);
   const selectionBasket = useModelStore((s) => s.selectionBasket);
+  const loadedProperties = useModelStore((s) => s.loadedProperties);
+  const loadedPropKeys = useModelStore((s) => s.loadedPropKeys);
 
   // Actions — stable Zustand refs, grouped to reduce subscription count
   const {
@@ -106,6 +110,16 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
     : isolateElements_;
 
   const [view, setView] = useState<View>("spatial");
+  const [smartSpatialConfig, setSmartSpatialConfig] = useState<SmartSpatialConfig>(() => {
+    try {
+      const raw = localStorage.getItem("infracore-smartspatial");
+      if (raw) return JSON.parse(raw) as SmartSpatialConfig;
+    } catch { /* ignore */ }
+    return { levels: [
+      { id: uuidv4(), label: "Modell", propertyKey: "_model" },
+      { id: uuidv4(), label: "IFC-Typ", propertyKey: "_type" },
+    ]};
+  });
   const [visibleSnapshot, setVisibleSnapshot] = useState<VisibleEntry[] | null>(null);
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
   const [inputValue, setInputValue] = useState("");
@@ -197,6 +211,8 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
           ? filterSpatialNode(model.spatialTree, search.toLowerCase())
           : model.spatialTree;
         if (filtered) flattenSpatialVisible(filtered, model.id, expandedSpatial, !!search, list);
+      } else if (view === "smartspatial") {
+        // no keyboard navigation for smartspatial
       } else if (view === "type") {
         const raw = Object.entries(model.elementsByType);
         const q = search.toLowerCase();
@@ -379,7 +395,25 @@ export function HierarchyPanel({ onFitTo, onRemove, onSelectElement, onHideOverr
             onItemClick={handleItemClick}
           />
         )}
-        {view !== "visible" && arr.map((model) => {
+        {view === "smartspatial" && (
+          <SmartSpatialView
+            models={arr}
+            config={smartSpatialConfig}
+            onConfigChange={(cfg) => {
+              setSmartSpatialConfig(cfg);
+              localStorage.setItem("infracore-smartspatial", JSON.stringify(cfg));
+            }}
+            loadedProperties={loadedProperties}
+            loadedPropKeys={loadedPropKeys}
+            search={search}
+            multiSelected={multiSelected}
+            activeKey={activeKey}
+            onItemClick={handleItemClick}
+            hiddenElements={hiddenElements}
+            isolatedElements={isolatedElements}
+          />
+        )}
+        {view !== "visible" && view !== "smartspatial" && arr.map((model) => {
           const isExpanded = expandedModels.has(model.id);
           return (
             <div key={model.id} className="border-b border-border/40">
@@ -835,6 +869,287 @@ const TypeGroup = memo(function TypeGroup({ typeName, elements, modelId, multiSe
   );
 }, typeGroupAreEqual);
 
+// ── SmartSpatial View ─────────────────────────────────────────────────────────
+
+interface SmartSpatialNode {
+  key: string;
+  label: string;
+  level: number;
+  children: SmartSpatialNode[];
+  elementKeys: string[];
+  elementNames: Map<string, string>;
+}
+
+function buildSmartSpatialTree(
+  models: IFCModelEntry[],
+  config: SmartSpatialConfig,
+  loadedProperties: Map<string, Map<number, FlatElementProps>> | null
+): SmartSpatialNode[] {
+  const root: SmartSpatialNode[] = [];
+  const nodeMap = new Map<string, SmartSpatialNode>();
+
+  const getOrCreate = (pathParts: string[], level: number): SmartSpatialNode => {
+    const key = pathParts.slice(0, level + 1).join("\0");
+    if (nodeMap.has(key)) return nodeMap.get(key)!;
+    const node: SmartSpatialNode = { key, label: pathParts[level], level, children: [], elementKeys: [], elementNames: new Map() };
+    nodeMap.set(key, node);
+    if (level === 0) {
+      root.push(node);
+    } else {
+      const parent = getOrCreate(pathParts, level - 1);
+      parent.children.push(node);
+    }
+    return node;
+  };
+
+  for (const model of models) {
+    for (const [typeName, elements] of Object.entries(model.elementsByType)) {
+      for (const el of elements) {
+        const elKey = `${model.id}:${el.expressId}`;
+        const path: string[] = config.levels.map((lvl) => {
+          if (lvl.propertyKey === "_model") return model.name;
+          if (lvl.propertyKey === "_type") return typeName;
+          if (lvl.propertyKey === "_name") return el.name;
+          const val = loadedProperties?.get(model.id)?.get(el.expressId)?.[lvl.propertyKey];
+          return val !== undefined && val !== null ? String(val) : "—";
+        });
+        const leaf = getOrCreate(path, config.levels.length - 1);
+        leaf.elementKeys.push(elKey);
+        leaf.elementNames.set(elKey, el.name || el.type);
+      }
+    }
+  }
+
+  return root;
+}
+
+function filterSmartNodes(nodes: SmartSpatialNode[], q: string): SmartSpatialNode[] {
+  return nodes
+    .map((n): SmartSpatialNode | null => {
+      const matches = n.label.toLowerCase().includes(q);
+      const filteredChildren = filterSmartNodes(n.children, q);
+      if (!matches && filteredChildren.length === 0 && n.elementKeys.length === 0) return null;
+      return { ...n, children: filteredChildren, elementNames: n.elementNames };
+    })
+    .filter((n): n is SmartSpatialNode => n !== null);
+}
+
+const SmartSpatialTreeNode = memo(function SmartSpatialTreeNode({
+  node, depth, expanded, onToggle, onItemClick, multiSelected, activeKey,
+  hiddenElements, isolatedElements,
+}: {
+  node: SmartSpatialNode;
+  depth: number;
+  expanded: Set<string>;
+  onToggle: (key: string) => void;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
+  multiSelected: Set<string>;
+  activeKey: string | null;
+  hiddenElements: Set<string>;
+  isolatedElements: Set<string> | null;
+}) {
+  const isLeaf = node.children.length === 0;
+  const isOpen = expanded.has(node.key);
+  const totalElements = node.elementKeys.length + node.children.reduce((s, c) => s + c.elementKeys.length, 0);
+
+  if (isLeaf) {
+    return (
+      <div>
+        <div
+          className="flex items-center gap-1 py-[3px] pr-2 cursor-pointer hover:bg-muted/40 select-none"
+          style={{ paddingLeft: `${depth * 12 + 4}px` }}
+          onClick={(e) => {
+            onItemClick("", 0, e, node.elementKeys);
+          }}
+        >
+          <span className="shrink-0 text-muted-foreground w-3.5"><ChevronRight size={11} className="opacity-30" /></span>
+          <span className="flex-1 truncate text-foreground/80">{node.label}</span>
+          <span className="text-[9px] text-muted-foreground border border-border px-1.5 rounded-[4px] shrink-0">{node.elementKeys.length}</span>
+        </div>
+        {node.elementKeys.map((k) => {
+          const sep = k.indexOf(":");
+          const modelId = k.slice(0, sep);
+          const expressId = parseInt(k.slice(sep + 1));
+          const isSelected = multiSelected.has(k) || k === activeKey;
+          const isHidden = hiddenElements.has(k);
+          const isDimmedByIsolation = isolatedElements !== null && !isolatedElements.has(k);
+          return (
+            <div
+              key={k}
+              data-mid={modelId}
+              data-eid={expressId}
+              className={cn(
+                "flex items-center gap-1.5 pr-2 py-[3px] cursor-pointer group select-none hover:bg-muted/40 hierarchy-item",
+                isSelected && "bg-primary/15 border-l-2 border-l-primary",
+                (isHidden || isDimmedByIsolation) && "opacity-40"
+              )}
+              style={{ paddingLeft: `${(depth + 1) * 12 + 4}px` }}
+              onClick={(e) => onItemClick(modelId, expressId, e)}
+            >
+              <span className="flex-1 truncate text-foreground/80 text-[11px]">{node.elementNames.get(k) || `#${expressId}`}</span>
+              <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0">#{expressId}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-1 py-[3px] pr-2 cursor-pointer hover:bg-muted/40 select-none"
+        style={{ paddingLeft: `${depth * 12 + 4}px` }}
+        onClick={(e) => {
+          onToggle(node.key);
+          onItemClick("", 0, e, node.elementKeys);
+        }}
+      >
+        <span className="shrink-0 text-muted-foreground w-3.5">
+          {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        </span>
+        <span className="flex-1 truncate text-foreground font-medium">{node.label}</span>
+        <span className="text-[9px] text-muted-foreground border border-border px-1.5 rounded-[4px] shrink-0">{totalElements}</span>
+      </div>
+      {isOpen && node.children.map((child) => (
+        <SmartSpatialTreeNode
+          key={child.key}
+          node={child} depth={depth + 1}
+          expanded={expanded} onToggle={onToggle}
+          onItemClick={onItemClick}
+          multiSelected={multiSelected} activeKey={activeKey}
+          hiddenElements={hiddenElements} isolatedElements={isolatedElements}
+        />
+      ))}
+    </div>
+  );
+});
+
+function SmartSpatialView({
+  models, config, onConfigChange, loadedProperties, loadedPropKeys,
+  search, multiSelected, activeKey, onItemClick, hiddenElements, isolatedElements,
+}: {
+  models: IFCModelEntry[];
+  config: SmartSpatialConfig;
+  onConfigChange: (cfg: SmartSpatialConfig) => void;
+  loadedProperties: Map<string, Map<number, FlatElementProps>> | null;
+  loadedPropKeys: string[];
+  search: string;
+  multiSelected: Set<string>;
+  activeKey: string | null;
+  onItemClick: (modelId: string, expressId: number, e: React.MouseEvent, childKeys?: string[]) => void;
+  hiddenElements: Set<string>;
+  isolatedElements: Set<string> | null;
+}) {
+  const [showConfig, setShowConfig] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const tree = useMemo(() => buildSmartSpatialTree(models, config, loadedProperties), [models, config, loadedProperties]);
+
+  const filtered = useMemo(() => {
+    if (!search) return tree;
+    return filterSmartNodes(tree, search.toLowerCase());
+  }, [tree, search]);
+
+  const propKeyOptions = useMemo(() => {
+    const base = ["_model", "_type", "_name"];
+    return [...base, ...loadedPropKeys.filter((k) => !base.includes(k))];
+  }, [loadedPropKeys]);
+
+  const updateLevel = (idx: number, patch: Partial<SmartSpatialLevel>) => {
+    const levels = config.levels.map((l, i) => i === idx ? { ...l, ...patch } : l);
+    onConfigChange({ ...config, levels });
+  };
+
+  const moveLevel = (idx: number, dir: -1 | 1) => {
+    const levels = [...config.levels];
+    const target = idx + dir;
+    if (target < 0 || target >= levels.length) return;
+    [levels[idx], levels[target]] = [levels[target], levels[idx]];
+    onConfigChange({ ...config, levels });
+  };
+
+  const removeLevel = (idx: number) => {
+    onConfigChange({ ...config, levels: config.levels.filter((_, i) => i !== idx) });
+  };
+
+  const addLevel = () => {
+    if (config.levels.length >= 5) return;
+    onConfigChange({ ...config, levels: [...config.levels, { id: uuidv4(), label: "Ebene", propertyKey: "_type" }] });
+  };
+
+  const toggleExpand = useCallback((key: string) => {
+    setExpanded((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }, []);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between px-2 py-1 border-b border-border/40">
+        <span className="text-[10px] text-muted-foreground">Konfigurierbare Hierarchie</span>
+        <button
+          onClick={() => setShowConfig((p) => !p)}
+          className={cn("p-0.5 rounded toolbar-button", showConfig && "text-primary")}
+          title="Konfiguration"
+        >
+          <Settings2 size={11} />
+        </button>
+      </div>
+
+      {showConfig && (
+        <div className="px-2 py-2 border-b border-border/40 bg-muted/20 space-y-1.5">
+          {config.levels.map((lvl, idx) => (
+            <div key={lvl.id} className="flex items-center gap-1">
+              <input
+                type="text"
+                value={lvl.label}
+                onChange={(e) => updateLevel(idx, { label: e.target.value })}
+                className="flex-1 min-w-0 bg-background border border-border rounded-[3px] px-1.5 py-0.5 text-[11px] outline-none text-foreground"
+              />
+              <select
+                value={lvl.propertyKey}
+                onChange={(e) => updateLevel(idx, { propertyKey: e.target.value })}
+                className="flex-1 min-w-0 bg-background border border-border rounded-[3px] px-1 py-0.5 text-[11px] outline-none text-foreground"
+              >
+                {propKeyOptions.map((k) => (
+                  <option key={k} value={k}>{k}</option>
+                ))}
+              </select>
+              <button className="toolbar-button p-0.5" onClick={() => moveLevel(idx, -1)} disabled={idx === 0}><ArrowUp size={10} /></button>
+              <button className="toolbar-button p-0.5" onClick={() => moveLevel(idx, 1)} disabled={idx === config.levels.length - 1}><ArrowDown size={10} /></button>
+              <button className="toolbar-button p-0.5 hover:text-destructive" onClick={() => removeLevel(idx)}><Trash2 size={10} /></button>
+            </div>
+          ))}
+          <button
+            onClick={addLevel}
+            disabled={config.levels.length >= 5}
+            className="w-full py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/40 text-center rounded transition-colors disabled:opacity-40"
+          >
+            + Level hinzufügen
+          </button>
+        </div>
+      )}
+
+      <div>
+        {filtered.length === 0 && (
+          <p className="px-3 py-3 text-muted-foreground text-[11px]">
+            {search ? `Keine Treffer für „${search}"` : "Keine Elemente"}
+          </p>
+        )}
+        {filtered.map((node) => (
+          <SmartSpatialTreeNode
+            key={node.key}
+            node={node} depth={0}
+            expanded={expanded} onToggle={toggleExpand}
+            onItemClick={onItemClick}
+            multiSelected={multiSelected} activeKey={activeKey}
+            hiddenElements={hiddenElements} isolatedElements={isolatedElements}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Header ────────────────────────────────────────────────────────────────────
 
 function Header({ view, onView, search, onSearch, onToggleCollapse, onPopout }: {
@@ -881,9 +1196,10 @@ function Header({ view, onView, search, onSearch, onToggleCollapse, onPopout }: 
       </div>
       <div className="flex border-b border-border bg-[var(--tabs-bg)]">
         {([
-          { id: "spatial" as View, label: "Räumlich",   icon: <Layers size={11} /> },
-          { id: "type"    as View, label: "Nach Typ",   icon: <LayoutList size={11} /> },
-          { id: "visible" as View, label: "Sichtbar",   icon: <Eye size={11} /> },
+          { id: "spatial"       as View, label: "Räumlich",  icon: <Layers size={11} /> },
+          { id: "type"          as View, label: "Nach Typ",  icon: <LayoutList size={11} /> },
+          { id: "visible"       as View, label: "Sichtbar",  icon: <Eye size={11} /> },
+          { id: "smartspatial"  as View, label: "Smart",     icon: <Sparkles size={11} /> },
         ]).map((t) => (
           <button
             key={t.id} onClick={() => onView(t.id)}
