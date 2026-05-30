@@ -245,92 +245,115 @@ export async function loadIFCFile(
 // Keeps an open web-ifc model handle for each File so repeated property
 // lookups (element clicks) don't re-read and re-parse the file each time.
 
+interface PropertyIndices {
+  /** expressId → psetIds attached directly via IfcRelDefinesByProperties */
+  byInstance: Map<number, number[]>;
+  /** expressId → psetIds attached via its type (IfcRelDefinesByType → HasPropertySets) */
+  byType: Map<number, number[]>;
+  /** child expressId → parent expressId via decomposition (IfcRelAggregates / IfcRelNests) */
+  parent: Map<number, number>;
+}
+
 interface CachedModel {
   modelId: number;
   api: WebIFC.IfcAPI;
-  /** Forward index: expressId → list of psetIds (from IfcRelDefinesByProperties) */
-  relDefIndex?: Map<number, number[]>;
-  /** Forward index: expressId → list of psetIds from type (IfcRelDefinesByType) */
-  relTypeIndex?: Map<number, number[]>;
-  /** Aggregation index: child expressId → parent expressId (from IfcRelAggregates + IfcRelDecomposes) */
-  parentIndex?: Map<number, number>;
+  indices?: PropertyIndices;
 }
 const propModelCache = new Map<File, CachedModel>();
 
-/** Build (once per open model) a forward index: expressId → [psetId, ...].
- *  This is O(R+T) but runs only once; subsequent lookups are O(1). */
-function buildRelDefIndex(cached: CachedModel): void {
-  if (cached.relDefIndex) return;
+function pushAll(map: Map<number, number[]>, key: number, values: number[]): void {
+  const existing = map.get(key);
+  if (existing) existing.push(...values);
+  else map.set(key, [...values]);
+}
+
+/**
+ * Builds, once per open model, three forward indices by scanning every
+ * relationship line in the file. Forward scanning is authoritative and
+ * schema-independent — unlike web-ifc's inverse lookup, which is unreliable
+ * for deeply-inherited IFC4.x types (IfcPile, IfcBuildingElementPart, …).
+ *
+ * Handles both shapes web-ifc returns for SET-valued attributes:
+ * a single handle object, or an array of handles (toRefArray normalizes both).
+ */
+function buildPropertyIndices(cached: CachedModel): PropertyIndices {
+  if (cached.indices) return cached.indices;
   const { api, modelId } = cached;
-  const relDefIndex = new Map<number, number[]>();
-  const relTypeIndex = new Map<number, number[]>();
 
-  try {
-    const relIds = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYPROPERTIES);
-    const total = relIds.size();
-    for (let i = 0; i < total; i++) {
-      const rel = api.GetLine(modelId, relIds.get(i), false, false) as Record<string, unknown> | null;
-      if (!rel) continue;
-      const psetIds = toRefArray(rel.RelatingPropertyDefinition).map(r => r?.value).filter((v): v is number => !!v);
-      if (psetIds.length === 0) continue;
-      const objs = toRefArray(rel.RelatedObjects);
-      for (const o of objs) {
-        const eid = o?.value;
-        if (!eid) continue;
-        const arr = relDefIndex.get(eid);
-        if (arr) arr.push(...psetIds); else relDefIndex.set(eid, [...psetIds]);
-      }
+  const byInstance = new Map<number, number[]>();
+  const byType = new Map<number, number[]>();
+  const parent = new Map<number, number>();
+
+  const scan = (type: number, fn: (rel: RawLine) => void) => {
+    let ids: { size(): number; get(i: number): number };
+    try { ids = api.GetLineIDsWithType(modelId, type); }
+    catch { return; }
+    for (let i = 0; i < ids.size(); i++) {
+      const rel = api.GetLine(modelId, ids.get(i), false, false) as RawLine | null;
+      if (rel) fn(rel);
     }
-  } catch { /* ignore — model may not have these rels */ }
+  };
 
-  try {
-    const relIds = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYTYPE);
-    const total = relIds.size();
-    for (let i = 0; i < total; i++) {
-      const rel = api.GetLine(modelId, relIds.get(i), false, false) as Record<string, unknown> | null;
-      if (!rel) continue;
-      const typeId = (rel.RelatingType as { value?: number } | null)?.value;
-      if (!typeId) continue;
-      const typeObj = api.GetLine(modelId, typeId, false, false) as Record<string, unknown> | null;
-      const typePsets = toRefArray(typeObj?.HasPropertySets);
-      const psetIds = typePsets.map(p => p?.value).filter((v): v is number => !!v);
-      if (psetIds.length === 0) continue;
-      const objs = toRefArray(rel.RelatedObjects);
-      for (const o of objs) {
-        const eid = o?.value;
-        if (!eid) continue;
-        const arr = relTypeIndex.get(eid);
-        if (arr) arr.push(...psetIds); else relTypeIndex.set(eid, [...psetIds]);
-      }
-    }
-  } catch { /* ignore */ }
+  // Instance properties: IfcRelDefinesByProperties.RelatingPropertyDefinition
+  // may be a single IfcPropertySetDefinition or an IfcPropertySetDefinitionSet.
+  scan(WebIFC.IFCRELDEFINESBYPROPERTIES, (rel) => {
+    const psetIds = refValues(rel.RelatingPropertyDefinition);
+    if (psetIds.length === 0) return;
+    for (const eid of refValues(rel.RelatedObjects)) pushAll(byInstance, eid, psetIds);
+  });
 
-  // Build child → parent aggregation index from IfcRelAggregates and IfcRelDecomposes.
-  // Needed for IfcBuildingElementPart and similar parts that carry no own PSets —
-  // their PSets live on the parent assembly/element.
-  const parentIndex = new Map<number, number>();
-  const AGG_TYPES = [WebIFC.IFCRELAGGREGATES, WebIFC.IFCRELDECOMPOSES];
-  for (const relType of AGG_TYPES) {
-    try {
-      const relIds = api.GetLineIDsWithType(modelId, relType);
-      const total = relIds.size();
-      for (let i = 0; i < total; i++) {
-        const rel = api.GetLine(modelId, relIds.get(i), false, false) as Record<string, unknown> | null;
-        if (!rel) continue;
-        const parentId = (rel.RelatingObject as { value?: number } | null)?.value;
-        if (!parentId) continue;
-        const children = toRefArray(rel.RelatedObjects);
-        for (const c of children) {
-          const childId = c?.value;
-          if (childId) parentIndex.set(childId, parentId);
-        }
-      }
-    } catch { /* type may not exist in this schema */ }
+  // Type properties: IfcRelDefinesByType → IfcTypeObject.HasPropertySets
+  scan(WebIFC.IFCRELDEFINESBYTYPE, (rel) => {
+    const typeId = refValue(rel.RelatingType);
+    if (!typeId) return;
+    const typeObj = api.GetLine(modelId, typeId, false, false) as RawLine | null;
+    const psetIds = refValues(typeObj?.HasPropertySets);
+    if (psetIds.length === 0) return;
+    for (const eid of refValues(rel.RelatedObjects)) pushAll(byType, eid, psetIds);
+  });
+
+  // Decomposition chain: a part inherits its whole's property sets.
+  // IfcRelAggregates covers assembly→parts; IfcRelNests covers nested elements.
+  const recordDecomposition = (rel: RawLine) => {
+    const parentId = refValue(rel.RelatingObject);
+    if (!parentId) return;
+    for (const childId of refValues(rel.RelatedObjects)) parent.set(childId, parentId);
+  };
+  scan(WebIFC.IFCRELAGGREGATES, recordDecomposition);
+  scan(WebIFC.IFCRELNESTS, recordDecomposition);
+
+  cached.indices = { byInstance, byType, parent };
+  return cached.indices;
+}
+
+/**
+ * Resolves every property set that applies to an element, in the order a
+ * viewer like BIMcollab shows them:
+ *   1. the element's own instance + type property sets
+ *   2. all property sets inherited up the full decomposition chain
+ *      (PileSegment → IfcPile → assembly → …)
+ *
+ * Returns unique pset ids; duplicates shared across levels appear once.
+ */
+function resolvePsetIds(indices: PropertyIndices, expressId: number): number[] {
+  const ordered: number[] = [];
+  const seenPsets = new Set<number>();
+  const add = (id: number) => {
+    if (seenPsets.has(id)) return;
+    seenPsets.add(id);
+    ordered.push(id);
+  };
+
+  const visited = new Set<number>();
+  let current: number | undefined = expressId;
+  while (current !== undefined && !visited.has(current)) {
+    visited.add(current);
+    for (const id of indices.byInstance.get(current) ?? []) add(id);
+    for (const id of indices.byType.get(current) ?? []) add(id);
+    current = indices.parent.get(current);
   }
 
-  cached.relDefIndex = relDefIndex;
-  cached.relTypeIndex = relTypeIndex;
-  cached.parentIndex = parentIndex;
+  return ordered;
 }
 
 async function getOrOpenPropModel(file: File): Promise<CachedModel> {
@@ -360,7 +383,6 @@ export async function loadIFCProperties(
 
   const props: Record<string, unknown> = {};
   const psets: PropertySet[] = [];
-  const seenPsetIds = new Set<number>();
 
   // Keep wrapped {value, type} objects so the UI's isIfcRef() filter hides handles (type=5).
   try {
@@ -372,71 +394,29 @@ export async function loadIFCProperties(
     }
   } catch { /* ignore */ }
 
-  // Build forward index on first use (O(R+T), cached afterwards).
-  // This is schema-independent and works for all IFC element types including
-  // IfcPile and other IFC4.x types where web-ifc inverse lookup is unreliable.
-  buildRelDefIndex(cached);
-
-  const addPset = async (psetId: number) => {
-    if (seenPsetIds.has(psetId)) return;
-    seenPsetIds.add(psetId);
+  const indices = buildPropertyIndices(cached);
+  for (const psetId of resolvePsetIds(indices, expressId)) {
     await loadAndParsePset(api, modelId, psetId, psets);
-  };
-
-  // Instance psets via forward index (IfcRelDefinesByProperties)
-  for (const psetId of cached.relDefIndex?.get(expressId) ?? []) {
-    await addPset(psetId);
-  }
-
-  // Type psets via forward index (IfcRelDefinesByType)
-  for (const psetId of cached.relTypeIndex?.get(expressId) ?? []) {
-    await addPset(psetId);
-  }
-
-  // Fallback: also try inverse-based lookup in case the index missed anything
-  // (e.g. elements added after index was built, or IFC2X3 edge cases).
-  let elemLine: RawLine | null = null;
-  try { elemLine = api.GetLine(modelId, expressId, false, true) as RawLine | null; } catch { /* ignore */ }
-
-  for (const ref of toRefArray(elemLine?.IsDefinedBy)) {
-    const relId = ref?.value;
-    if (!relId) continue;
-    try {
-      const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-      if (!rel?.RelatingPropertyDefinition) continue;
-      for (const pref of toRefArray(rel.RelatingPropertyDefinition)) {
-        const psetId = pref?.value;
-        if (psetId) await addPset(psetId);
-      }
-    } catch { /* skip */ }
-  }
-
-  // Fallback: inherit from aggregation parent when element has no own psets.
-  // Uses the forward parentIndex (IfcRelAggregates + IfcRelDecomposes) —
-  // schema-independent, covers IfcBuildingElementPart, IfcDiscreteAccessory, etc.
-  if (psets.length === 0) {
-    const parentId = cached.parentIndex?.get(expressId);
-    if (parentId) {
-      for (const psetId of cached.relDefIndex?.get(parentId) ?? []) await addPset(psetId);
-      for (const psetId of cached.relTypeIndex?.get(parentId) ?? []) await addPset(psetId);
-      // Walk one more level up (part → assembly → building element)
-      if (psets.length === 0) {
-        const grandParentId = cached.parentIndex?.get(parentId);
-        if (grandParentId) {
-          for (const psetId of cached.relDefIndex?.get(grandParentId) ?? []) await addPset(psetId);
-          for (const psetId of cached.relTypeIndex?.get(grandParentId) ?? []) await addPset(psetId);
-        }
-      }
-    }
   }
 
   return { properties: props, psets };
 }
 
+/** Normalizes a web-ifc attribute (single handle or array of handles) to handles. */
 function toRefArray(v: unknown): { value?: number }[] {
   if (v == null) return [];
   if (Array.isArray(v)) return v as { value?: number }[];
   return [v as { value?: number }];
+}
+
+/** Express id of a single-handle attribute, or undefined. */
+function refValue(v: unknown): number | undefined {
+  return (v as { value?: number } | null | undefined)?.value || undefined;
+}
+
+/** Express ids of a SET- or single-valued handle attribute, empties filtered. */
+function refValues(v: unknown): number[] {
+  return toRefArray(v).map(r => r?.value).filter((id): id is number => !!id);
 }
 
 async function loadAndParsePset(
@@ -465,18 +445,11 @@ export async function loadBasketProperties(
   const { api, modelId } = cached;
   const result = new Map<number, { properties: Record<string, unknown>; psets: PropertySet[] }>();
 
-  buildRelDefIndex(cached);
+  const indices = buildPropertyIndices(cached);
 
   for (const eid of expressIds) {
     const props: Record<string, unknown> = {};
     const psets: PropertySet[] = [];
-    const seenPsetIds = new Set<number>();
-
-    const addPset = async (psetId: number) => {
-      if (seenPsetIds.has(psetId)) return;
-      seenPsetIds.add(psetId);
-      await loadAndParsePset(api, modelId, psetId, psets);
-    };
 
     try {
       const itemProps = await api.properties.getItemProperties(modelId, eid, false);
@@ -489,40 +462,8 @@ export async function loadBasketProperties(
       }
     } catch { /* ignore */ }
 
-    // Use forward index (schema-independent, reliable for all IFC types)
-    for (const psetId of cached.relDefIndex?.get(eid) ?? []) await addPset(psetId);
-    for (const psetId of cached.relTypeIndex?.get(eid) ?? []) await addPset(psetId);
-
-    // Inverse fallback for edge cases
-    let elemLine: RawLine | null = null;
-    try { elemLine = api.GetLine(modelId, eid, false, true) as RawLine | null; } catch { /* ignore */ }
-    for (const ref of toRefArray(elemLine?.IsDefinedBy)) {
-      const relId = ref?.value;
-      if (!relId) continue;
-      try {
-        const rel = api.GetLine(modelId, relId, false, false) as RawLine | null;
-        if (!rel?.RelatingPropertyDefinition) continue;
-        for (const pref of toRefArray(rel.RelatingPropertyDefinition)) {
-          const psetId = pref?.value;
-          if (psetId) await addPset(psetId);
-        }
-      } catch { /* skip */ }
-    }
-
-    // Aggregation parent fallback — uses forward parentIndex, no inverse lookups
-    if (psets.length === 0) {
-      const parentId = cached.parentIndex?.get(eid);
-      if (parentId) {
-        for (const psetId of cached.relDefIndex?.get(parentId) ?? []) await addPset(psetId);
-        for (const psetId of cached.relTypeIndex?.get(parentId) ?? []) await addPset(psetId);
-        if (psets.length === 0) {
-          const grandParentId = cached.parentIndex?.get(parentId);
-          if (grandParentId) {
-            for (const psetId of cached.relDefIndex?.get(grandParentId) ?? []) await addPset(psetId);
-            for (const psetId of cached.relTypeIndex?.get(grandParentId) ?? []) await addPset(psetId);
-          }
-        }
-      }
+    for (const psetId of resolvePsetIds(indices, eid)) {
+      await loadAndParsePset(api, modelId, psetId, psets);
     }
 
     result.set(eid, { properties: props, psets });
@@ -644,17 +585,14 @@ function applyPset(
 /**
  * Loads all element properties in a single optimized pass.
  *
- * Instead of calling getPropertySets() per element (which runs
- * GetInversePropertyForItem on every element — O(N×R) WASM calls),
- * this function:
- *   1. Batch-reads direct item properties via GetLines()
- *   2. Loads all IfcRelDefinesByProperties relationships once
- *   3. Builds a psetId → elementIds index
+ *   1. Batch-reads direct item attributes via GetLines()
+ *   2. Builds the shared forward property indices once
+ *   3. Resolves each element's property sets (own + type + inherited up the
+ *      decomposition chain) and inverts that into a psetId → elementIds map
  *   4. Loads each unique property set exactly once and distributes it
- *   5. Repeats for type-level sets via IfcRelDefinesByType
  *
- * Complexity: O(R + P) instead of O(N × R).
- * Typical speedup on large models: 20–50×.
+ * Uses the same resolver as the single-element path, so the batch view and
+ * the inspector always agree on which properties an element has.
  */
 const YIELD_EVERY = 80;
 const yieldToMain = () => new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -664,10 +602,9 @@ export async function loadAllElementProperties(
   expressIds: number[],
   onProgress?: (done: number, total: number) => void
 ): Promise<Map<number, FlatElementProps>> {
-  const { api, modelId } = await getOrOpenPropModel(file);
+  const cached = await getOrOpenPropModel(file);
+  const { api, modelId } = cached;
   const result = new Map<number, FlatElementProps>();
-
-  const eidSet = new Set(expressIds);
 
   let lines: unknown[];
   try {
@@ -692,77 +629,29 @@ export async function loadAllElementProperties(
   onProgress?.(Math.round(expressIds.length * 0.2), expressIds.length);
   await yieldToMain();
 
-  {
-    const relIds     = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYPROPERTIES);
-    const psetToEids = new Map<number, Set<number>>();
-    const total      = relIds.size();
+  const indices = buildPropertyIndices(cached);
 
-    for (let i = 0; i < total; i++) {
-      const rel = api.GetLine(modelId, relIds.get(i)) as RawLine | null;
-      if (rel) {
-        const psetIds = toRefArray(rel.RelatingPropertyDefinition).map(r => (r as { value?: number })?.value).filter((v): v is number => !!v);
-        if (psetIds.length > 0) {
-          const related = toRefArray(rel.RelatedObjects);
-          for (const obj of related) {
-            const eid = obj?.value;
-            if (eid && eidSet.has(eid)) {
-              for (const psetId of psetIds) {
-                if (!psetToEids.has(psetId)) psetToEids.set(psetId, new Set());
-                psetToEids.get(psetId)!.add(eid);
-              }
-            }
-          }
-        }
-      }
-      if (i % YIELD_EVERY === 0) await yieldToMain();
+  const psetToEids = new Map<number, Set<number>>();
+  for (let i = 0; i < expressIds.length; i++) {
+    const eid = expressIds[i];
+    for (const psetId of resolvePsetIds(indices, eid)) {
+      let eids = psetToEids.get(psetId);
+      if (!eids) { eids = new Set(); psetToEids.set(psetId, eids); }
+      eids.add(eid);
     }
-
-    let p = 0;
-    for (const [psetId, eids] of psetToEids) {
-      try {
-        const pset = api.GetLine(modelId, psetId, true) as RawLine | null;
-        if (pset) applyPset(pset, eids, result);
-      } catch { /* malformed pset */ }
-      p++;
-      if (p % YIELD_EVERY === 0) await yieldToMain();
-    }
+    if (i % YIELD_EVERY === 0) await yieldToMain();
   }
-  onProgress?.(Math.round(expressIds.length * 0.7), expressIds.length);
+  onProgress?.(Math.round(expressIds.length * 0.6), expressIds.length);
   await yieldToMain();
 
-  {
-    const relIds = api.GetLineIDsWithType(modelId, WebIFC.IFCRELDEFINESBYTYPE);
-    const total  = relIds.size();
-
-    for (let i = 0; i < total; i++) {
-      const rel = api.GetLine(modelId, relIds.get(i)) as RawLine | null;
-      if (rel) {
-        const typeId = (rel.RelatingType as { value?: number } | null)?.value;
-        if (typeId) {
-          const eids = new Set<number>();
-          const related = toRefArray(rel.RelatedObjects);
-          for (const obj of related) {
-            const eid = obj?.value;
-            if (eid && eidSet.has(eid)) eids.add(eid);
-          }
-          if (eids.size > 0) {
-            const typeObj = api.GetLine(modelId, typeId) as RawLine | null;
-            if (typeObj) {
-              const psetRefs = toRefArray(typeObj.HasPropertySets);
-              for (const ref of psetRefs) {
-                const psetId = ref?.value;
-                if (!psetId) continue;
-                try {
-                  const pset = api.GetLine(modelId, psetId, true) as RawLine | null;
-                  if (pset) applyPset(pset, eids, result);
-                } catch { /* skip */ }
-              }
-            }
-          }
-        }
-      }
-      if (i % YIELD_EVERY === 0) await yieldToMain();
-    }
+  let p = 0;
+  for (const [psetId, eids] of psetToEids) {
+    try {
+      const pset = api.GetLine(modelId, psetId, true) as RawLine | null;
+      if (pset) applyPset(pset, eids, result);
+    } catch { /* malformed pset */ }
+    p++;
+    if (p % YIELD_EVERY === 0) await yieldToMain();
   }
   onProgress?.(expressIds.length, expressIds.length);
 
