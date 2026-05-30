@@ -275,3 +275,15 @@ export interface QTOList {
   filterLogic: "AND" | "OR";
   columns: QTOColumn[];
 }
+
+// ── SmartSpatial ──────────────────────────────────────────────────────────────
+
+export interface SmartSpatialLevel {
+  id: string;
+  label: string;
+  propertyKey: string;
+}
+
+export interface SmartSpatialConfig {
+  levels: SmartSpatialLevel[];
+}
