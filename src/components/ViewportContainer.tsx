@@ -117,7 +117,6 @@ export function ViewportContainer({ onElementClick }: Props) {
   const flyEulerRef     = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
   const flySpeedIdxRef  = useRef(2); // index into FLY_SPEEDS
   const [flySpeedIdx, setFlySpeedIdx] = useState(2);
-  const [cubeQuat, setCubeQuat] = useState(() => new THREE.Quaternion());
 
 
   // Measurement state
@@ -470,7 +469,6 @@ export function ViewportContainer({ onElementClick }: Props) {
     // Trigger a render whenever the camera moves; throttle inspector label updates via RAF
     controls.addEventListener("change", () => {
       needsRenderRef.current = true;
-      setCubeQuat(camera.quaternion.clone());
       // Reduce resolution while moving — frames are cheaper so orbit stays smooth
       if (renderer.getPixelRatio() !== 1.0) renderer.setPixelRatio(1.0);
       if (dprRestoreTimer !== null) clearTimeout(dprRestoreTimer);
@@ -1283,8 +1281,14 @@ export function ViewportContainer({ onElementClick }: Props) {
   useEffect(() => {
     // Cleanup previous state
     basketOutlinesRef.current.forEach((line) => {
-      line.parent?.remove(line);
+      const parent = line.parent;
+      parent?.remove(line);
       (line.material as THREE.Material).dispose();
+      // Dispose and evict cached EdgesGeometry to prevent unbounded memory growth
+      if (parent?.userData._basketEdgesGeo) {
+        (parent.userData._basketEdgesGeo as THREE.EdgesGeometry).dispose();
+        delete parent.userData._basketEdgesGeo;
+      }
     });
     basketOutlinesRef.current = [];
     basketMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
@@ -1347,8 +1351,13 @@ export function ViewportContainer({ onElementClick }: Props) {
 
     return () => {
       basketOutlinesRef.current.forEach((line) => {
-        line.parent?.remove(line);
+        const parent = line.parent;
+        parent?.remove(line);
         (line.material as THREE.Material).dispose();
+        if (parent?.userData._basketEdgesGeo) {
+          (parent.userData._basketEdgesGeo as THREE.EdgesGeometry).dispose();
+          delete parent.userData._basketEdgesGeo;
+        }
       });
       basketOutlinesRef.current = [];
       basketMatsRef.current.forEach((orig, mesh) => { mesh.material = orig as THREE.Material; });
@@ -3299,7 +3308,8 @@ export function ViewportContainer({ onElementClick }: Props) {
 
       {/* ViewCube — top-right corner orientation indicator */}
       <ViewCube
-        cameraQuat={cubeQuat}
+        cameraRef={cameraRef}
+        controlsRef={controlsRef}
         visible={settings.viewCube ?? true}
         onPreset={setPresetView}
       />

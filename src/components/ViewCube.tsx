@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 const S = 76;
 const H = S / 2;
 const DOT = 9;
 
 interface Props {
-  cameraQuat: THREE.Quaternion;
+  cameraRef: React.MutableRefObject<THREE.PerspectiveCamera | null>;
+  controlsRef: React.MutableRefObject<OrbitControls | null>;
   visible: boolean;
   onPreset: (preset: string) => void;
 }
@@ -20,7 +22,7 @@ const FACES = [
   { t: `rotateX(90deg) translateZ(${H}px)`,   p: "bottom", l: "Unten"  },
 ];
 
-// 8 corners in cube-local space (cx,cy,cz) = ±H
+// 8 corners: (cx, cy, cz) in cube-local space, each ±H
 const CORNERS = [
   { cx: +H, cy: -H, cz: +H, p: "iso-ftr" },
   { cx: -H, cy: -H, cz: +H, p: "iso-ftl" },
@@ -32,24 +34,42 @@ const CORNERS = [
   { cx: -H, cy: +H, cz: -H, p: "iso-bbl" },
 ];
 
-// Preallocated — never recreated during render
+// Module-level preallocated — never reallocated during renders or event callbacks.
 const _mat = new THREE.Matrix4();
 const _qInv = new THREE.Quaternion();
 
-export function ViewCube({ cameraQuat, visible, onPreset }: Props) {
+export function ViewCube({ cameraRef, controlsRef, visible, onPreset }: Props) {
   const cubeRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState<string | null>(null);
 
+  // Subscribe to controls.change and directly mutate the cube DOM element —
+  // zero React state updates on camera move, no re-renders at 60fps.
   useEffect(() => {
-    const cube = cubeRef.current;
-    if (!cube || !visible) return;
-    _qInv.copy(cameraQuat).invert();
-    _mat.makeRotationFromQuaternion(_qInv);
-    const e = _mat.elements;
-    // Three.js is Y-up; CSS 3D is Y-down. Flip Y row + Y column of 3×3 rotation block.
-    // CSS matrix3d is column-major: each group of 4 = one column (x, y, z, w).
-    cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
-  }, [cameraQuat, visible]);
+    if (!visible) return;
+
+    const updateTransform = () => {
+      const cube = cubeRef.current;
+      const camera = cameraRef.current;
+      if (!cube || !camera) return;
+      // Invert the camera quaternion → gives world-to-camera rotation.
+      // Three.js Y-up → CSS Y-down: negate Y row + Y column of the 3×3 rotation block.
+      // CSS matrix3d is column-major: each group of 4 values = one column (X,Y,Z,W).
+      _qInv.copy(camera.quaternion).invert();
+      _mat.makeRotationFromQuaternion(_qInv);
+      const e = _mat.elements;
+      cube.style.transform =
+        `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
+    };
+
+    // Sync immediately on mount so cube shows correct orientation before first orbit.
+    updateTransform();
+
+    const controls = controlsRef.current;
+    if (controls) controls.addEventListener("change", updateTransform);
+    return () => {
+      if (controls) controls.removeEventListener("change", updateTransform);
+    };
+  }, [visible, cameraRef, controlsRef]);
 
   if (!visible) return null;
 
@@ -58,9 +78,7 @@ export function ViewCube({ cameraQuat, visible, onPreset }: Props) {
       className="absolute select-none z-40"
       style={{ top: 12, right: 12, width: S + 24, height: S + 24, display: "flex", alignItems: "center", justifyContent: "center" }}
     >
-      {/* Perspective wrapper */}
       <div style={{ perspective: "260px", width: S, height: S }}>
-        {/* Rotating cube */}
         <div
           ref={cubeRef}
           style={{ width: S, height: S, position: "relative", transformStyle: "preserve-3d", transformOrigin: "50% 50% 0" }}
@@ -99,7 +117,6 @@ export function ViewCube({ cameraQuat, visible, onPreset }: Props) {
             </div>
           ))}
 
-          {/* Corner dots — 3D positioned at each of the 8 cube corners */}
           {CORNERS.map(c => (
             <div
               key={c.p}
@@ -111,12 +128,12 @@ export function ViewCube({ cameraQuat, visible, onPreset }: Props) {
                 left: 0, top: 0,
                 width: DOT, height: DOT,
                 transform: `translate3d(${H + c.cx - DOT / 2}px,${H + c.cy - DOT / 2}px,${c.cz}px)`,
+                backfaceVisibility: "hidden",
                 background: hovered === c.p ? "#ffffff" : "rgba(180,210,255,0.75)",
                 borderRadius: "50%",
                 border: "1px solid rgba(255,255,255,0.45)",
                 cursor: "pointer",
                 transition: "background 0.08s",
-                zIndex: 10,
               }}
             />
           ))}
