@@ -271,14 +271,14 @@ function buildRelDefIndex(cached: CachedModel): void {
     for (let i = 0; i < total; i++) {
       const rel = api.GetLine(modelId, relIds.get(i), false, false) as Record<string, unknown> | null;
       if (!rel) continue;
-      const psetId = (rel.RelatingPropertyDefinition as { value?: number } | null)?.value;
-      if (!psetId) continue;
+      const psetIds = toRefArray(rel.RelatingPropertyDefinition).map(r => r?.value).filter((v): v is number => !!v);
+      if (psetIds.length === 0) continue;
       const objs = toRefArray(rel.RelatedObjects);
       for (const o of objs) {
         const eid = o?.value;
         if (!eid) continue;
         const arr = relDefIndex.get(eid);
-        if (arr) arr.push(psetId); else relDefIndex.set(eid, [psetId]);
+        if (arr) arr.push(...psetIds); else relDefIndex.set(eid, [...psetIds]);
       }
     }
   } catch { /* ignore — model may not have these rels */ }
@@ -700,14 +700,16 @@ export async function loadAllElementProperties(
     for (let i = 0; i < total; i++) {
       const rel = api.GetLine(modelId, relIds.get(i)) as RawLine | null;
       if (rel) {
-        const psetId = (rel.RelatingPropertyDefinition as { value?: number } | null)?.value;
-        if (psetId) {
+        const psetIds = toRefArray(rel.RelatingPropertyDefinition).map(r => (r as { value?: number })?.value).filter((v): v is number => !!v);
+        if (psetIds.length > 0) {
           const related = toRefArray(rel.RelatedObjects);
           for (const obj of related) {
             const eid = obj?.value;
             if (eid && eidSet.has(eid)) {
-              if (!psetToEids.has(psetId)) psetToEids.set(psetId, new Set());
-              psetToEids.get(psetId)!.add(eid);
+              for (const psetId of psetIds) {
+                if (!psetToEids.has(psetId)) psetToEids.set(psetId, new Set());
+                psetToEids.get(psetId)!.add(eid);
+              }
             }
           }
         }
