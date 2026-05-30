@@ -325,6 +325,7 @@ export function ViewportContainer({ onElementClick }: Props) {
       antialias: true,
       logarithmicDepthBuffer: true,
       alpha: false,
+      preserveDrawingBuffer: true,
       // Prefer dedicated GPU on multi-GPU systems (laptops with integrated + discrete).
       powerPreference: "high-performance",
     });
