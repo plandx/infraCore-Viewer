@@ -292,7 +292,7 @@ function buildRelDefIndex(cached: CachedModel): void {
       const typeId = (rel.RelatingType as { value?: number } | null)?.value;
       if (!typeId) continue;
       const typeObj = api.GetLine(modelId, typeId, false, false) as Record<string, unknown> | null;
-      const typePsets = Array.isArray(typeObj?.HasPropertySets) ? typeObj!.HasPropertySets as { value?: number }[] : [];
+      const typePsets = toRefArray(typeObj?.HasPropertySets);
       const psetIds = typePsets.map(p => p?.value).filter((v): v is number => !!v);
       if (psetIds.length === 0) continue;
       const objs = toRefArray(rel.RelatedObjects);
@@ -746,9 +746,7 @@ export async function loadAllElementProperties(
           if (eids.size > 0) {
             const typeObj = api.GetLine(modelId, typeId) as RawLine | null;
             if (typeObj) {
-              const psetRefs = Array.isArray(typeObj.HasPropertySets)
-                ? typeObj.HasPropertySets as { value?: number }[]
-                : [];
+              const psetRefs = toRefArray(typeObj.HasPropertySets);
               for (const ref of psetRefs) {
                 const psetId = ref?.value;
                 if (!psetId) continue;
