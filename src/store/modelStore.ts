@@ -599,12 +599,19 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     const { models, loadingPropertiesProgress } = get();
     if (loadingPropertiesProgress !== null || models.size === 0) return;
     set({ loadingPropertiesProgress: 0 });
+
+    // Snapshot the loaded models now. More models may finish loading while we run;
+    // we detect that at the end and re-run automatically.
+    const snapshot = new Map(
+      Array.from(models.entries()).filter(([, m]) => m.status === "loaded")
+    );
+
     const result = new Map<string, Map<number, FlatElementProps>>();
     const keySet = new Set<string>();
     let total = 0;
-    models.forEach((m) => { for (const els of Object.values(m.elementsByType)) total += els.length; });
+    snapshot.forEach((m) => { for (const els of Object.values(m.elementsByType)) total += els.length; });
     let base = 0;
-    for (const [modelId, model] of models.entries()) {
+    for (const [modelId, model] of snapshot.entries()) {
       const ids: number[] = [];
       for (const els of Object.values(model.elementsByType)) for (const el of els) ids.push(el.expressId);
       const map = await loadAllElementProperties(model.file, ids, (done) =>
@@ -639,6 +646,17 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     Object.entries(vSets).forEach(([k, s]) => { loadedPropValues[k] = Array.from(s).sort(); });
 
     set({ loadedProperties: result, loadedPropKeys: sorted, loadedPropValues, loadingPropertiesProgress: null });
+
+    // Re-apply the active SmartView so it picks up newly loaded properties.
+    const { activeSmartViewId } = get();
+    if (activeSmartViewId) get().applySmartView(activeSmartViewId);
+
+    // If more models finished loading while we were running, re-run to include them.
+    const currentModels = get().models;
+    const missed = Array.from(currentModels.values()).some(
+      (m) => m.status === "loaded" && !snapshot.has(m.id)
+    );
+    if (missed) get().loadAllProperties();
   },
 
   // ── Selection basket ────────────────────────────────────────────────────────
