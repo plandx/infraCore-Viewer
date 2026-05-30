@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
   ChevronDown, ChevronRight, AlertTriangle, Check, Download,
   Eye, EyeOff, X, FileCheck2, Wrench,
@@ -145,6 +145,49 @@ export function IdsResultsWindow() {
     syncCh?.postMessage({ t: "act", a } satisfies SyncMsg);
   }, [syncCh]);
 
+  const [fixStatus, setFixStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const fixStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applyFixes = useCallback(async (fixes: Array<{ modelId: string; expressId: number; pset: string; prop: string; value: string }>) => {
+    if (fixes.length === 0) return;
+    setFixStatus("running");
+
+    // Group fixes by modelId
+    const byModel = new Map<string, typeof fixes>();
+    for (const f of fixes) {
+      const arr = byModel.get(f.modelId) ?? [];
+      arr.push(f);
+      byModel.set(f.modelId, arr);
+    }
+
+    let anyError = false;
+    for (const [modelId, modelFixes] of byModel) {
+      const modelName = modelNames.get(modelId);
+      if (!modelName) { anyError = true; continue; }
+
+      try {
+        const res = await fetch("http://127.0.0.1:8765/patch-properties", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: modelName,
+            fixes: modelFixes.map(f => ({ express_id: f.expressId, pset: f.pset, prop: f.prop, value: f.value })),
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!res.ok) { anyError = true; continue; }
+        // Trigger model reload in main window
+        sendAction({ k: "reloadModelFromServer", modelId });
+      } catch {
+        anyError = true;
+      }
+    }
+
+    setFixStatus(anyError ? "error" : "done");
+    if (fixStatusTimer.current) clearTimeout(fixStatusTimer.current);
+    fixStatusTimer.current = setTimeout(() => setFixStatus("idle"), 3000);
+  }, [modelNames, sendAction]);
+
   const groups = useMemo(
     () => report ? groupResults(report, groupMode, modelNames) : [],
     [report, groupMode, modelNames],
@@ -209,6 +252,21 @@ export function IdsResultsWindow() {
         <span className="text-muted-foreground mx-1">·</span>
         <span className="text-muted-foreground" style={{ fontSize: 11, whiteSpace: "nowrap" }}>{new Date(report.timestamp).toLocaleString("de-AT")}</span>
         <div className="ml-auto flex items-center gap-2">
+          {fixStatus === "running" && (
+            <span className="text-[11px] text-amber-500 flex items-center gap-1">
+              <Wrench size={11} className="animate-pulse" /> Ergänze…
+            </span>
+          )}
+          {fixStatus === "done" && (
+            <span className="text-[11px] text-green-500 flex items-center gap-1">
+              <Check size={11} /> Ergänzt &amp; neu geladen
+            </span>
+          )}
+          {fixStatus === "error" && (
+            <span className="text-[11px] text-red-400 flex items-center gap-1">
+              <AlertTriangle size={11} /> Server nicht erreichbar
+            </span>
+          )}
           <button
             className="flex items-center gap-1 border border-border rounded-[4px] px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
             style={{ fontSize: 11 }}
@@ -305,7 +363,7 @@ export function IdsResultsWindow() {
               onToggle={() => toggleExpand(group.key)}
               onSelect={(modelId, expressId) => sendAction({ k: "select", modelId, expressId })}
               onIsolate={(modelId, expressId) => sendAction({ k: "isolate", modelId, expressId })}
-              onFix={(fixes) => sendAction({ k: "idsAutoFix", fixes })}
+              onFix={applyFixes}
             />
           ))
         )}

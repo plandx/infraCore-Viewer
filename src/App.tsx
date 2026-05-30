@@ -152,6 +152,22 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
               ifcType: "",
             })));
             break;
+          case "reloadModelFromServer": {
+            const existing = store.models.get(a.modelId);
+            if (!existing) break;
+            try {
+              const r = await fetch(`http://127.0.0.1:8765/download/${encodeURIComponent(existing.name)}`, { signal: AbortSignal.timeout(60_000) });
+              if (!r.ok) break;
+              const ab = await r.arrayBuffer();
+              const newFile = new File([ab], existing.name, { type: "application/octet-stream" });
+              if (existing.file) evictPropModelCache(existing.file);
+              store.updateModel(a.modelId, { status: "loading" });
+              const modelIdx = [...store.models.keys()].indexOf(a.modelId);
+              const { entry } = await loadIFCFile(newFile, modelIdx, store.worldOrigin, () => {});
+              store.updateModel(a.modelId, { ...entry, id: a.modelId, color: existing.color, visible: existing.visible, opacity: existing.opacity, status: "loaded" });
+            } catch { /* ignore network errors */ }
+            break;
+          }
         }
       }
     };

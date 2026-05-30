@@ -921,6 +921,112 @@ def clash_test():
     return {"models": report}
 
 
+# ── IDS Property Patch ────────────────────────────────────────────────────────
+
+class PropertyFix(BaseModel):
+    express_id: int
+    pset: str        # empty string → IFC attribute (e.g. "Name")
+    prop: str
+    value: str = ""  # default empty string value
+
+class PatchPropertiesRequest(BaseModel):
+    name: str                     # model name as stored in _models
+    fixes: List[PropertyFix]
+
+@app.post("/patch-properties")
+def patch_properties(req: PatchPropertiesRequest):
+    """Ergänzt fehlende Properties / PSets in einem Modell via IfcOpenShell."""
+    if req.name not in _models:
+        raise HTTPException(status_code=404, detail=f"Modell '{req.name}' nicht geladen")
+
+    model = _models[req.name]
+    patched = 0
+    errors: List[str] = []
+
+    for fix in req.fixes:
+        try:
+            elem = model.by_id(fix.express_id)
+            if elem is None:
+                errors.append(f"#{fix.express_id}: Element nicht gefunden")
+                continue
+
+            if not fix.pset:
+                # Direct IFC attribute
+                if hasattr(elem, fix.prop):
+                    setattr(elem, fix.prop, fix.value or None)
+                    patched += 1
+                else:
+                    errors.append(f"#{fix.express_id}: Attribut '{fix.prop}' existiert nicht an {elem.is_a()}")
+                continue
+
+            # Find or create the PSet
+            psets = ifcopenshell.util.element.get_psets(elem, psets_only=True)
+            if fix.pset in psets:
+                # PSet exists — find and update the property, or add it
+                pset_entity = None
+                for rel in model.get_inverse(elem):
+                    if rel.is_a("IfcRelDefinesByProperties"):
+                        pd = rel.RelatingPropertyDefinition
+                        if pd.is_a("IfcPropertySet") and pd.Name == fix.pset:
+                            pset_entity = pd
+                            break
+                if pset_entity is None:
+                    errors.append(f"#{fix.express_id}: PSet '{fix.pset}' gefunden aber Entität nicht lokalisierbar")
+                    continue
+
+                # Check if property already exists in the pset
+                existing_prop = None
+                for p in (pset_entity.HasProperties or []):
+                    if p.Name == fix.prop:
+                        existing_prop = p
+                        break
+
+                if existing_prop is not None:
+                    if existing_prop.is_a("IfcPropertySingleValue"):
+                        existing_prop.NominalValue = model.createIfcLabel(fix.value)
+                    patched += 1
+                else:
+                    new_prop = model.createIfcPropertySingleValue(
+                        fix.prop,
+                        None,
+                        model.createIfcLabel(fix.value),
+                        None,
+                    )
+                    props = list(pset_entity.HasProperties or [])
+                    props.append(new_prop)
+                    pset_entity.HasProperties = props
+                    patched += 1
+            else:
+                # PSet doesn't exist — create it and relate it to the element
+                new_prop = model.createIfcPropertySingleValue(
+                    fix.prop,
+                    None,
+                    model.createIfcLabel(fix.value),
+                    None,
+                )
+                new_pset = model.createIfcPropertySet(
+                    ifcopenshell.guid.new(),
+                    model.by_type("IfcOwnerHistory")[0] if model.by_type("IfcOwnerHistory") else None,
+                    fix.pset,
+                    None,
+                    [new_prop],
+                )
+                model.createIfcRelDefinesByProperties(
+                    ifcopenshell.guid.new(),
+                    model.by_type("IfcOwnerHistory")[0] if model.by_type("IfcOwnerHistory") else None,
+                    None,
+                    None,
+                    [elem],
+                    new_pset,
+                )
+                patched += 1
+        except Exception as exc:
+            errors.append(f"#{fix.express_id} {fix.pset}.{fix.prop}: {exc}")
+
+    print(f"[patch-properties] '{req.name}': {patched} Properties angelegt, {len(errors)} Fehler", flush=True)
+    return {"patched": patched, "errors": errors}
+
+
 # ── Script execution ────────────────────────────────────────────────────────────
 
 class ExecuteRequest(BaseModel):
