@@ -140,6 +140,10 @@ interface ModelStore {
   pythonPanelOpen: boolean;
   setPythonPanelOpen: (open: boolean) => void;
 
+  // Current camera state (updated by ViewportContainer on every OrbitControls change)
+  currentCamera: { position: {x:number;y:number;z:number}; direction: {x:number;y:number;z:number}; upVector: {x:number;y:number;z:number}; fov: number } | null;
+  setCurrentCamera: (cam: { position: {x:number;y:number;z:number}; direction: {x:number;y:number;z:number}; upVector: {x:number;y:number;z:number}; fov: number } | null) => void;
+
   /** Reset all session state (models, measurements, sections, smart views, QTO, overrides).
    *  Settings and key bindings are preserved. */
   resetAll: () => void;
@@ -216,6 +220,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   })(),
   settingsPanelOpen: false,
   pythonPanelOpen: false,
+  currentCamera: null,
 
   addModel: (model) =>
     set((state) => {
@@ -780,6 +785,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   },
   setSettingsPanelOpen: (open) => set({ settingsPanelOpen: open }),
   setPythonPanelOpen: (open) => set({ pythonPanelOpen: open }),
+  setCurrentCamera: (cam) => set({ currentCamera: cam }),
 
   // ── Full app reset ─────────────────────────────────────────────────────────
 

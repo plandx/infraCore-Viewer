@@ -467,9 +467,29 @@ export function ViewportContainer({ onElementClick }: Props) {
       }
     };
 
+    // Publish camera state to the store whenever the camera moves (debounced 300ms)
+    let camTimer: ReturnType<typeof setTimeout> | null = null;
+    const publishCamera = () => {
+      if (camTimer) clearTimeout(camTimer);
+      camTimer = setTimeout(() => {
+        const cam = cameraRef.current;
+        if (!cam) return;
+        const dir = new THREE.Vector3();
+        cam.getWorldDirection(dir);
+        const up = cam.up.clone().normalize();
+        useModelStore.getState().setCurrentCamera({
+          position: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+          direction: { x: dir.x, y: dir.y, z: dir.z },
+          upVector: { x: up.x, y: up.y, z: up.z },
+          fov: cam.fov,
+        });
+      }, 300);
+    };
+
     // Trigger a render whenever the camera moves; throttle inspector label updates via RAF
     controls.addEventListener("change", () => {
       needsRenderRef.current = true;
+      publishCamera();
       // Reduce resolution while moving — frames are cheaper so orbit stays smooth
       if (renderer.getPixelRatio() !== 1.0) renderer.setPixelRatio(1.0);
       if (dprRestoreTimer !== null) clearTimeout(dprRestoreTimer);

@@ -79,6 +79,36 @@ export function BCFPanel() {
 
   const activeTopic = document.topics.find((t) => t.id === activeTopicId) ?? null;
 
+  // Capture screenshot + current camera + selected IFC GUID as a BCF viewpoint
+  const captureViewpointSnapshot = () => {
+    const dataUrl = window.document.querySelector('canvas')?.toDataURL('image/png');
+    if (!dataUrl) return null;
+    const { currentCamera, selectedElement, models } = useModelStore.getState();
+
+    // Look up the IFC GlobalId for the currently selected element
+    let selectedIfcGuids: string[] | undefined;
+    if (selectedElement) {
+      const elList = models.get(selectedElement.modelId)?.elementsByType;
+      if (elList) {
+        for (const nodes of Object.values(elList)) {
+          const node = nodes.find(n => n.expressId === selectedElement.expressId);
+          if (node?.guid) { selectedIfcGuids = [node.guid]; break; }
+        }
+      }
+    }
+
+    const viewpoint = currentCamera ? {
+      guid: crypto.randomUUID(),
+      cameraPosition: currentCamera.position,
+      cameraDirection: currentCamera.direction,
+      cameraUpVector: currentCamera.upVector,
+      fieldOfView: currentCamera.fov,
+      selectedIfcGuids,
+    } : undefined;
+
+    return { snapshot: dataUrl, viewpoint };
+  };
+
   const filteredTopics = document.topics.filter((t) => {
     if (filterStatus !== "all" && t.status !== filterStatus) return false;
     if (filterType !== "all" && t.type !== filterType) return false;
@@ -419,8 +449,8 @@ export function BCFPanel() {
                               </button>
                               <button
                                 onClick={() => {
-                                  const dataUrl = window.document.querySelector('canvas')?.toDataURL('image/png');
-                                  if (dataUrl) updateTopic(activeTopic.id, { snapshot: dataUrl });
+                                  const vp = captureViewpointSnapshot();
+                                  if (vp) updateTopic(activeTopic.id, vp);
                                 }}
                                 className="absolute top-1 right-1 flex items-center gap-0.5 px-1.5 py-0.5 bg-black/60 hover:bg-black/80 text-white rounded-[3px] text-[10px] transition-colors"
                                 title="Screenshot erneuern"
@@ -431,8 +461,8 @@ export function BCFPanel() {
                           ) : (
                             <button
                               onClick={() => {
-                                const dataUrl = window.document.querySelector('canvas')?.toDataURL('image/png');
-                                if (dataUrl) updateTopic(activeTopic.id, { snapshot: dataUrl });
+                                const vp = captureViewpointSnapshot();
+                                if (vp) updateTopic(activeTopic.id, vp);
                               }}
                               className="flex items-center gap-1 px-3 py-2 rounded-[4px] border border-border bg-muted/30 hover:bg-muted/60 text-muted-foreground hover:text-foreground text-[11px] transition-colors shrink-0"
                               title="Screenshot des Viewports aufnehmen"
