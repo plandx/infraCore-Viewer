@@ -1031,10 +1031,10 @@ function MainApp() {
               {/* 3D Viewport */}
               <div className="flex-1 relative overflow-hidden min-h-0">
                 <ViewportContainer onElementClick={handleElementClick} />
-                {/* Floating sidebar expand buttons */}
+                {/* Floating sidebar expand buttons — vertically centred to avoid ViewCube and Auswahlkorb */}
                 {leftCollapsed && (
                   <button
-                    className="absolute left-2 top-2 z-20 bg-card/80 backdrop-blur-sm border border-border rounded p-1 text-muted-foreground hover:text-foreground hover:bg-card shadow-md transition-colors"
+                    className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-card/90 backdrop-blur-sm border border-border border-l-0 rounded-r py-2 px-1 text-muted-foreground hover:text-foreground hover:bg-card shadow-md transition-colors"
                     onClick={() => leftPanelRef.current?.expand()}
                     title="Linke Leiste einblenden"
                   >
@@ -1043,7 +1043,7 @@ function MainApp() {
                 )}
                 {rightCollapsed && (
                   <button
-                    className="absolute right-2 top-2 z-20 bg-card/80 backdrop-blur-sm border border-border rounded p-1 text-muted-foreground hover:text-foreground hover:bg-card shadow-md transition-colors"
+                    className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-card/90 backdrop-blur-sm border border-border border-r-0 rounded-l py-2 px-1 text-muted-foreground hover:text-foreground hover:bg-card shadow-md transition-colors"
                     onClick={() => rightPanelRef.current?.expand()}
                     title="Rechte Leiste einblenden"
                   >
