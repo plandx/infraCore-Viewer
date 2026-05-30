@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   AlertTriangle, Zap, Shield, MessageSquare, FileDown, Plus, Trash2,
   ChevronRight, Clock, User, Tag, Upload, X, Send, Camera, MapPin,
-  Calendar, Eye, Navigation, Bot, ShoppingBasket, Search, RefreshCw,
+  Calendar, Eye, Navigation, Bot, ShoppingBasket, Search, RefreshCw, ChevronDown,
 } from "lucide-react";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { useBcfStore } from "./bcfStore";
@@ -75,6 +75,7 @@ export function BCFPanel() {
   const [filterType, setFilterType] = useState<BcfTopicType | "all">("all");
   const [searchText, setSearchText] = useState("");
   const [snapshotOpen, setSnapshotOpen] = useState(false);
+  const [weitereOpen, setWeitereOpen] = useState(false);
 
   const activeTopic = document.topics.find((t) => t.id === activeTopicId) ?? null;
 
@@ -344,29 +345,53 @@ export function BCFPanel() {
                         {activeTopic.modifiedAuthor && ` (${activeTopic.modifiedAuthor})`}
                       </span>
                     )}
-                    {activeTopic.dueDate && (
-                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <Calendar size={10} /> Fällig: {formatDate(activeTopic.dueDate)}
-                      </span>
-                    )}
-                    {activeTopic.stage && (
-                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <Tag size={10} /> Phase: {activeTopic.stage}
-                      </span>
-                    )}
-                    {activeTopic.assignedTo && (
-                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <User size={10} /> Zugewiesen: {activeTopic.assignedTo}
-                      </span>
-                    )}
-                    {activeTopic.labels.length > 0 && (
-                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <Tag size={10} />
-                        {activeTopic.labels.map((l) => (
-                          <span key={l} className="px-1.5 py-0 bg-muted rounded-[3px] text-[10px] border border-border">{l}</span>
-                        ))}
-                      </span>
-                    )}
+                  </div>
+
+                  {/* Editable fields: assignedTo, dueDate, stage, labels */}
+                  <div className="flex flex-wrap gap-x-3 gap-y-1.5 mt-2">
+                    <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <User size={10} /> Zugewiesen:
+                      <input
+                        type="text"
+                        value={activeTopic.assignedTo ?? ""}
+                        onChange={(e) => updateTopic(activeTopic.id, { assignedTo: e.target.value || undefined })}
+                        placeholder="—"
+                        className="ml-1 text-[11px] bg-background border border-border rounded-[3px] px-1 py-0 w-28 outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </label>
+                    <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Calendar size={10} /> Fällig:
+                      <input
+                        type="date"
+                        value={activeTopic.dueDate ? activeTopic.dueDate.slice(0, 10) : ""}
+                        onChange={(e) => updateTopic(activeTopic.id, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+                        className="ml-1 text-[11px] bg-background border border-border rounded-[3px] px-1 py-0 outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </label>
+                    <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Tag size={10} /> Phase:
+                      <input
+                        type="text"
+                        value={activeTopic.stage ?? ""}
+                        onChange={(e) => updateTopic(activeTopic.id, { stage: e.target.value || undefined })}
+                        placeholder="—"
+                        className="ml-1 text-[11px] bg-background border border-border rounded-[3px] px-1 py-0 w-24 outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </label>
+                    <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Tag size={10} /> Labels:
+                      <input
+                        type="text"
+                        value={activeTopic.labels.join(", ")}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const parsed = raw.split(",").map(s => s.trim()).filter(Boolean);
+                          updateTopic(activeTopic.id, { labels: parsed });
+                        }}
+                        placeholder="label1, label2"
+                        className="ml-1 text-[11px] bg-background border border-border rounded-[3px] px-1 py-0 w-32 outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </label>
                   </div>
                 </div>
 
@@ -394,7 +419,7 @@ export function BCFPanel() {
                               </button>
                               <button
                                 onClick={() => {
-                                  const dataUrl = window.document.querySelector('canvas')?.toDataURL('image/jpeg', 0.85);
+                                  const dataUrl = window.document.querySelector('canvas')?.toDataURL('image/png');
                                   if (dataUrl) updateTopic(activeTopic.id, { snapshot: dataUrl });
                                 }}
                                 className="absolute top-1 right-1 flex items-center gap-0.5 px-1.5 py-0.5 bg-black/60 hover:bg-black/80 text-white rounded-[3px] text-[10px] transition-colors"
@@ -406,13 +431,13 @@ export function BCFPanel() {
                           ) : (
                             <button
                               onClick={() => {
-                                const dataUrl = window.document.querySelector('canvas')?.toDataURL('image/jpeg', 0.85);
+                                const dataUrl = window.document.querySelector('canvas')?.toDataURL('image/png');
                                 if (dataUrl) updateTopic(activeTopic.id, { snapshot: dataUrl });
                               }}
                               className="flex items-center gap-1 px-3 py-2 rounded-[4px] border border-border bg-muted/30 hover:bg-muted/60 text-muted-foreground hover:text-foreground text-[11px] transition-colors shrink-0"
                               title="Screenshot des Viewports aufnehmen"
                             >
-                              <RefreshCw size={12} /> Screenshot
+                              <Camera size={12} /> Screenshot
                             </button>
                           )}
                           {activeTopic.viewpoint && (
@@ -488,6 +513,78 @@ export function BCFPanel() {
                           ))}
                           {activeTopic.relatedExpressIds.length > 8 && (
                             <span>+{activeTopic.relatedExpressIds.length - 8} weitere</span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Weitere Felder */}
+                      {(activeTopic.index != null || activeTopic.area || activeTopic.visibleFor || activeTopic.approval || (activeTopic.referenceLinks?.length ?? 0) > 0 || (activeTopic.customFields && Object.keys(activeTopic.customFields).length > 0)) && (
+                        <div className="px-4 py-2 border-b border-border/50">
+                          <button
+                            onClick={() => setWeitereOpen(o => !o)}
+                            className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors mb-1"
+                          >
+                            <ChevronDown size={11} className={cn("transition-transform", weitereOpen && "rotate-180")} />
+                            Weitere Felder
+                          </button>
+                          {weitereOpen && (
+                            <div className="flex flex-col gap-1.5 text-[11px]">
+                              {activeTopic.index != null && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-muted-foreground w-20 shrink-0">Nr. (Index):</span>
+                                  <span className="font-mono">{activeTopic.index}</span>
+                                </div>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <span className="text-muted-foreground w-20 shrink-0">Bereich:</span>
+                                <input
+                                  type="text"
+                                  value={activeTopic.area ?? ""}
+                                  onChange={(e) => updateTopic(activeTopic.id, { area: e.target.value || undefined })}
+                                  placeholder="—"
+                                  className="text-[11px] bg-background border border-border rounded-[3px] px-1 py-0 w-40 outline-none focus:ring-1 focus:ring-primary"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-muted-foreground w-20 shrink-0">Sichtbar für:</span>
+                                <input
+                                  type="text"
+                                  value={activeTopic.visibleFor ?? ""}
+                                  onChange={(e) => updateTopic(activeTopic.id, { visibleFor: e.target.value || undefined })}
+                                  placeholder="—"
+                                  className="text-[11px] bg-background border border-border rounded-[3px] px-1 py-0 w-40 outline-none focus:ring-1 focus:ring-primary"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-muted-foreground w-20 shrink-0">Billigung:</span>
+                                <input
+                                  type="text"
+                                  value={activeTopic.approval ?? ""}
+                                  onChange={(e) => updateTopic(activeTopic.id, { approval: e.target.value || undefined })}
+                                  placeholder="—"
+                                  className="text-[11px] bg-background border border-border rounded-[3px] px-1 py-0 w-40 outline-none focus:ring-1 focus:ring-primary"
+                                />
+                              </div>
+                              {(activeTopic.referenceLinks?.length ?? 0) > 0 && (
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-muted-foreground">Referenzlinks:</span>
+                                  {activeTopic.referenceLinks!.map((r, i) => (
+                                    <span key={i} className="font-mono text-[10px] text-primary break-all">{r}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {activeTopic.customFields && Object.keys(activeTopic.customFields).length > 0 && (
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-muted-foreground">Benutzerdefinierte Felder:</span>
+                                  {Object.entries(activeTopic.customFields).map(([k, v]) => (
+                                    <div key={k} className="flex items-start gap-2">
+                                      <span className="text-muted-foreground/70 shrink-0 font-mono text-[10px]">{k}:</span>
+                                      <span className="text-[10px] break-all">{v}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}

@@ -137,6 +137,32 @@ function parseMarkup(
   const assignedTo     = getText(topicEl, "AssignedTo")     || undefined;
   const stage          = getText(topicEl, "Stage")           || undefined;
 
+  const indexRaw = getText(topicEl, "Index");
+  const index = indexRaw ? parseInt(indexRaw, 10) : undefined;
+  const area = getText(topicEl, "Zone") || getText(topicEl, "Area") || undefined;
+  const visibleFor = getText(topicEl, "VisibleFor") || undefined;
+  const approval = getText(topicEl, "Approval") || undefined;
+
+  const referenceLinks: string[] = [];
+  for (const rl of Array.from(topicEl.querySelectorAll("ReferenceLink"))) {
+    const t = rl.textContent?.trim();
+    if (t) referenceLinks.push(t);
+  }
+
+  const KNOWN_TAGS = new Set([
+    "Title", "CreationDate", "CreationAuthor", "ModifiedDate", "ModifiedAuthor",
+    "Description", "AssignedTo", "DueDate", "Stage", "Labels", "Label", "Priority",
+    "Comment", "Index", "Zone", "Area", "VisibleFor", "Approval", "ReferenceLink",
+    "BimSnippet", "DocumentReference", "Viewpoints",
+  ]);
+  const customFields: Record<string, string> = {};
+  for (const child of Array.from(topicEl.children)) {
+    if (!KNOWN_TAGS.has(child.tagName) && child.children.length === 0) {
+      const t = child.textContent?.trim();
+      if (t) customFields[child.tagName] = t;
+    }
+  }
+
   const snapshotDataUrl = snapshot
     ? `data:image/png;base64,${uint8ToBase64(snapshot)}`
     : undefined;
@@ -163,6 +189,12 @@ function parseMarkup(
     snapshot: snapshotDataUrl,
     viewpoint,
     source: "manual",
+    index,
+    area,
+    visibleFor,
+    approval,
+    referenceLinks: referenceLinks.length > 0 ? referenceLinks : undefined,
+    customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
   };
 }
 

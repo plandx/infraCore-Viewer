@@ -1,5 +1,4 @@
 import { strToU8, zipSync } from "fflate";
-import { v4 as uuidv4 } from "uuid";
 import type { BcfDocument, BcfVersion } from "./bcfTypes";
 
 function escXml(s: string): string {
@@ -7,7 +6,6 @@ function escXml(s: string): string {
 }
 
 function buildMarkup(topic: BcfDocument["topics"][0], vpGuid: string | null): string {
-  // BCF 2.1 spec: CreationDate, CreationAuthor, ModifiedDate etc. are child elements
   const comments = topic.comments.map(c => `
   <Comment Guid="${c.id}">
     <Date>${escXml(c.date)}</Date>
@@ -22,8 +20,13 @@ function buildMarkup(topic: BcfDocument["topics"][0], vpGuid: string | null): st
   const viewpointEl = vpGuid ? `
   <Viewpoints Guid="${vpGuid}">
     <Viewpoint>viewpoint.bcfv</Viewpoint>
-    <Snapshot>snapshot.png</Snapshot>
+    ${topic.snapshot ? `<Snapshot>snapshot.png</Snapshot>` : ""}
   </Viewpoints>` : "";
+
+  const referenceLinksXml = (topic.referenceLinks ?? []).map(r => `    <ReferenceLink>${escXml(r)}</ReferenceLink>`).join("\n");
+  const customFieldsXml = topic.customFields
+    ? Object.entries(topic.customFields).map(([k, v]) => `    <${k}>${escXml(v)}</${k}>`).join("\n")
+    : "";
 
   return `<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <Markup>
@@ -38,7 +41,13 @@ function buildMarkup(topic: BcfDocument["topics"][0], vpGuid: string | null): st
     ${topic.dueDate ? `<DueDate>${escXml(topic.dueDate)}</DueDate>` : ""}
     ${topic.stage ? `<Stage>${escXml(topic.stage)}</Stage>` : ""}
     <Priority>${escXml(topic.priority)}</Priority>
+    ${topic.index != null ? `<Index>${topic.index}</Index>` : ""}
+    ${topic.area ? `<Zone>${escXml(topic.area)}</Zone>` : ""}
+    ${topic.visibleFor ? `<VisibleFor>${escXml(topic.visibleFor)}</VisibleFor>` : ""}
+    ${topic.approval ? `<Approval>${escXml(topic.approval)}</Approval>` : ""}
 ${labels}
+${referenceLinksXml}
+${customFieldsXml}
   </Topic>${comments}${viewpointEl}
 </Markup>`;
 }
@@ -61,7 +70,8 @@ function buildViewpoint(topic: BcfDocument["topics"][0], vpGuid: string): string
 }
 
 function base64ToUint8(b64: string): Uint8Array {
-  const bin = atob(b64);
+  const raw = b64.replace(/^data:image\/[^;]+;base64,/, "");
+  const bin = atob(raw);
   const arr = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   return arr;
@@ -72,8 +82,7 @@ function buildVersion(version: BcfVersion): string {
 }
 
 function buildProject(doc: BcfDocument): string {
-  const projectId = uuidv4();
-  return `<?xml version="1.0" encoding="utf-8" standalone="yes"?>\n<ProjectExtension xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="project.xsd">\n  <Project ProjectId="${projectId}">\n    <Name>${escXml(doc.projectName)}</Name>\n  </Project>\n</ProjectExtension>`;
+  return `<?xml version="1.0" encoding="utf-8" standalone="yes"?>\n<ProjectExtension xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="project.xsd">\n  <Project ProjectId="${doc.id}">\n    <Name>${escXml(doc.projectName)}</Name>\n  </Project>\n</ProjectExtension>`;
 }
 
 export async function exportBcf(doc: BcfDocument, version: BcfVersion): Promise<Uint8Array> {
@@ -83,17 +92,15 @@ export async function exportBcf(doc: BcfDocument, version: BcfVersion): Promise<
   files["project.bcfp"] = strToU8(buildProject(doc));
 
   for (const topic of doc.topics) {
-    const vpGuid = topic.viewpoint?.guid ?? (topic.snapshot ? uuidv4() : null);
+    const vpGuid = topic.viewpoint?.guid ?? (topic.snapshot ? `${topic.guid}-vp` : null);
     files[`${topic.guid}/markup.bcf`] = strToU8(buildMarkup(topic, vpGuid));
 
     if (vpGuid) {
       files[`${topic.guid}/viewpoint.bcfv`] = strToU8(buildViewpoint(topic, vpGuid));
     }
 
-    // Re-embed snapshot if present (stored as data URL)
     if (topic.snapshot) {
-      const b64 = topic.snapshot.replace(/^data:image\/png;base64,/, "");
-      try { files[`${topic.guid}/snapshot.png`] = base64ToUint8(b64); } catch { /* skip */ }
+      try { files[`${topic.guid}/snapshot.png`] = base64ToUint8(topic.snapshot); } catch { /* skip */ }
     }
   }
 

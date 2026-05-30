@@ -47,6 +47,12 @@ export interface BcfTopic {
   source: "manual" | "ids" | "clash";
   sourceRef?: string;
   relatedExpressIds?: { modelId: string; expressId: number }[];
+  index?: number;
+  area?: string;
+  visibleFor?: string;
+  approval?: string;
+  referenceLinks?: string[];
+  customFields?: Record<string, string>;
 }
 
 export interface BcfDocument {
