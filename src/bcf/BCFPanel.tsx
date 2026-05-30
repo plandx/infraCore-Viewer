@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   AlertTriangle, Zap, Shield, MessageSquare, FileDown, Plus, Trash2,
   ChevronRight, Clock, User, Tag, Upload, X, Send, Camera, MapPin,
-  Calendar, Eye, Navigation,
+  Calendar, Eye, Navigation, Bot,
 } from "lucide-react";
 import { useBcfStore } from "./bcfStore";
 import { exportBcf } from "./bcfWriter";
@@ -38,6 +38,18 @@ const STATUSES: BcfTopicStatus[] = ["Open", "In Progress", "Resolved", "Closed",
 const TYPES: BcfTopicType[] = ["Issue", "Request", "Clash", "IDS", "Remark", "Error"];
 const PRIORITIES: BcfPriority[] = ["Critical", "Major", "Normal", "Minor"];
 const VERSIONS: BcfVersion[] = ["2.1", "2.0", "3.0"];
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+function getAuthorHue(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return h % 360;
+}
 
 function formatDate(iso: string): string {
   if (!iso) return "—";
@@ -415,34 +427,78 @@ export function BCFPanel() {
                 )}
 
                 {/* Comment thread */}
-                <div className="px-4 py-3 flex flex-col gap-3">
+                <div className="px-4 pt-3 pb-1 flex flex-col">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      Kommentare
+                    </span>
+                    {activeTopic.comments.length > 0 && (
+                      <span className="text-[10px] bg-muted px-1.5 py-0 rounded-full border border-border text-muted-foreground">
+                        {activeTopic.comments.length}
+                      </span>
+                    )}
+                  </div>
+
                   {activeTopic.comments.length === 0 && (
-                    <div className="text-[12px] text-muted-foreground text-center py-2">Noch keine Kommentare.</div>
-                  )}
-                  {activeTopic.comments.map((c) => (
-                    <div key={c.id} className="flex flex-col gap-1 bg-muted/20 rounded-[6px] px-3 py-2 border border-border/40">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-medium">{c.author || "—"}</span>
-                        <span className="text-[10px] text-muted-foreground">{formatDate(c.date)}</span>
-                        {c.modifiedDate && c.modifiedDate !== c.date && (
-                          <span className="text-[10px] text-muted-foreground/60">
-                            (geändert {formatDate(c.modifiedDate)}{c.modifiedAuthor ? ` von ${c.modifiedAuthor}` : ""})
-                          </span>
-                        )}
-                        <button
-                          onClick={() => deleteComment(activeTopic.id, c.id)}
-                          className="ml-auto text-muted-foreground/40 hover:text-destructive transition-colors"
-                        >
-                          <X size={11} />
-                        </button>
-                      </div>
-                      {c.text ? (
-                        <p className="text-[12px] whitespace-pre-wrap">{c.text}</p>
-                      ) : (
-                        <p className="text-[11px] text-muted-foreground/50 italic">(kein Text)</p>
-                      )}
+                    <div className="flex flex-col items-center py-4 text-muted-foreground/50 gap-1.5">
+                      <MessageSquare size={20} className="opacity-40" />
+                      <span className="text-[11px]">Noch keine Kommentare</span>
                     </div>
-                  ))}
+                  )}
+
+                  <div className="flex flex-col gap-0">
+                    {activeTopic.comments.map((c, idx) => {
+                      const isSystem = !c.author || c.author === "infraCore" || c.author.toLowerCase().includes("auto");
+                      const hue = isSystem ? 0 : getAuthorHue(c.author);
+                      const initials = isSystem ? null : getInitials(c.author || "?");
+                      const isLast = idx === activeTopic.comments.length - 1;
+                      return (
+                        <div key={c.id} className="group relative flex gap-3 py-2.5">
+                          {!isLast && (
+                            <div className="absolute left-[15px] top-[38px] bottom-0 w-px bg-border/40" />
+                          )}
+                          <div className="shrink-0 mt-0.5">
+                            {isSystem ? (
+                              <div className="w-[30px] h-[30px] rounded-full bg-muted border border-border flex items-center justify-center text-muted-foreground">
+                                <Bot size={13} />
+                              </div>
+                            ) : (
+                              <div
+                                className="w-[30px] h-[30px] rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                                style={{ background: `hsl(${hue},55%,42%)` }}
+                              >
+                                {initials}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-1.5 flex-wrap">
+                              <span className="text-[11px] font-semibold leading-none">
+                                {isSystem ? "System" : c.author || "—"}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground leading-none">{formatDate(c.date)}</span>
+                              {c.modifiedDate && c.modifiedDate !== c.date && (
+                                <span className="text-[9px] text-muted-foreground/50 leading-none">
+                                  · geändert {c.modifiedAuthor ? `von ${c.modifiedAuthor}` : formatDate(c.modifiedDate)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-1.5 text-[12px] leading-relaxed whitespace-pre-wrap text-foreground/90">
+                              {c.text || <span className="italic text-muted-foreground/50">(kein Text)</span>}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => deleteComment(activeTopic.id, c.id)}
+                            className="absolute top-2.5 right-0 opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-destructive transition-all p-0.5 rounded"
+                          >
+                            <X size={11} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 

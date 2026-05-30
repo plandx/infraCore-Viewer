@@ -44,6 +44,9 @@ export function CollisionWindow() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<"rules" | "bcf">("rules");
+  const [editingBcfRule, setEditingBcfRule] = useState<string | null>(null);
+  const clashRules = useBcfStore(s => s.clashRules);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", state.theme !== "light");

@@ -54,3 +54,20 @@ export interface BcfDocument {
   projectName: string;
   topics: BcfTopic[];
 }
+
+export type ClashMetaField =
+  | "severity" | "ruleName" | "checkType" | "overlap"
+  | "typeA" | "nameA" | "typeB" | "nameB";
+
+export interface BcfClashRule {
+  id: string;
+  name: string;
+  filterSeverity: "error" | "warning" | "info" | "all";
+  filterStatus: "new" | "approved" | "resolved" | "all";
+  filterClashRuleId: string;
+  titleTemplate: string;
+  includeFields: ClashMetaField[];
+  bcfType: BcfTopicType;
+  bcfPriority: BcfPriority;
+  bcfStatus: BcfTopicStatus;
+}
