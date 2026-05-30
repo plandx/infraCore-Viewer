@@ -185,7 +185,7 @@ export function IdsResultsWindow() {
 
     setFixStatus(anyError ? "error" : "done");
     if (fixStatusTimer.current) clearTimeout(fixStatusTimer.current);
-    fixStatusTimer.current = setTimeout(() => setFixStatus("idle"), 3000);
+    fixStatusTimer.current = setTimeout(() => setFixStatus("idle"), 8000);
   }, [modelNames, sendAction]);
 
   const groups = useMemo(
@@ -259,7 +259,7 @@ export function IdsResultsWindow() {
           )}
           {fixStatus === "done" && (
             <span className="text-[11px] text-green-500 flex items-center gap-1">
-              <Check size={11} /> Ergänzt &amp; neu geladen
+              <Check size={11} /> Properties angelegt — Modell wird im Hintergrund neu geladen
             </span>
           )}
           {fixStatus === "error" && (

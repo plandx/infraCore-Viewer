@@ -155,17 +155,25 @@ function useMainWindowSync(handleElementClick: (modelId: string, expressId: numb
           case "reloadModelFromServer": {
             const existing = store.models.get(a.modelId);
             if (!existing) break;
+            store.updateModel(a.modelId, { status: "loading" });
             try {
-              const r = await fetch(`http://127.0.0.1:8765/download/${encodeURIComponent(existing.name)}`, { signal: AbortSignal.timeout(60_000) });
-              if (!r.ok) break;
+              // No timeout — large IFC files can take minutes to serialize on the server
+              const r = await fetch(`http://127.0.0.1:8765/download/${encodeURIComponent(existing.name)}`);
+              if (!r.ok) {
+                console.error("[reloadModelFromServer] Download fehlgeschlagen:", r.status, r.statusText);
+                store.updateModel(a.modelId, { status: "loaded" });
+                break;
+              }
               const ab = await r.arrayBuffer();
               const newFile = new File([ab], existing.name, { type: "application/octet-stream" });
               if (existing.file) evictPropModelCache(existing.file);
-              store.updateModel(a.modelId, { status: "loading" });
               const modelIdx = [...store.models.keys()].indexOf(a.modelId);
               const { entry } = await loadIFCFile(newFile, modelIdx, store.worldOrigin, () => {});
               store.updateModel(a.modelId, { ...entry, id: a.modelId, color: existing.color, visible: existing.visible, opacity: existing.opacity, status: "loaded" });
-            } catch { /* ignore network errors */ }
+            } catch (err) {
+              console.error("[reloadModelFromServer] Fehler:", err);
+              store.updateModel(a.modelId, { status: "loaded" });
+            }
             break;
           }
         }
