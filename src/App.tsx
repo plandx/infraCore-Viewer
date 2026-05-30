@@ -587,8 +587,10 @@ function MainApp() {
 
   useEffect(() => {
     if (bcfPanelOpen || idsPanelOpen) {
-      rightPanelRef.current?.resize(38);
+      leftPanelRef.current?.collapse();
+      rightPanelRef.current?.resize(75);
     } else {
+      leftPanelRef.current?.expand();
       rightPanelRef.current?.resize(22);
     }
   }, [bcfPanelOpen, idsPanelOpen]);

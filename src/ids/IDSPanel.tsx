@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from "react";
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { createPortal } from "react-dom";
 import {
   FileCheck2, Plus, Trash2, ChevronDown, ChevronRight, Play, Download, Upload,
@@ -840,10 +841,10 @@ export function IDSPanel() {
     <div className="flex h-full overflow-hidden bg-background">
       <input ref={idsInputRef} type="file" accept=".ids,.xml" className="hidden" onChange={handleLoadFile} />
 
-      <div className="flex flex-1 overflow-hidden">
+      <PanelGroup orientation="horizontal" className="flex-1">
 
         {/* ── Left sidebar ─────────────────────────────────────────────────── */}
-        <div className="w-72 shrink-0 flex flex-col border-r border-border bg-card/50">
+        <Panel defaultSize={22} minSize={14} className="flex flex-col border-r border-border bg-card/50">
 
           {/* Header */}
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
@@ -1004,10 +1005,12 @@ export function IDSPanel() {
               </button>
             </div>
           )}
-        </div>
+        </Panel>
+
+        <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
         {/* ── Center: Spec editor ───────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <Panel defaultSize={50} minSize={25} className="flex flex-col min-w-0 overflow-hidden">
           {!activeDoc ? (
             <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
               <FileCheck2 size={36} className="opacity-20" />
@@ -1119,48 +1122,50 @@ export function IDSPanel() {
                 </div>
               </div>
 
-              {/* Facets area — 2 columns */}
-              <div className="flex-1 overflow-y-auto">
-                <div className="flex min-h-full divide-x divide-border/50">
-                  {/* Applicability */}
-                  <div className="flex-1 p-4 min-w-0">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-[11px] font-semibold text-muted-foreground">Anwendbarkeit</span>
-                      <span className="text-[10px] bg-primary/10 text-primary rounded-[3px] px-1.5 py-0.5 font-medium">{activeSpec.applicability.length}</span>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      {activeSpec.applicability.map((facet, i) => (
-                        <FacetCard
-                          key={i} facet={facet}
-                          onUpdate={(f) => updateApplicabilityFacet(activeDoc.id, activeSpec.id, i, f)}
-                          onRemove={() => removeApplicabilityFacet(activeDoc.id, activeSpec.id, i)}
-                        />
-                      ))}
-                    </div>
-                    <AddFacetButtons onAdd={(f) => addApplicabilityFacet(activeDoc.id, activeSpec.id, f)} />
+              {/* Facets area — 2 resizable columns */}
+              <PanelGroup orientation="horizontal" className="flex-1">
+                {/* Applicability */}
+                <Panel defaultSize={50} minSize={20} className="overflow-y-auto p-4 min-w-0 border-r border-border/50">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[11px] font-semibold text-muted-foreground">Anwendbarkeit</span>
+                    <span className="text-[10px] bg-primary/10 text-primary rounded-[3px] px-1.5 py-0.5 font-medium">{activeSpec.applicability.length}</span>
                   </div>
+                  <div className="flex flex-col gap-2">
+                    {activeSpec.applicability.map((facet, i) => (
+                      <FacetCard
+                        key={i} facet={facet}
+                        onUpdate={(f) => updateApplicabilityFacet(activeDoc.id, activeSpec.id, i, f)}
+                        onRemove={() => removeApplicabilityFacet(activeDoc.id, activeSpec.id, i)}
+                      />
+                    ))}
+                  </div>
+                  <AddFacetButtons onAdd={(f) => addApplicabilityFacet(activeDoc.id, activeSpec.id, f)} />
+                </Panel>
 
-                  {/* Requirements — grouped by PropertySet */}
-                  <div className="flex-1 p-4 min-w-0">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-[11px] font-semibold text-muted-foreground">Anforderungen</span>
-                      <span className="text-[10px] bg-primary/10 text-primary rounded-[3px] px-1.5 py-0.5 font-medium">{activeSpec.requirements.length}</span>
-                    </div>
-                    <GroupedRequirementsView
-                      facets={activeSpec.requirements}
-                      onUpdate={(i, f) => updateRequirementFacet(activeDoc.id, activeSpec.id, i, f)}
-                      onRemove={(i) => removeRequirementFacet(activeDoc.id, activeSpec.id, i)}
-                    />
-                    <AddFacetButtons onAdd={(f) => addRequirementFacet(activeDoc.id, activeSpec.id, f)} />
+                <PanelResizeHandle className="w-1 bg-border/50 hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
+
+                {/* Requirements — grouped by PropertySet */}
+                <Panel defaultSize={50} minSize={20} className="overflow-y-auto p-4 min-w-0">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[11px] font-semibold text-muted-foreground">Anforderungen</span>
+                    <span className="text-[10px] bg-primary/10 text-primary rounded-[3px] px-1.5 py-0.5 font-medium">{activeSpec.requirements.length}</span>
                   </div>
-                </div>
-              </div>
+                  <GroupedRequirementsView
+                    facets={activeSpec.requirements}
+                    onUpdate={(i, f) => updateRequirementFacet(activeDoc.id, activeSpec.id, i, f)}
+                    onRemove={(i) => removeRequirementFacet(activeDoc.id, activeSpec.id, i)}
+                  />
+                  <AddFacetButtons onAdd={(f) => addRequirementFacet(activeDoc.id, activeSpec.id, f)} />
+                </Panel>
+              </PanelGroup>
             </div>
           )}
-        </div>
+        </Panel>
+
+        <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
         {/* ── Right: Validation results ─────────────────────────────────────── */}
-        <div className="w-80 shrink-0 flex flex-col border-l border-border bg-card/30">
+        <Panel defaultSize={28} minSize={16} className="flex flex-col border-l border-border bg-card/30">
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
             <Shield size={13} className="text-primary shrink-0" />
             <span className="text-xs font-semibold flex-1">Prüfergebnis</span>
@@ -1196,9 +1201,9 @@ export function IDSPanel() {
               </div>
             )}
           </div>
-        </div>
+        </Panel>
 
-      </div>
+      </PanelGroup>
     </div>
   );
 }
